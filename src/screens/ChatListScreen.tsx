@@ -16,7 +16,7 @@ import firestore from "@react-native-firebase/firestore";
 import { useNavigation } from "@react-navigation/native";
 import { useAuth } from "../contexts/AuthContext";
 import AvatarButton from "../components/AvatarButton";
-import Icon from "react-native-vector-icons/Ionicons";
+import Icon from "react-native-vector-icons/FontAwesome5";
 
 const ChatListScreen = () => {
   const navigation = useNavigation<any>();
@@ -35,7 +35,7 @@ const ChatListScreen = () => {
         const doc = await firestore().collection('users').doc(userId).get();
         const data = doc.data();
         if (data) {
-          setAvatarUrl(data.avatar.url || '');
+          setAvatarUrl(data?.avatar?.url || '');
         }
       } catch (err) {
         console.error(err);
@@ -64,7 +64,7 @@ const ChatListScreen = () => {
           .get();
         const userMap: Record<string, {name:string, email: string; avatar?: string }> = {};
         usersSnapshot.forEach((doc) => {
-          userMap[doc.id] = {name:doc.data().name, email: doc.data().email, avatar: doc.data().avatar?.url};
+          userMap[doc.id] = {name:doc.data()?.name || doc.data().email, email: doc.data().email, avatar: doc.data()?.avatar?.url};
         });
 
         // Add user info to each chat
@@ -84,76 +84,86 @@ const ChatListScreen = () => {
 
     return () => unsubscribe();
   }, [userId]);
-  
   const handleCreateChat = async () => {
     const emails = inputEmails
       .split(",")
       .map((e) => e.trim().toLowerCase())
       .filter(Boolean);
-
+  
     if (emails.length === 0) {
       Alert.alert("Error", "Please enter at least one email.");
       return;
     }
-
+  
     if (emails.length > 10) {
       Alert.alert("Error", "You can only enter up to 10 emails.");
       return;
     }
-
+  
     try {
       const usersSnapshot = await firestore()
         .collection("users")
         .where("email", "in", emails)
         .get();
-
+  
       const users = usersSnapshot.docs.map((doc) => ({
         id: doc.id,
         ...doc.data(),
       }));
-
+  
       const foundEmails = users.map((u) => u.email?.toLowerCase());
       const notFound = emails.filter((email) => !foundEmails.includes(email));
       if (notFound.length > 0) {
         Alert.alert("Error", `Emails not found: ${notFound.join(", ")}`);
         return;
       }
-
+  
       const memberIds = users.map((u) => u.id);
       if (!memberIds.includes(userId)) memberIds.push(userId);
-
+  
+      // Nếu là nhóm, thêm quyền "admin" cho người tạo
+      const roles = memberIds.reduce((acc, memberId, index) => {
+        if (memberId === userId) {
+          acc[memberId] = "owner"; // Người tạo nhóm sẽ là trưởng nhóm (owner)
+        } else {
+          acc[memberId] = "member"; // Các thành viên khác sẽ là "member"
+        }
+        return acc;
+      }, {} as Record<string, string>);
+  
       if (memberIds.length === 2) {
         const chatId = [memberIds[0], memberIds[1]].sort().join("_");
         await firestore().collection("chats").doc(chatId).set(
           {
             isGroup: false,
             members: memberIds,
+            roles: roles, // Thêm roles
             createdAt: firestore.FieldValue.serverTimestamp(),
             createdBy: userId,
           },
           { merge: true }
         );
-
+  
         const toUser = users.find((u) => u.id !== userId);
         navigation.navigate("Chat", { chatId, toUserId: toUser?.id });
       } else {
         const chatRef = await firestore().collection("chats").add({
           isGroup: true,
           members: memberIds,
+          roles: roles, // Thêm roles
           name: "Group Chat",
           createdAt: firestore.FieldValue.serverTimestamp(),
           createdBy: userId,
         });
         navigation.navigate("Chat", { chatId: chatRef.id });
       }
-
+  
       setInputEmails("");
     } catch (err) {
       console.error(err);
       Alert.alert("Error", "Failed to create chat. Check that emails exist.");
     }
   };
-
   const renderEmptyList = () => (
     <View style={styles.emptyContainer}>
       <Icon name="chatbubble-ellipses-outline" size={80} color="#ccc" />
@@ -170,7 +180,10 @@ const ChatListScreen = () => {
       <View style={styles.header}>
         <View>
           <Text style={styles.headerTitle}>Chats</Text>
-          <Text style={styles.headerSubtitle}>Recent conversations</Text>
+          <TouchableOpacity onPress={() => navigation.navigate("Translate")}>
+            <Icon name="language" size={20} color="#0084FF" style={{ marginTop: 4 }} />
+            <Text style={styles.headerSubtitle}>Translatation</Text>
+          </TouchableOpacity>
         </View>
         <AvatarButton 
           onPress={() => navigation.navigate("UserProfile")} 

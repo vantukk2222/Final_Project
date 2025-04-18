@@ -1,17 +1,17 @@
 // src/screens/ChatScreen.tsx
-import React, { useEffect, useState } from "react";
-import { 
-  View, 
-  Text, 
-  TextInput, 
-  FlatList, 
-  TouchableOpacity, 
-  Image, 
-  Alert, 
-  StyleSheet, 
-  SafeAreaView, 
-  KeyboardAvoidingView, 
-  Platform 
+import React, { useEffect, useState, useRef } from "react";
+import {
+  View,
+  Text,
+  TextInput,
+  FlatList,
+  TouchableOpacity,
+  Image,
+  Alert,
+  StyleSheet,
+  SafeAreaView,
+  KeyboardAvoidingView,
+  Platform
 } from "react-native";
 import firestore from "@react-native-firebase/firestore";
 import { launchImageLibrary } from "react-native-image-picker";
@@ -28,7 +28,89 @@ const ChatScreen = ({ route }: any) => {
   const [message, setMessage] = useState("");
   const [messages, setMessages] = useState<any[]>([]);
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
+  const [isJoined, setIsJoined] = useState(false); // Track if the user has joined the channel
+  const [localUid, setLocalUid] = useState(0);
+  const [remoteUid, setRemoteUid] = useState(0);
+  const agoraEngineRef = useRef<IRtcEngine>();
+  const [userAvatars, setUserAvatars] = useState<any>({});
+  const [userNames, setUserNames] = useState<any>({});
+
   const navigation = useNavigation<any>();
+  // Initialize Agora SDK
+  useEffect(() => {
+    const setupAgora = async () => {
+      if (Platform.OS === "android") {
+        await requestPermissions(); // Ensure permissions are granted for Android
+      }
+      // agoraEngineRef.current = createAgoraRtcEngine();
+      // await agoraEngineRef.current.initialize({ appId: '65c90bc59da34b07a2f1027f0f2004c9' }); // Replace with your Agora App ID
+      // await agoraEngineRef.current.setChannelProfile(ChannelProfileType.ChannelProfileCommunication);
+      // await agoraEngineRef.current.enableAudio();
+    };
+
+    setupAgora();
+
+    // return () => {
+    //   if (agoraEngineRef.current) {
+    //     agoraEngineRef.current.release();
+    //   }
+    // };
+  }, []);
+
+  // Request permissions on Android
+  const requestPermissions = async () => {
+    Alert.alert("Mic","Requesting permissions...");
+    if (Platform.OS === 'android') {
+      const granted = await PermissionsAndroid.requestMultiple([
+        PermissionsAndroid.PERMISSIONS.RECORD_AUDIO,
+        PermissionsAndroid.PERMISSIONS.CAMERA,
+      ]);
+      if (granted['android.permission.RECORD_AUDIO'] !== 'granted' || granted['android.permission.CAMERA'] !== 'granted') {
+        Alert.alert('Permission Denied', 'Audio and Camera permissions are required for the call');
+        return;
+      }
+    }
+  };
+
+  // // Join Agora channel
+  // const joinChannel = async () => {
+  //   if (isJoined) return;
+  //   try {
+  //     await agoraEngineRef.current?.joinChannel(null, chatId, null, {
+  //       channelProfile: ChannelProfileType.ChannelProfileCommunication,
+  //       clientRoleType: ClientRoleType.ClientRoleBroadcaster,
+  //       publishMicrophoneTrack: true,
+  //       autoSubscribeAudio: true,
+  //     });
+  //     setIsJoined(true);
+  //     console.log("Joined the channel:", chatId);
+  //   } catch (error) {
+  //     console.error("Error joining channel:", error);
+  //     Alert.alert("Error", "Failed to join the channel.");
+  //   }
+  // };
+
+  // // Leave Agora channel
+  // const leaveChannel = () => {
+  //   if (!isJoined) return;
+  //   try {
+  //     agoraEngineRef.current?.leaveChannel();
+  //     setIsJoined(false);
+  //     setRemoteUid(0);
+  //     console.log("Left the channel");
+  //   } catch (error) {
+  //     console.error("Error leaving channel:", error);
+  //     Alert.alert("Error", "Failed to leave the channel.");
+  //   }
+  // };
+  const startVoiceCall = () => {
+    navigation.navigate('VoiceCall', {
+      chatId: chatId,
+      localUid: userId,
+      remoteUid: toUserId,
+    });
+  };
+
 
   useEffect(() => {
     const unsubscribe = firestore()
@@ -46,6 +128,27 @@ const ChatScreen = ({ route }: any) => {
 
     return () => unsubscribe();
   }, [chatId]);
+
+  useEffect(() => {
+    const fetchUserNames = async () => {
+      const userIds = [...new Set(messages.map((msg) => msg.from))];
+      const usersSnapshot = await firestore()
+        .collection("users")
+        .where(firestore.FieldPath.documentId(), "in", userIds)
+        .get();
+
+      const names: any = {};
+      const avatars: any = {};
+      usersSnapshot.forEach((doc) => {
+        names[doc.id] = doc.data()?.name || doc.data().email;
+        avatars[doc.id] = doc.data()?.avatar?.url || null; // Store avatar URL
+      });
+      setUserNames(names);
+      setUserAvatars(avatars); // Set user avatars
+    };
+
+    fetchUserNames();
+  }, [messages]);
 
   const handleSend = async () => {
     if (message.trim() === "") return;
@@ -113,7 +216,6 @@ const ChatScreen = ({ route }: any) => {
       Alert.alert('Error', 'Failed to upload image');
     }
   };
-
   return (
     <SafeAreaView style={styles.container}>
       <KeyboardAvoidingView 
@@ -123,10 +225,20 @@ const ChatScreen = ({ route }: any) => {
         {/* Header */}
         <View style={styles.header}>
           <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
-            <Icon name="chevron-back" size={24} color="#0084FF" />
+            <Icon name="chevron-back" size={24} color="#5B72EF" />
           </TouchableOpacity>
+          <TouchableOpacity style={{ flexDirection: 'row', alignItems: 'center' }} onPress={() => navigation.navigate('ChatMembers', {chatId: chatId, currentUserId: userId })}>
           <AvatarButton imageUrl={avatar} style={styles.avatar} />
           <Text style={styles.headerName}>{name}</Text>
+
+
+            {/* Buttons for voice call */}
+            <View style={styles.callButtons}>
+            <TouchableOpacity onPress={startVoiceCall} style={styles.voiceCallButton}>
+              <Text style={styles.voiceCallButtonText}>Start Voice Call</Text>
+            </TouchableOpacity>
+            </View>
+          </TouchableOpacity>
         </View>
         
         {/* Messages */}
@@ -134,86 +246,117 @@ const ChatScreen = ({ route }: any) => {
           data={messages}
           keyExtractor={(_, index) => index.toString()}
           contentContainerStyle={styles.messagesList}
-          renderItem={({ item }) => (
-            <View style={[
-              styles.messageBubbleContainer,
-              { alignSelf: item.from === userId ? "flex-end" : "flex-start" }
-            ]}>
-              {item.text && (
-                <View style={[
-                  styles.messageBubble,
-                  item.from === userId ? styles.sentBubble : styles.receivedBubble
-                ]}>
-                  <Text style={item.from === userId ? styles.sentText : styles.receivedText}>
-                    {item.text}
+          renderItem={({ item }) => {
+            const isCurrentUser = item.from === userId;
+            const avatar = userAvatars[item.from] || '';
+            const userName = userNames[item.from] || "Unknown User";
+            
+            return (
+              <View style={[
+                styles.messageContainer,
+                isCurrentUser ? styles.sentContainer : styles.receivedContainer
+              ]}>
+                {!isCurrentUser && (
+                  <Image source={avatar ? {uri: avatar} : require('../assets/default-avatar.png') } style={styles.messageAvatar} />
+                )}
+                
+                <View style={styles.messageContentContainer}>
+                  {!isCurrentUser && (
+                    <Text style={styles.messageSenderName}>{userName}</Text>
+                  )}
+                  
+                  {item.text && (
+                    <View style={[
+                      styles.messageBubble, 
+                      isCurrentUser ? styles.sentBubble : styles.receivedBubble
+                    ]}>
+                      <Text style={isCurrentUser ? styles.sentText : styles.receivedText}>
+                        {item.text}
+                      </Text>
+                    </View>
+                  )}
+
+                  {item.imageUrl && (
+                    <TouchableOpacity 
+                      onPress={() => setSelectedImage(item.imageUrl)} 
+                      style={[
+                        styles.imageContainer,
+                        isCurrentUser ? styles.sentImageContainer : styles.receivedImageContainer
+                      ]}
+                    >
+                      <Image source={{ uri: item.imageUrl }} style={styles.imageMessage} resizeMode="cover" />
+                    </TouchableOpacity>
+                  )}
+
+                  <Text style={[styles.timeStamp, { alignSelf: isCurrentUser ? 'flex-end' : 'flex-start' }]}>
+                    {item.timestamp ? new Date(item.timestamp.toDate()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''}
                   </Text>
                 </View>
-              )}
-              
-              {item.imageUrl && (
-                <TouchableOpacity 
-                  onPress={() => setSelectedImage(item.imageUrl)}
-                  style={styles.imageContainer}
-                >
-                  <Image
-                    source={{ uri: item.imageUrl }}
-                    style={styles.imageMessage}
-                    resizeMode="cover"
-                  />
-                </TouchableOpacity>
-              )}
-              
-              <Text style={[
-                styles.timeStamp,
-                { textAlign: item.from === userId ? 'right' : 'left' }
-              ]}>
-                {item.timestamp ? new Date(item.timestamp.toDate()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''}
-              </Text>
-            </View>
-          )}
+                
+                {isCurrentUser && (
+                  <Image source={{ uri: avatar }} style={styles.messageAvatar} />
+                )}
+              </View>
+            );
+          }}
         />
 
         {/* Input Area */}
         <View style={styles.inputContainer}>
           <TouchableOpacity onPress={handlePickImage} style={styles.attachButton}>
-            <Icon name="image-outline" size={24} color="#0084FF" />
+            <Icon name="image-outline" size={24} color="#5B72EF" />
           </TouchableOpacity>
           
           <TextInput
             value={message}
             onChangeText={setMessage}
             placeholder="Type a message..."
-            placeholderTextColor="#999"
+            placeholderTextColor="#9DA3B4"
             style={styles.input}
+            multiline
           />
           
           <TouchableOpacity 
             onPress={handleSend} 
-            style={styles.sendButton}
+            style={[
+              styles.sendButton,
+              message.trim() === "" ? styles.sendButtonDisabled : styles.sendButtonActive
+            ]}
             disabled={message.trim() === ""}
           >
-            <Icon 
-              name="send" 
-              size={20} 
-              color={message.trim() === "" ? "#CCCCCC" : "#FFFFFF"} 
-            />
+            <Icon name="send" size={20} color="#FFFFFF" />
           </TouchableOpacity>
         </View>
 
-        <ImageModal
-          visible={!!selectedImage}
-          imageUrl={selectedImage}
-          onClose={() => setSelectedImage(null)}
-        />
+        <ImageModal visible={!!selectedImage} imageUrl={selectedImage} onClose={() => setSelectedImage(null)} />
       </KeyboardAvoidingView>
     </SafeAreaView>
   );
 };
 
 const styles = StyleSheet.create({
+  callButtons: {
+    marginTop: 10,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingHorizontal: 20,
+  },
+  voiceCallButton: {
+    backgroundColor: '#5B72EF',
+    paddingVertical: 12,
+    marginBottom: 10,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  voiceCallButtonText: {
+    color: '#fff',
+    fontWeight: 'bold',
+    fontSize: 16,
+  },
   container: {
     flex: 1,
-    backgroundColor: '#F8F9FA'
+    backgroundColor: '#F7F9FC'
   },
   keyboardAvoid: {
     flex: 1
@@ -223,32 +366,46 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     padding: 16,
     borderBottomWidth: 1,
-    borderBottomColor: '#E4E6EB',
+    borderBottomColor: '#E9EDF5',
     backgroundColor: '#FFFFFF',
     elevation: 2,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
+    shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
-    shadowRadius: 1
+    shadowRadius: 3
   },
   backButton: {
-    marginRight: 12
+    marginRight: 12,
+    padding: 4
   },
   avatar: {
-    marginRight: 12
+    marginRight: 12,
+    borderWidth: 2,
+    borderColor: '#E9EDF5'
   },
   headerName: {
     fontSize: 18,
-    fontWeight: '600',
-    color: '#333333'
+    fontWeight: '700',
+    color: '#2C3E50'
   },
   messagesList: {
-    paddingVertical: 12,
+    paddingVertical: 16,
     paddingHorizontal: 16
   },
-  messageBubbleContainer: {
-    maxWidth: '80%',
-    marginVertical: 6
+  messageContainer: {
+    flexDirection: 'row',
+    marginVertical: 8,
+    alignItems: 'flex-end',
+  },
+  sentContainer: {
+    justifyContent: 'flex-end',
+  },
+  receivedContainer: {
+    justifyContent: 'flex-start',
+  },
+  messageContentContainer: {
+    maxWidth: '70%',
+    marginHorizontal: 8,
   },
   messageBubble: {
     padding: 12,
@@ -257,25 +414,43 @@ const styles = StyleSheet.create({
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.1,
-    shadowRadius: 1
+    shadowRadius: 1,
   },
   sentBubble: {
-    backgroundColor: '#0084FF',
-    borderBottomRightRadius: 4
+    backgroundColor: '#5B72EF',
+    borderBottomRightRadius: 4,
+    alignSelf: 'flex-end'
   },
   receivedBubble: {
-    backgroundColor: '#E4E6EB',
-    borderBottomLeftRadius: 4
+    backgroundColor: '#FFFFFF',
+    borderBottomLeftRadius: 4,
+    alignSelf: 'flex-start',
+    borderWidth: 1,
+    borderColor: '#E9EDF5'
   },
   sentText: {
-    color: '#FFFFFF'
+    color: '#FFFFFF',
+    fontSize: 16
   },
   receivedText: {
-    color: '#333333'
+    color: '#2C3E50',
+    fontSize: 16
+  },
+  messageAvatar: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: '#E9EDF5'
+  },
+  messageSenderName: {
+    fontSize: 12,
+    fontWeight: 'bold',
+    color: '#7F8C9D',
+    marginBottom: 4
   },
   imageContainer: {
     marginVertical: 4,
-    borderRadius: 12,
+    borderRadius: 16,
     overflow: 'hidden',
     elevation: 2,
     shadowColor: '#000',
@@ -283,45 +458,62 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.1,
     shadowRadius: 3
   },
+  sentImageContainer: {
+    alignSelf: 'flex-end'
+  },
+  receivedImageContainer: {
+    alignSelf: 'flex-start'
+  },
   imageMessage: {
     width: 220,
     height: 220,
-    borderRadius: 12
+    borderRadius: 16
   },
   timeStamp: {
-    fontSize: 10,
-    color: '#999999',
-    marginTop: 4
+    fontSize: 11,
+    color: '#95A5A6',
+    marginTop: 4,
+    marginHorizontal: 4
   },
   inputContainer: {
     flexDirection: 'row',
     padding: 12,
     backgroundColor: '#FFFFFF',
     borderTopWidth: 1,
-    borderTopColor: '#E4E6EB',
+    borderTopColor: '#E9EDF5',
     alignItems: 'center'
   },
   attachButton: {
     marginRight: 10,
-    padding: 6
+    padding: 8,
+    borderRadius: 20,
+    backgroundColor: '#F7F9FC'
   },
   input: {
     flex: 1,
-    backgroundColor: '#F0F2F5',
-    borderRadius: 20,
+    backgroundColor: '#F7F9FC',
+    borderRadius: 24,
     paddingHorizontal: 16,
-    paddingVertical: 10,
+    paddingVertical: 12,
     fontSize: 16,
-    color: '#333333'
+    color: '#2C3E50',
+    maxHeight: 120,
+    borderWidth: 1,
+    borderColor: '#E9EDF5'
   },
   sendButton: {
     marginLeft: 10,
-    backgroundColor: '#0084FF',
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     justifyContent: 'center',
     alignItems: 'center'
+  },
+  sendButtonActive: {
+    backgroundColor: '#5B72EF',
+  },
+  sendButtonDisabled: {
+    backgroundColor: '#BDC3C7',
   }
 });
 
