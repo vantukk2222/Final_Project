@@ -61,7 +61,6 @@ const UserProfileScreen = () => {
     handleImageUpload()
       .then(async (url) => {
         if (!url) {
-          Alert.alert('Error', 'Failed to upload image');
           setUploading(false);
           return;
         }
@@ -87,10 +86,13 @@ const UserProfileScreen = () => {
     //     Alert.alert('Success', 'Image uploaded successfully');
     //   } 
   };
-
   return (
     <SafeAreaView style={styles.container}>
       <ScrollView contentContainerStyle={styles.content}>
+        <View style={styles.header}>
+          <Text style={styles.headerTitle}>Your Profile</Text>
+        </View>
+        
         <TouchableOpacity onPress={handlePickImage} style={styles.avatarContainer}>
           <Image
             source={
@@ -101,113 +103,151 @@ const UserProfileScreen = () => {
             style={styles.avatar}
           />
           <View style={styles.editIcon}>
-            <Icon name="camera" size={18} color="#fff" />
+            <Icon name="camera" size={16} color="#fff" />
           </View>
         </TouchableOpacity>
-          <Loading isLoading={uploading} />
-        {/* <Modal visible={uploading} transparent={true} animationType="fade">
-          <View style={styles.modalBackground}>
-            <ActivityIndicator size="large" color="#4AC6D0" />
+        <Loading isLoading={uploading} />
+
+        <View style={styles.card}>
+          <View style={styles.inputGroup}>
+            <Text style={styles.label}>Full Name</Text>
+            <TextInput
+              style={styles.input}
+              value={name}
+              onChangeText={setName}
+              placeholder="Your name"
+              placeholderTextColor="#aaa"
+            />
           </View>
-        </Modal> */}
 
-        <View style={styles.inputGroup}>
-          <Text style={styles.label}>Full Name</Text>
-          <TextInput
-            style={styles.input}
-            value={name}
-            onChangeText={setName}
-            placeholder="Your name"
-            placeholderTextColor="#aaa"
-          />
+          <View style={styles.inputGroup}>
+            <Text style={styles.label}>Bio</Text>
+            <TextInput
+              style={[styles.input, styles.bioInput]}
+              value={bio}
+              onChangeText={setBio}
+              placeholder="Tell others about your adventures..."
+              placeholderTextColor="#aaa"
+              multiline
+            />
+          </View>
+
+          <TouchableOpacity 
+            style={[styles.saveButton, loading && styles.saveButtonDisabled]} 
+            onPress={handleSave} 
+            disabled={loading}
+          >
+            {loading ? (
+              <ActivityIndicator color="#fff" />
+            ) : (
+              <>
+                <Icon name="save" size={16} color="#fff" style={styles.buttonIcon} />
+                <Text style={styles.saveButtonText}>Save Changes</Text>
+              </>
+            )}
+          </TouchableOpacity>
         </View>
-
-        <View style={styles.inputGroup}>
-          <Text style={styles.label}>Bio</Text>
-          <TextInput
-            style={[styles.input, styles.bioInput]}
-            value={bio}
-            onChangeText={setBio}
-            placeholder="Tell others about your adventures..."
-            placeholderTextColor="#aaa"
-            multiline
-          />
-        </View>
-
-        <TouchableOpacity style={styles.saveButton} onPress={handleSave} disabled={loading}>
-          {loading ? (
-            <ActivityIndicator color="#fff" />
-          ) : (
-            <Text style={styles.saveButtonText}>Save Changes</Text>
-          )}
-        </TouchableOpacity>
       </ScrollView>
     </SafeAreaView>
   );
 };
 
 const styles = StyleSheet.create({
-  modalBackground: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: 'rgba(0,0,0,0.5)',
-  },
   container: {
     flex: 1,
-    backgroundColor: '#E6F7FF',
+    backgroundColor: '#f0f6ff',
   },
   content: {
     padding: 20,
     alignItems: 'center',
   },
+  header: {
+    width: '100%',
+    marginBottom: 20,
+    alignItems: 'center',
+  },
+  headerTitle: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    color: '#333',
+    marginBottom: 5,
+  },
+  card: {
+    backgroundColor: '#fff',
+    borderRadius: 18,
+    padding: 20,
+    width: '100%',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    elevation: 4,
+    marginTop: 15,
+  },
   avatarContainer: {
-    marginTop: 20,
+    marginVertical: 15,
     alignItems: 'center',
   },
   avatar: {
-    width: 120,
-    height: 120,
-    borderRadius: 60,
-    backgroundColor: '#ccc',
+    width: 130,
+    height: 130,
+    borderRadius: 65,
+    backgroundColor: '#e1e1e1',
+    borderWidth: 4,
+    borderColor: '#fff',
   },
   editIcon: {
     position: 'absolute',
-    bottom: 0,
-    right: 0,
+    bottom: 5,
+    right: 5,
     backgroundColor: '#4AC6D0',
     borderRadius: 20,
-    padding: 8,
+    width: 36,
+    height: 36,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 2,
+    borderColor: '#fff',
   },
   inputGroup: {
     width: '100%',
-    marginTop: 25,
+    marginBottom: 20,
   },
   label: {
     fontSize: 16,
     fontWeight: '600',
-    color: '#444',
-    marginBottom: 8,
+    color: '#555',
+    marginBottom: 10,
+    marginLeft: 4,
   },
   input: {
-    backgroundColor: '#fff',
-    padding: 14,
+    backgroundColor: '#f8f8f8',
+    padding: 15,
     borderRadius: 12,
-    fontSize: 15,
+    fontSize: 16,
     color: '#333',
-    elevation: 2,
+    borderWidth: 1,
+    borderColor: '#e0e0e0',
   },
   bioInput: {
-    height: 100,
+    height: 120,
     textAlignVertical: 'top',
   },
   saveButton: {
-    marginTop: 30,
+    marginTop: 10,
     backgroundColor: '#4AC6D0',
-    paddingVertical: 14,
-    paddingHorizontal: 40,
-    borderRadius: 25,
+    paddingVertical: 15,
+    borderRadius: 12,
     elevation: 3,
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  saveButtonDisabled: {
+    backgroundColor: '#80c4cb',
+  },
+  buttonIcon: {
+    marginRight: 8,
   },
   saveButtonText: {
     color: '#fff',
