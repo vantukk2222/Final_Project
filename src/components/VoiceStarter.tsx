@@ -46,6 +46,7 @@ const CallStarter = ({ user, chatId }) => {
     };
 
     const meetingRef = firestore().collection('meetings').doc(chatId);
+    let updatedMembers;
 
     try {
       console.log('Meeting ID:', chatId);
@@ -61,7 +62,6 @@ const CallStarter = ({ user, chatId }) => {
         const currentMembers = doc.data()?.members || [];
         const alreadyExists = currentMembers.find((m) => m.uid === updatedUser.uid);
 
-        let updatedMembers;
         if (alreadyExists) {
           updatedMembers = currentMembers.map((m) =>
             m.uid === updatedUser.uid ? updatedUser : m
@@ -77,6 +77,7 @@ const CallStarter = ({ user, chatId }) => {
       navigation.navigate('VoiceCall', {
         user: updatedUser,
         meetingId: chatId,
+        participants: updatedMembers,
       });
     } catch (err) {
       setLoading(false);
