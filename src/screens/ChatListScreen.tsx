@@ -135,8 +135,8 @@ const ChatListScreen = () => {
           },
           { merge: true }
         );
-        const toUser = users.find((u) => u.id !== userId);
-        navigation.navigate("Chat", { chatId, toUserId: toUser?.id });
+        // const toUser = users.find((u) => u.id !== userId);
+        // navigation.navigate("Chat", { chatId, toUserId: toUser?.id });
       } else {
         const chatRef = await firestore().collection("chats").add({
           isGroup: true,
