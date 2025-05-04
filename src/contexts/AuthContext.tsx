@@ -19,7 +19,8 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const [user, setUser] = useState<any>(null);
   const [role, setRole] = useState<Role>(null);
   const [loading, setLoading] = useState(true);
-
+ 
+  
   useEffect(() => {
     const unsubscribe = auth().onAuthStateChanged(async (user) => {
       setUser(user);

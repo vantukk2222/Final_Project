@@ -42,7 +42,7 @@ const ChatMembersList = ({ route }: any) => {
 
           setRoles(chatData.roles || {});
           setMembers(membersList);
-          setChatName(chatData.name || 'Untitled Group'); // Lấy tên nhóm từ dữ liệu
+          setChatName(chatData.name || 'Untitled Group');
         }
       } catch (error) {
         console.error("Error fetching members:", error);
@@ -164,9 +164,10 @@ const ChatMembersList = ({ route }: any) => {
         Alert.alert("Error", "Failed to update group name.");
       }
     }
-    setIsEditingName(!isEditingName); // Toggle the editing state
+    setIsEditingName(!isEditingName); 
   };
-
+  console.log("Members:", members);
+  console.log("Roles:", roles);
   return (
     <SafeAreaView style={styles.container}>
       
@@ -195,7 +196,7 @@ const ChatMembersList = ({ route }: any) => {
           {members.length} members 
         </Text>
         <Text style={{ color: 'gray', marginBottom: 12 }}>
-          {roles[currentUserId] === "owner" ? "You are the owner" : "You are an admin"}
+          {roles[currentUserId] === "owner" ? "You are the owner" : "You are a member"}
         </Text>
         
       </View>

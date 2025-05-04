@@ -4,18 +4,21 @@
  *
  * @format
  */
+const {getDefaultConfig} = require('@react-native/metro-config');
 
-module.exports = {
-  transformer: {
+module.exports = (() => {
+  const config = getDefaultConfig(__dirname);
+
+  config.resolver.extraNodeModules = require('node-libs-react-native');
+  config.transformer = {
     getTransformOptions: async () => ({
       transform: {
         experimentalImportSupport: false,
         inlineRequires: true,
       },
     }),
-  },
-  resolver: {
-    extraNodeModules: require('node-libs-react-native'),
-    sourceExts: ['jsx', 'js', 'ts', 'tsx', 'cjs', 'json'] //add here
-  },
-};
+  };
+  config.resolver.sourceExts = ['jsx', 'js', 'ts', 'tsx', 'cjs', 'json']; //add here
+
+  return config;
+})();

@@ -7,6 +7,7 @@
 // * If you want to use continuous recognition with live translation change the line to "import App from './App_mic_input_translated';"
 // 2. Run
 
+import './polyfills';
 
 import {AppRegistry} from 'react-native';
 import {name as appName} from './app.json';

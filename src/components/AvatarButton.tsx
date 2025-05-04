@@ -7,7 +7,7 @@ interface AvatarButtonProps {
   imageUrl?: string;
 }
 
-const AvatarButton = ({ onPress, imageUrl }: AvatarButtonProps) => {
+const AvatarButton = ({ onPress, imageUrl, style }: AvatarButtonProps) => {
   return (
     <TouchableOpacity onPress={onPress}>
       <Image
@@ -16,7 +16,7 @@ const AvatarButton = ({ onPress, imageUrl }: AvatarButtonProps) => {
             ? { uri: imageUrl }
             : require('../assets/default-avatar.png') // cần thêm ảnh mặc định
         }
-        style={styles.avatar}
+        style={style}
       />
     </TouchableOpacity>
   );

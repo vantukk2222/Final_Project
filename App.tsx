@@ -4,6 +4,7 @@ import { NavigationContainer } from '@react-navigation/native';
 import { ActivityIndicator, View } from 'react-native';
 import { AuthProvider, useAuth } from './src/contexts/AuthContext';
 import RootNavigator from './src/navigation/RootNavigator';
+import SocketClient from './src/components/SocketClient';
 
 const AppContent = () => {
   const { loading } = useAuth();
@@ -22,6 +23,7 @@ const AppContent = () => {
 export default function App() {
   return (
     <AuthProvider>
+      {/* <SocketClient /> */}
       <NavigationContainer>
         <AppContent />
       </NavigationContainer>

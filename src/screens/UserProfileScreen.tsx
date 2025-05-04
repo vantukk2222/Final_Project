@@ -1,9 +1,11 @@
 // src/screens/UserProfileScreen.tsx
 import React, { useEffect, useState } from 'react';
-import { View, Text, TextInput, Button, StyleSheet, Alert, Image, TouchableOpacity, ActivityIndicator } from 'react-native';
+import { View, Text, TextInput, TouchableOpacity, StyleSheet, Alert, Image, ActivityIndicator, Modal, ScrollView, SafeAreaView } from 'react-native';
 import firestore from '@react-native-firebase/firestore';
 import { useAuth } from '../contexts/AuthContext';
 import { handleImageUpload } from '../utils/imageUpload';
+import Icon from 'react-native-vector-icons/FontAwesome5';
+import Loading from '../components/Loading';
 
 const UserProfileScreen = () => {
   const { user } = useAuth();
@@ -23,9 +25,10 @@ const UserProfileScreen = () => {
         const doc = await firestore().collection('users').doc(userId).get();
         const data = doc.data();
         if (data) {
-          setName(data.name || '');
-          setBio(data.bio || '');
-          setAvatarUrl(data.avatar.url || '');
+          console.log("User data:", data);
+          setName(data?.name || '');
+          setBio(data?.bio || '');
+          setAvatarUrl(data?.avatar || '');
         }
       } catch (err) {
         console.error(err);
@@ -45,7 +48,7 @@ const UserProfileScreen = () => {
         avatar: avatarUrl,
         updatedAt: firestore.FieldValue.serverTimestamp(),
       });
-      Alert.alert('Success', 'Profile updated successfully');
+      Alert.alert('Success', 'Your profile has been updated!');
     } catch (err) {
       console.error(err);
       Alert.alert('Error', 'Failed to update profile');
@@ -55,88 +58,161 @@ const UserProfileScreen = () => {
 
   const handlePickImage = async () => {
     setUploading(true);
-    const url = await handleImageUpload();
-    if (url) setAvatarUrl(url);
-    Alert.alert('Success', 'Image uploaded successfully');
-    setUploading(false);
+    handleImageUpload()
+      .then(async (url) => {
+        if (!url) {
+          Alert.alert('Error', 'Failed to upload image');
+          setUploading(false);
+          return;
+        }
+        setAvatarUrl(url);
+        await firestore().collection('users').doc(userId).update({
+          avatar: url,
+        });
+        Alert.alert('Success', 'Image uploaded successfully');
+
+
+      })
+      .catch((error) => {
+        console.error("Image upload error:", error);
+        Alert.alert('Error', 'Failed to upload image');
+      })
+      .finally(() => {
+        setUploading(false);
+      });
+    // if (url)
+    //   {
+    //     console.log("Image URL:", url.url);
+    //     setAvatarUrl(url);
+    //     Alert.alert('Success', 'Image uploaded successfully');
+    //   } 
   };
 
   return (
-    <View style={styles.container}>
-      <TouchableOpacity onPress={handlePickImage} style={styles.avatarWrapper}>
-        <Image
-          source={
-            typeof avatarUrl === 'string' && avatarUrl.trim() !== ''
-              ? { uri: avatarUrl }
-              : require('../assets/default-avatar.png')
-          }
-          style={styles.avatar}
-        />
-        {uploading ? (
-          <ActivityIndicator style={{ marginTop: 8 }} />
-        ) : (
-          <Text style={styles.changePhotoText}>Change Photo</Text>
-        )}
-      </TouchableOpacity>
+    <SafeAreaView style={styles.container}>
+      <ScrollView contentContainerStyle={styles.content}>
+        <TouchableOpacity onPress={handlePickImage} style={styles.avatarContainer}>
+          <Image
+            source={
+              avatarUrl
+                ? { uri: avatarUrl.url }
+                : require('../assets/default-avatar.png')
+            }
+            style={styles.avatar}
+          />
+          <View style={styles.editIcon}>
+            <Icon name="camera" size={18} color="#fff" />
+          </View>
+        </TouchableOpacity>
+          <Loading isLoading={uploading} />
+        {/* <Modal visible={uploading} transparent={true} animationType="fade">
+          <View style={styles.modalBackground}>
+            <ActivityIndicator size="large" color="#4AC6D0" />
+          </View>
+        </Modal> */}
 
-      <Text style={styles.label}>Name</Text>
-      <TextInput
-        style={styles.input}
-        value={name}
-        onChangeText={setName}
-        placeholder="Enter your name"
-        placeholderTextColor="#888"
-      />
+        <View style={styles.inputGroup}>
+          <Text style={styles.label}>Full Name</Text>
+          <TextInput
+            style={styles.input}
+            value={name}
+            onChangeText={setName}
+            placeholder="Your name"
+            placeholderTextColor="#aaa"
+          />
+        </View>
 
-      <Text style={styles.label}>Bio</Text>
-      <TextInput
-        style={[styles.input, { height: 80 }]}
-        value={bio}
-        onChangeText={setBio}
-        placeholder="Tell us about yourself"
-        placeholderTextColor="#888"
-        multiline
-      />
+        <View style={styles.inputGroup}>
+          <Text style={styles.label}>Bio</Text>
+          <TextInput
+            style={[styles.input, styles.bioInput]}
+            value={bio}
+            onChangeText={setBio}
+            placeholder="Tell others about your adventures..."
+            placeholderTextColor="#aaa"
+            multiline
+          />
+        </View>
 
-      <Button title={loading ? 'Saving...' : 'Save'} onPress={handleSave} disabled={loading} />
-    </View>
+        <TouchableOpacity style={styles.saveButton} onPress={handleSave} disabled={loading}>
+          {loading ? (
+            <ActivityIndicator color="#fff" />
+          ) : (
+            <Text style={styles.saveButtonText}>Save Changes</Text>
+          )}
+        </TouchableOpacity>
+      </ScrollView>
+    </SafeAreaView>
   );
 };
 
 const styles = StyleSheet.create({
+  modalBackground: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: 'rgba(0,0,0,0.5)',
+  },
   container: {
     flex: 1,
-    padding: 20,
-    backgroundColor: '#fff',
+    backgroundColor: '#E6F7FF',
   },
-  avatarWrapper: {
+  content: {
+    padding: 20,
     alignItems: 'center',
-    marginBottom: 20,
+  },
+  avatarContainer: {
+    marginTop: 20,
+    alignItems: 'center',
   },
   avatar: {
-    width: 100,
-    height: 100,
-    borderRadius: 50,
+    width: 120,
+    height: 120,
+    borderRadius: 60,
     backgroundColor: '#ccc',
   },
-  changePhotoText: {
-    marginTop: 8,
-    color: '#007bff',
-    fontSize: 14,
+  editIcon: {
+    position: 'absolute',
+    bottom: 0,
+    right: 0,
+    backgroundColor: '#4AC6D0',
+    borderRadius: 20,
+    padding: 8,
+  },
+  inputGroup: {
+    width: '100%',
+    marginTop: 25,
   },
   label: {
     fontSize: 16,
-    fontWeight: 'bold',
-    color: '#333',
-    marginTop: 20,
+    fontWeight: '600',
+    color: '#444',
+    marginBottom: 8,
   },
   input: {
-    borderWidth: 1,
-    borderColor: '#ccc',
-    borderRadius: 8,
-    padding: 10,
-    color: '#000',
-    marginTop: 8,
+    backgroundColor: '#fff',
+    padding: 14,
+    borderRadius: 12,
+    fontSize: 15,
+    color: '#333',
+    elevation: 2,
+  },
+  bioInput: {
+    height: 100,
+    textAlignVertical: 'top',
+  },
+  saveButton: {
+    marginTop: 30,
+    backgroundColor: '#4AC6D0',
+    paddingVertical: 14,
+    paddingHorizontal: 40,
+    borderRadius: 25,
+    elevation: 3,
+  },
+  saveButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: 'bold',
   },
 });
 

@@ -19,12 +19,13 @@ import { useAuth } from "../contexts/AuthContext";
 import ImageModal from "../components/ImageModal";
 import AvatarButton from "../components/AvatarButton";
 import { useNavigation } from "@react-navigation/native";
-import Icon from "react-native-vector-icons/Ionicons";
+import Icon from "react-native-vector-icons/FontAwesome5";
+import CallStarter from "../components/VoiceStarter";
 
 const ChatScreen = ({ route }: any) => {
   const { user } = useAuth();
   const userId = user?.uid;
-  const { chatId, toUserId, name, avatar } = route.params || {};
+  const { chatId, toUserId, name, avatar, currentAvatar } = route.params || {};
   const [message, setMessage] = useState("");
   const [messages, setMessages] = useState<any[]>([]);
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
@@ -34,8 +35,20 @@ const ChatScreen = ({ route }: any) => {
   const agoraEngineRef = useRef<IRtcEngine>();
   const [userAvatars, setUserAvatars] = useState<any>({});
   const [userNames, setUserNames] = useState<any>({});
+  const flatListRef = useRef<FlatList>(null);
 
   const navigation = useNavigation<any>();
+  
+  // Add this useEffect to scroll to the bottom when messages are loaded
+  useEffect(() => {
+    if (messages.length > 0 && flatListRef.current) {
+      // Small timeout to ensure the list is fully rendered
+      setTimeout(() => {
+        flatListRef.current?.scrollToEnd({ animated: false });
+      }, 100);
+    }
+  }, [messages]);
+
   // Initialize Agora SDK
   useEffect(() => {
     const setupAgora = async () => {
@@ -59,7 +72,6 @@ const ChatScreen = ({ route }: any) => {
 
   // Request permissions on Android
   const requestPermissions = async () => {
-    Alert.alert("Mic","Requesting permissions...");
     if (Platform.OS === 'android') {
       const granted = await PermissionsAndroid.requestMultiple([
         PermissionsAndroid.PERMISSIONS.RECORD_AUDIO,
@@ -103,11 +115,17 @@ const ChatScreen = ({ route }: any) => {
   //     Alert.alert("Error", "Failed to leave the channel.");
   //   }
   // };
+
   const startVoiceCall = () => {
+    console.log("Starting voice call...");
+    console.log("user", user);
+    console.log("uid: ", user.uid);
     navigation.navigate('VoiceCall', {
-      chatId: chatId,
-      localUid: userId,
-      remoteUid: toUserId,
+      // chatId: chatId,
+      // localUid: userId,
+      // remoteUid: toUserId,
+      user: user,
+      meetingId: chatId,
     });
   };
 
@@ -219,13 +237,18 @@ const ChatScreen = ({ route }: any) => {
   return (
     <SafeAreaView style={styles.container}>
       <KeyboardAvoidingView 
-        behavior={Platform.OS === "ios" ? "padding" : "height"}
+        // behavior={Platform.OS === "ios" ? "padding" : "padding"}
+        // keyboardVerticalOffset={Platform.OS === 'ios' ? 80 : 0} // iOS: tùy chỉnh offset theo header
+
         style={styles.keyboardAvoid}
       >
+        <View style={{ flex: 1 }}>
+          
         {/* Header */}
         <View style={styles.header}>
+          {/* <CallStarter user={user} chatId={chatId}/> */}
           <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
-            <Icon name="chevron-back" size={24} color="#5B72EF" />
+            <Icon name="chevron-left" size={24} color="#5B72EF" />
           </TouchableOpacity>
           <TouchableOpacity style={{ flexDirection: 'row', alignItems: 'center' }} onPress={() => navigation.navigate('ChatMembers', {chatId: chatId, currentUserId: userId })}>
           <AvatarButton imageUrl={avatar} style={styles.avatar} />
@@ -234,9 +257,11 @@ const ChatScreen = ({ route }: any) => {
 
             {/* Buttons for voice call */}
             <View style={styles.callButtons}>
-            <TouchableOpacity onPress={startVoiceCall} style={styles.voiceCallButton}>
-              <Text style={styles.voiceCallButtonText}>Start Voice Call</Text>
-            </TouchableOpacity>
+              <CallStarter user={user} chatId={chatId}/>
+
+            {/* <TouchableOpacity onPress={startVoiceCall} style={styles.voiceCallButton}>
+              <Text style={styles.voiceCallButtonText}>Voice call</Text>
+            </TouchableOpacity> */}
             </View>
           </TouchableOpacity>
         </View>
@@ -244,12 +269,24 @@ const ChatScreen = ({ route }: any) => {
         {/* Messages */}
         <FlatList
           data={messages}
+          ref={flatListRef}
           keyExtractor={(_, index) => index.toString()}
           contentContainerStyle={styles.messagesList}
+          onContentSizeChange={() => {
+            if (messages.length > 0) {
+              flatListRef.current?.scrollToEnd({ animated: false });
+            }
+          }}
+          onLayout={() => {
+            if (messages.length > 0) {
+              flatListRef.current?.scrollToEnd({ animated: false });
+            }
+          }}
           renderItem={({ item }) => {
             const isCurrentUser = item.from === userId;
             const avatar = userAvatars[item.from] || '';
             const userName = userNames[item.from] || "Unknown User";
+            console.log("user.avatar", user);
             
             return (
               <View style={[
@@ -294,7 +331,8 @@ const ChatScreen = ({ route }: any) => {
                 </View>
                 
                 {isCurrentUser && (
-                  <Image source={{ uri: avatar }} style={styles.messageAvatar} />
+                  // <Text style={{color:'black'}}>123</Text>
+                  <Image source={{ uri: currentAvatar }} style={styles.messageAvatar} />
                 )}
               </View>
             );
@@ -304,7 +342,7 @@ const ChatScreen = ({ route }: any) => {
         {/* Input Area */}
         <View style={styles.inputContainer}>
           <TouchableOpacity onPress={handlePickImage} style={styles.attachButton}>
-            <Icon name="image-outline" size={24} color="#5B72EF" />
+            <Icon name="file-image" size={24} color="#5B72EF" />
           </TouchableOpacity>
           
           <TextInput
@@ -324,11 +362,13 @@ const ChatScreen = ({ route }: any) => {
             ]}
             disabled={message.trim() === ""}
           >
-            <Icon name="send" size={20} color="#FFFFFF" />
+            <Icon name="paper-plane" size={20} color="#FFFFFF" />
           </TouchableOpacity>
         </View>
 
         <ImageModal visible={!!selectedImage} imageUrl={selectedImage} onClose={() => setSelectedImage(null)} />
+     
+        </View>
       </KeyboardAvoidingView>
     </SafeAreaView>
   );
@@ -336,9 +376,11 @@ const ChatScreen = ({ route }: any) => {
 
 const styles = StyleSheet.create({
   callButtons: {
-    marginTop: 10,
+    // marginTop: 10,
     flexDirection: 'row',
-    justifyContent: 'space-between',
+    // marginLeft: 90,
+    // justifyContent: 'space-between',
+    // backgroundColor:'red',
     paddingHorizontal: 20,
   },
   voiceCallButton: {
@@ -350,6 +392,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   voiceCallButtonText: {
+    padding:2,
     color: '#fff',
     fontWeight: 'bold',
     fontSize: 16,
@@ -364,7 +407,7 @@ const styles = StyleSheet.create({
   header: {
     flexDirection: 'row',
     alignItems: 'center',
-    padding: 16,
+    // padding: ,
     borderBottomWidth: 1,
     borderBottomColor: '#E9EDF5',
     backgroundColor: '#FFFFFF',
@@ -375,10 +418,14 @@ const styles = StyleSheet.create({
     shadowRadius: 3
   },
   backButton: {
-    marginRight: 12,
-    padding: 4
+    marginHorizontal: 12,
+    // padding: 4
   },
   avatar: {
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    marginLeft: 30,
     marginRight: 12,
     borderWidth: 2,
     borderColor: '#E9EDF5'
