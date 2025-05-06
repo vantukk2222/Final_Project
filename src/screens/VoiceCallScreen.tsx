@@ -11,6 +11,7 @@ import {
   TouchableOpacity,
   StatusBar,
   FlatList,
+  Alert,
 } from 'react-native';
 import AudioRecord from 'react-native-live-audio-stream';
 import { AudioConfig, AudioInputStream, SpeechTranslationConfig, TranslationRecognizer } from 'microsoft-cognitiveservices-speech-sdk';
@@ -81,7 +82,7 @@ const VoiceCallScreen = ({ route }) => {
 
     setIsListening(true);
     const pushStream = AudioInputStream.createPushStream();
-    AudioRecord.init({ sampleRate, channels, bitsPerChannel, audioSource: 6 });
+    AudioRecord.init({ sampleRate, channels, bitsPerChannel, audioSource: 7 });
     AudioRecord.on('data', (data) => {
       const pcmData = Buffer.from(data, 'base64');
       pushStream.write(pcmData);
@@ -140,6 +141,12 @@ const VoiceCallScreen = ({ route }) => {
         }
       }
     };
+    recognizer.canceled = (s, e) => {
+      console.warn(`CANCELED: Reason=${e.reason}, Error=${e.errorDetails}`);
+      Alert.alert('Error', `CANCELED: Reason=${e.reason}, Error=${e.errorDetails}`);
+      stopAudio();
+    };
+    
     
     recognizer.startContinuousRecognitionAsync();
     initializedRef.current = true;
