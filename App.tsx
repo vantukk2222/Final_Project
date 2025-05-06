@@ -5,6 +5,7 @@ import { ActivityIndicator, View } from 'react-native';
 import { AuthProvider, useAuth } from './src/contexts/AuthContext';
 import RootNavigator from './src/navigation/RootNavigator';
 import SocketClient from './src/components/SocketClient';
+import  Toast from 'react-native-toast-message';
 
 const AppContent = () => {
   const { loading } = useAuth();
@@ -26,6 +27,7 @@ export default function App() {
       {/* <SocketClient /> */}
       <NavigationContainer>
         <AppContent />
+        <Toast/>
       </NavigationContainer>
     </AuthProvider>
   );

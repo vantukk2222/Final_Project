@@ -18,6 +18,7 @@ import { useNavigation } from "@react-navigation/native";
 import { useAuth } from "../contexts/AuthContext";
 import AvatarButton from "../components/AvatarButton";
 import Icon from "react-native-vector-icons/FontAwesome5";
+import Toast from "react-native-toast-message";
 
 const ChatListScreen = () => {
   const navigation = useNavigation<any>();
@@ -96,7 +97,15 @@ const ChatListScreen = () => {
       .filter(Boolean);
 
     if (emails.length === 0) {
-      Alert.alert("Error", "Please enter at least one email.");
+      // Alert.alert("Error", "Please enter at least one email.");
+      Toast.show({
+        type: "error",
+        text1: "Error",
+        text2: "Please enter at least one email.",
+        position: "top",
+        visibilityTime: 2000,
+      });
+
       return;
     }
 
@@ -111,7 +120,14 @@ const ChatListScreen = () => {
       const notFound = emails.filter((email) => !foundEmails.includes(email));
 
       if (notFound.length > 0) {
-        Alert.alert("Error", `Emails not found: ${notFound.join(", ")}`);
+        // Alert.alert("Error", `Emails not found: ${notFound.join(", ")}`);
+        Toast.show({
+          type: "error",
+          text1: "Error",
+          text2: `Emails not found!!`,
+          position: "top",
+          visibilityTime: 2000,
+        });
         return;
       }
 
@@ -195,7 +211,7 @@ const ChatListScreen = () => {
               onPress={() => navigation.navigate("Chat", {
                 chatId: item.id,
                 toUserId: item.members.find((id: string) => id !== userId),
-                name: chatName,
+                // name: chatName,
                 avatar: item.avatar,
                 currentAvatar: avatarUrl,
               })}

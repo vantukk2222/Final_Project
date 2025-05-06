@@ -21,13 +21,19 @@ import AvatarButton from "../components/AvatarButton";
 import { useNavigation } from "@react-navigation/native";
 import Icon from "react-native-vector-icons/FontAwesome5";
 import CallStarter from "../components/VoiceStarter";
+import Toast from "react-native-toast-message";
+import AppText from "../components/AppText";
+import moment from 'moment';
+import 'moment/locale/vi';
+moment.locale('vi');
 
 const ChatScreen = ({ route }: any) => {
   const { user } = useAuth();
   const userId = user?.uid;
-  const { chatId, toUserId, name, avatar, currentAvatar } = route.params || {};
+  const { chatId, toUserId, avatar, currentAvatar } = route.params || {};
   const [message, setMessage] = useState("");
   const [messages, setMessages] = useState<any[]>([]);
+  const [name, setName] = useState("");
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
   const [isJoined, setIsJoined] = useState(false); // Track if the user has joined the channel
   const [localUid, setLocalUid] = useState(0);
@@ -143,8 +149,29 @@ const ChatScreen = ({ route }: any) => {
         });
         setMessages(msgs);
       });
+    // Listen for real-time updates to the chat document
+    const chatDocRef = firestore().collection("chats").doc(chatId);
+    const chatUnsubscribe = chatDocRef.onSnapshot((doc) => {
+      if (doc.exists) {
+      const data = doc.data();
+      if (data) {
+        setName(data.name || "Unknown User");
+      }
+      }
+    }, (error) => {
+      // console.error("Error listening to chat document:", error);
+      Toast.show("Error listening to chat document: " + error.message, Toast.LONG);
+    });
 
-    return () => unsubscribe();
+    return () => {
+      chatUnsubscribe();
+      unsubscribe();
+    };
+
+
+
+
+    // return () => unsubscribe();
   }, [chatId]);
 
   useEffect(() => {
@@ -184,7 +211,6 @@ const ChatScreen = ({ route }: any) => {
 
     setMessage("");
   };
-
   const handlePickImage = async () => {
     const result = await launchImageLibrary({ mediaType: 'photo' });
 
@@ -234,6 +260,33 @@ const ChatScreen = ({ route }: any) => {
       Alert.alert('Error', 'Failed to upload image');
     }
   };
+  const groupMessagesByDate = (messages: any[]) => {
+    const grouped: any[] = [];
+    let lastDate = '';
+  
+    messages.forEach((msg) => {
+      const dateStr = moment(msg.timestamp?.toDate?.() || new Date()).format('YYYY-MM-DD');
+      if (dateStr !== lastDate) {
+        grouped.push({ type: 'date', date: dateStr });
+        lastDate = dateStr;
+      }
+      grouped.push({ type: 'message', ...msg });
+    });
+  
+    return grouped;
+  };
+  
+  const formatDisplayDate = (dateStr: string) => {
+    const today = moment().startOf('day');
+    const target = moment(dateStr);
+  
+    if (target.isSame(today, 'day')) return 'Hôm nay';
+    if (target.isSame(today.clone().subtract(1, 'day'), 'day')) return 'Hôm qua';
+    if (target.isAfter(today.clone().subtract(6, 'days')))
+      return target.format('dddd').charAt(0).toUpperCase() + target.format('dddd').slice(1); 
+    return target.format('D MMMM'); 
+  };
+  
   return (
     <SafeAreaView style={styles.container}>
       <KeyboardAvoidingView 
@@ -246,98 +299,109 @@ const ChatScreen = ({ route }: any) => {
           
         {/* Header */}
         <View style={styles.header}>
-          {/* <CallStarter user={user} chatId={chatId}/> */}
           <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
             <Icon name="chevron-left" size={24} color="#5B72EF" />
           </TouchableOpacity>
-          <TouchableOpacity style={{ flexDirection: 'row', alignItems: 'center' }} onPress={() => navigation.navigate('ChatMembers', {chatId: chatId, currentUserId: userId })}>
-          <AvatarButton imageUrl={avatar} style={styles.avatar} />
-          <Text style={styles.headerName}>{name}</Text>
 
-
-            {/* Buttons for voice call */}
-            <View style={styles.callButtons}>
-              <CallStarter user={user} chatId={chatId}/>
-
-            {/* <TouchableOpacity onPress={startVoiceCall} style={styles.voiceCallButton}>
-              <Text style={styles.voiceCallButtonText}>Voice call</Text>
-            </TouchableOpacity> */}
-            </View>
+          <TouchableOpacity
+            style={styles.centerContainer}
+            onPress={() =>
+              navigation.navigate('ChatMembers', {
+                chatId: chatId,
+                currentUserId: userId
+              })
+            }>
+            <AvatarButton imageUrl={avatar} style={styles.avatar} />
+            <AppText style={styles.headerName}>{name}</AppText>
           </TouchableOpacity>
+
+          <View style={styles.callButtons}>
+            <CallStarter user={user} chatId={chatId} />
+          </View>
         </View>
-        
+
         {/* Messages */}
         <FlatList
-          data={messages}
-          ref={flatListRef}
-          keyExtractor={(_, index) => index.toString()}
-          contentContainerStyle={styles.messagesList}
-          onContentSizeChange={() => {
-            if (messages.length > 0) {
-              flatListRef.current?.scrollToEnd({ animated: false });
-            }
-          }}
-          onLayout={() => {
-            if (messages.length > 0) {
-              flatListRef.current?.scrollToEnd({ animated: false });
-            }
-          }}
-          renderItem={({ item }) => {
-            const isCurrentUser = item.from === userId;
-            const avatar = userAvatars[item.from] || '';
-            const userName = userNames[item.from] || "Unknown User";
-            console.log("user.avatar", user);
-            
-            return (
-              <View style={[
-                styles.messageContainer,
-                isCurrentUser ? styles.sentContainer : styles.receivedContainer
-              ]}>
-                {!isCurrentUser && (
-                  <Image source={avatar ? {uri: avatar} : require('../assets/default-avatar.png') } style={styles.messageAvatar} />
-                )}
-                
-                <View style={styles.messageContentContainer}>
-                  {!isCurrentUser && (
-                    <Text style={styles.messageSenderName}>{userName}</Text>
-                  )}
-                  
-                  {item.text && (
-                    <View style={[
-                      styles.messageBubble, 
-                      isCurrentUser ? styles.sentBubble : styles.receivedBubble
-                    ]}>
-                      <Text style={isCurrentUser ? styles.sentText : styles.receivedText}>
-                        {item.text}
-                      </Text>
-                    </View>
-                  )}
+  data={groupMessagesByDate(messages)}
+  ref={flatListRef}
+  keyExtractor={(_, index) => index.toString()}
+  contentContainerStyle={styles.messagesList}
+  onContentSizeChange={() => {
+    if (messages.length > 0) {
+      flatListRef.current?.scrollToEnd({ animated: false });
+    }
+  }}
+  onLayout={() => {
+    if (messages.length > 0) {
+      flatListRef.current?.scrollToEnd({ animated: false });
+    }
+  }}
+  renderItem={({ item }) => {
+    if (item.type === 'date') {
+      return (
+        <View style={{ alignItems: 'center', marginVertical: 10 }}>
+          <AppText style={{ fontSize: 12, color: '#7F8C9D' }}>
+            {formatDisplayDate(item.date)}
+          </AppText>
+        </View>
+      );
+    }
 
-                  {item.imageUrl && (
-                    <TouchableOpacity 
-                      onPress={() => setSelectedImage(item.imageUrl)} 
-                      style={[
-                        styles.imageContainer,
-                        isCurrentUser ? styles.sentImageContainer : styles.receivedImageContainer
-                      ]}
-                    >
-                      <Image source={{ uri: item.imageUrl }} style={styles.imageMessage} resizeMode="cover" />
-                    </TouchableOpacity>
-                  )}
+    const isCurrentUser = item.from === userId;
+    const avatar = userAvatars[item.from] || '';
+    const userName = userNames[item.from] || "Unknown User";
 
-                  <Text style={[styles.timeStamp, { alignSelf: isCurrentUser ? 'flex-end' : 'flex-start' }]}>
-                    {item.timestamp ? new Date(item.timestamp.toDate()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''}
-                  </Text>
-                </View>
-                
-                {isCurrentUser && (
-                  // <Text style={{color:'black'}}>123</Text>
-                  <Image source={{ uri: currentAvatar }} style={styles.messageAvatar} />
-                )}
-              </View>
-            );
-          }}
-        />
+    return (
+      <View style={[
+        styles.messageContainer,
+        isCurrentUser ? styles.sentContainer : styles.receivedContainer
+      ]}>
+        {!isCurrentUser && (
+          <Image
+            source={avatar ? { uri: avatar } : require('../assets/default-avatar.png')}
+            style={styles.messageAvatar}
+          />
+        )}
+        <View style={styles.messageContentContainer}>
+          {!isCurrentUser && (
+            <AppText style={styles.messageSenderName}>{userName}</AppText>
+          )}
+          {item.text && (
+            <View style={[
+              styles.messageBubble,
+              isCurrentUser ? styles.sentBubble : styles.receivedBubble
+            ]}>
+              <AppText style={isCurrentUser ? styles.sentText : styles.receivedText}>
+                {item.text}
+              </AppText>
+            </View>
+          )}
+          {item.imageUrl && (
+            <TouchableOpacity
+              onPress={() => setSelectedImage(item.imageUrl)}
+              style={[
+                styles.imageContainer,
+                isCurrentUser ? styles.sentImageContainer : styles.receivedImageContainer
+              ]}
+            >
+              <Image source={{ uri: item.imageUrl }} style={styles.imageMessage} resizeMode="cover" />
+            </TouchableOpacity>
+          )}
+          <AppText style={[
+            styles.timeStamp,
+            { alignSelf: isCurrentUser ? 'flex-end' : 'flex-start' }
+          ]}>
+            {item.timestamp ? moment(item.timestamp.toDate()).format('HH:mm') : ''}
+          </AppText>
+        </View>
+        {isCurrentUser && (
+          <Image source={{ uri: currentAvatar }} style={styles.messageAvatar} />
+        )}
+      </View>
+    );
+  }}
+/>
+
 
         {/* Input Area */}
         <View style={styles.inputContainer}>
@@ -375,28 +439,50 @@ const ChatScreen = ({ route }: any) => {
 };
 
 const styles = StyleSheet.create({
-  callButtons: {
-    // marginTop: 10,
+  header: {
     flexDirection: 'row',
-    // marginLeft: 90,
-    // justifyContent: 'space-between',
-    // backgroundColor:'red',
-    paddingHorizontal: 20,
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    height: 72,
+    backgroundColor: '#FFFFFF',
+    borderBottomWidth: 1,
+    borderBottomColor: '#E9EDF5',
+    elevation: 3,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 3,
   },
-  voiceCallButton: {
-    backgroundColor: '#5B72EF',
-    paddingVertical: 12,
-    marginBottom: 10,
-    borderRadius: 8,
+  
+  avatar: {
+    width: 46,
+    height: 46,
+    borderRadius: 23,
+    marginRight: 10,
+    borderWidth: 2,
+    borderColor: '#5B72EF',
+  },
+  
+  headerName: {
+    fontSize: 18,
+    fontWeight: '800',
+    color: '#2C3E50',
+  },
+  
+  centerContainer: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginHorizontal: 12,
+  },
+  
+  callButtons: {
+    flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
   },
-  voiceCallButtonText: {
-    padding:2,
-    color: '#fff',
-    fontWeight: 'bold',
-    fontSize: 16,
-  },
+  
   container: {
     flex: 1,
     backgroundColor: '#F7F9FC'
@@ -404,41 +490,17 @@ const styles = StyleSheet.create({
   keyboardAvoid: {
     flex: 1
   },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    // padding: ,
-    borderBottomWidth: 1,
-    borderBottomColor: '#E9EDF5',
-    backgroundColor: '#FFFFFF',
-    elevation: 2,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 3
-  },
+
   backButton: {
     marginHorizontal: 12,
     // padding: 4
   },
-  avatar: {
-    width: 60,
-    height: 60,
-    borderRadius: 30,
-    marginLeft: 30,
-    marginRight: 12,
-    borderWidth: 2,
-    borderColor: '#E9EDF5'
-  },
-  headerName: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: '#2C3E50'
-  },
+  
   messagesList: {
     paddingVertical: 16,
     paddingHorizontal: 16
   },
+  
   messageContainer: {
     flexDirection: 'row',
     marginVertical: 8,
@@ -524,38 +586,43 @@ const styles = StyleSheet.create({
   },
   inputContainer: {
     flexDirection: 'row',
-    padding: 12,
-    backgroundColor: '#FFFFFF',
+    alignItems: 'center',
+    padding: 10,
     borderTopWidth: 1,
     borderTopColor: '#E9EDF5',
-    alignItems: 'center'
+    backgroundColor: '#FFFFFF',
   },
+  
   attachButton: {
-    marginRight: 10,
+    marginRight: 8,
     padding: 8,
     borderRadius: 20,
-    backgroundColor: '#F7F9FC'
+    backgroundColor: '#F0F3FA',
   },
+  
   input: {
     flex: 1,
     backgroundColor: '#F7F9FC',
     borderRadius: 24,
     paddingHorizontal: 16,
-    paddingVertical: 12,
+    paddingVertical: 10,
     fontSize: 16,
     color: '#2C3E50',
     maxHeight: 120,
     borderWidth: 1,
-    borderColor: '#E9EDF5'
+    borderColor: '#E0E6ED',
   },
+  
   sendButton: {
-    marginLeft: 10,
+    marginLeft: 8,
     width: 44,
     height: 44,
     borderRadius: 22,
     justifyContent: 'center',
-    alignItems: 'center'
+    alignItems: 'center',
+    backgroundColor: '#5B72EF',
   },
+  
   sendButtonActive: {
     backgroundColor: '#5B72EF',
   },
