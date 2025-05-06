@@ -1,4 +1,4 @@
-import { AudioConfig, AudioInputStream, SpeechTranslationConfig, TranslationRecognizer } from 'microsoft-cognitiveservices-speech-sdk';
+import { AudioConfig, AudioInputStream, ResultReason, SpeechTranslationConfig, TranslationRecognizer } from 'microsoft-cognitiveservices-speech-sdk';
 import React, { useRef, useState, useEffect } from 'react';
 import {
   SafeAreaView,
@@ -16,6 +16,8 @@ import AudioRecord from 'react-native-live-audio-stream';
 import { speakTranslation } from '../api/SpeakText';
 import Icon from 'react-native-vector-icons/MaterialIcons';
 import { useNavigation } from '@react-navigation/native';
+import RNFS from 'react-native-fs';
+import Sound from 'react-native-sound';
 
 const VoiceCallScreen = ({ route }) => {
   const navigation = useNavigation();
@@ -86,6 +88,20 @@ const VoiceCallScreen = ({ route }) => {
     }
   };
 
+  function playAudioBuffer(audioBuffer) {
+    console.log("Audio buffer size:", audioBuffer);
+    const audioBase64 = Buffer.from(audioBuffer).toString('base64');
+    const path = `${RNFS.DocumentDirectoryPath}/translated_audio.mp3`;
+    console.log('Audio buffer size:', audioBuffer.byteLength);
+    RNFS.writeFile(path, audioBase64, 'base64')
+      .then(() => {
+        console.log('Audio buffer written to file:', path);
+        const sound = new Sound(path, '', (error) => {
+          if (!error) sound.play();
+        });
+      })
+      .catch((error) => console.error(error));
+  }
   const initializeAudio = async () => {
     await checkPermissions();
     if (!initializedRef.current) {
@@ -105,10 +121,13 @@ const VoiceCallScreen = ({ route }) => {
       const config = SpeechTranslationConfig.fromSubscription(key, region);
       config.speechRecognitionLanguage = user.language;
 
-      const membersSnap = await firestore().collection('meetings').doc(meetingId).get();
-      const members = membersSnap.data()?.members?.filter(m => m.uid !== user.uid) || [];
-      console.log('members:', members);
-      members.forEach(m => config.addTargetLanguage(m.translateCode));
+      // const membersSnap = await firestore().collection('meetings').doc(meetingId).get();
+      // const members = membersSnap.data()?.members?.filter(m => m.uid !== user.uid) || [];
+      
+      // console.log('members:', members);
+      // members.forEach(m => config.addTargetLanguage(m.translateCode));
+      config.addTargetLanguage("en");
+      config.setProperty("SpeechServiceConnection_TranslationVoice", "en-US-JennyNeural");
 
       const audioConfig = AudioConfig.fromStreamInput(pushStream);
       const recognizer = new TranslationRecognizer(config, audioConfig);
@@ -117,27 +136,48 @@ const VoiceCallScreen = ({ route }) => {
         const original = e.result.text;
         setText(original);
       }
+      
+      recognizer.synthesizing = (s, e) => {
+        const audioBuffer = e.result.audio;
+        if (audioBuffer && audioBuffer.byteLength > 0) {
+          console.log("Audio buffer siz1e:", audioBuffer.byteLength);
+          // Buffer audio trực tiếp tại đây (đây chính là audio)
+          playAudioBuffer(audioBuffer);
+        }
+      };
 
       recognizer.recognized = async (s, e) => {
         const original = e.result.text;
         setText(original);
-        for (const m of members) {
-          const translated = e.result.translations.get(m.translateCode);
-          if (translated) {
-            console.log(`Translated to ${m.translateCode}:`, translated);
-            await firestore()
-              .collection('meetings')
-              .doc(meetingId)
-              .collection('messages')
-              .add({
-                from: user.uid,
-                to: m.uid,
-                text: translated,
-                lang: m.translateCode,
-                timestamp: firestore.FieldValue.serverTimestamp(),
-              });
-          }
+        if (e.result.reason === ResultReason.TranslatedSpeech) {
+          const enAudio = e.result.translations.get("en");
+          // const jpAudio = e.result.translations.get("ja");
+          // const koAudio = e.result.translations.get("ko");
+          console.log("enAudio:", enAudio);
+      
+          // // Phát hoặc gửi audio tương ứng realtime
+          // sendTranslatedAudioToUser("en", enAudio);
+          // sendTranslatedAudioToUser("ja", jpAudio);
+          // sendTranslatedAudioToUser("ko", koAudio);
         }
+
+        // for (const m of members) {
+        //   const translated = e.result.translations.get(m.translateCode);
+        //   if (translated) {
+        //     console.log(`Translated to ${m.translateCode}:`, translated);
+        //     await firestore()
+        //       .collection('meetings')
+        //       .doc(meetingId)
+        //       .collection('messages')
+        //       .add({
+        //         from: user.uid,
+        //         to: m.uid,
+        //         text: translated,
+        //         lang: m.translateCode,
+        //         timestamp: firestore.FieldValue.serverTimestamp(),
+        //       });
+        //   }
+        // }
       };
 
       recognizer.startContinuousRecognitionAsync();
