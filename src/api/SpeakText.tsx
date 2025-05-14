@@ -19,7 +19,7 @@ const voiceMap = {
 };
 
 export const speakTranslation = async (text, key, region, targetLanguageCode = 'vi') => {
-  const voice = voiceMap[targetLanguageCode] || voiceMap['vi']; // fallback nếu không có
+  const voice = voiceMap[targetLanguageCode] || voiceMap['vi'];
 
   const headers = {
     'Ocp-Apim-Subscription-Key': key,
@@ -42,16 +42,27 @@ export const speakTranslation = async (text, key, region, targetLanguageCode = '
       }
     );
 
-    const path = `${RNFS.DocumentDirectoryPath}/translated_${targetLanguageCode}.mp3`;
+    const path = `${RNFS.DocumentDirectoryPath}/translated_${Date.now()}.mp3`;
     await RNFS.writeFile(path, Buffer.from(response.data).toString('base64'), 'base64');
 
-    const sound = new Sound(path, '', (error) => {
-      if (error) {
-        console.log('Sound error:', error);
-        return;
-      }
-      sound.play(() => sound.release());
+    await new Promise((resolve, reject) => {
+      const sound = new Sound(path, '', (error) => {
+        if (error) {
+          console.log('Sound loading error:', error);
+          return reject(error);
+        }
+
+        sound.play((success) => {
+          sound.release();
+          if (success) {
+            resolve();
+          } else {
+            reject(new Error('Playback failed'));
+          }
+        });
+      });
     });
+
   } catch (error) {
     console.log('TTS Error:', error);
   }

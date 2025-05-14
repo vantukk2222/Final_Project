@@ -247,7 +247,8 @@ const ChatScreen = ({ route }: any) => {
         {/* Header */}
         <View style={styles.header}>
           {/* <CallStarter user={user} chatId={chatId}/> */}
-          <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
+        <View style={{flexDirection:'row', alignItems: 'center'}}>
+                    <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
             <Icon name="chevron-left" size={24} color="#5B72EF" />
           </TouchableOpacity>
           <TouchableOpacity style={{ flexDirection: 'row', alignItems: 'center' }} onPress={() => navigation.navigate('ChatMembers', {chatId: chatId, currentUserId: userId })}>
@@ -255,6 +256,9 @@ const ChatScreen = ({ route }: any) => {
           <Text style={styles.headerName}>{name}</Text>
 
 
+          </TouchableOpacity>
+          
+        </View>
             {/* Buttons for voice call */}
             <View style={styles.callButtons}>
               <CallStarter user={user} chatId={chatId}/>
@@ -263,7 +267,6 @@ const ChatScreen = ({ route }: any) => {
               <Text style={styles.voiceCallButtonText}>Voice call</Text>
             </TouchableOpacity> */}
             </View>
-          </TouchableOpacity>
         </View>
         
         {/* Messages */}
@@ -342,7 +345,7 @@ const ChatScreen = ({ route }: any) => {
         {/* Input Area */}
         <View style={styles.inputContainer}>
           <TouchableOpacity onPress={handlePickImage} style={styles.attachButton}>
-            <Icon name="file-image" size={24} color="#5B72EF" />
+            <Icon name="file-image" size={18} color="#5B72EF" />
           </TouchableOpacity>
           
           <TextInput
@@ -399,7 +402,7 @@ const styles = StyleSheet.create({
   },
   container: {
     flex: 1,
-    backgroundColor: '#F7F9FC'
+    backgroundColor: '#ffffff'
   },
   keyboardAvoid: {
     flex: 1
@@ -407,6 +410,7 @@ const styles = StyleSheet.create({
   header: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'space-between',
     // padding: ,
     borderBottomWidth: 1,
     borderBottomColor: '#E9EDF5',
@@ -477,11 +481,11 @@ const styles = StyleSheet.create({
   },
   sentText: {
     color: '#FFFFFF',
-    fontSize: 16
+    fontSize: 13
   },
   receivedText: {
     color: '#2C3E50',
-    fontSize: 16
+    fontSize: 13
   },
   messageAvatar: {
     width: 36,
@@ -524,7 +528,7 @@ const styles = StyleSheet.create({
   },
   inputContainer: {
     flexDirection: 'row',
-    padding: 12,
+    padding: 8,
     backgroundColor: '#FFFFFF',
     borderTopWidth: 1,
     borderTopColor: '#E9EDF5',
@@ -532,7 +536,7 @@ const styles = StyleSheet.create({
   },
   attachButton: {
     marginRight: 10,
-    padding: 8,
+    padding: 4,
     borderRadius: 20,
     backgroundColor: '#F7F9FC'
   },
@@ -540,9 +544,9 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#F7F9FC',
     borderRadius: 24,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    fontSize: 16,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    fontSize: 13,
     color: '#2C3E50',
     maxHeight: 120,
     borderWidth: 1,
@@ -550,8 +554,8 @@ const styles = StyleSheet.create({
   },
   sendButton: {
     marginLeft: 10,
-    width: 44,
-    height: 44,
+    width: 34,
+    height: 34,
     borderRadius: 22,
     justifyContent: 'center',
     alignItems: 'center'

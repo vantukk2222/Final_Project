@@ -30,38 +30,87 @@ const VoiceCallScreen = ({ route }) => {
   const recognizerRef = useRef(null);
   const initializedRef = useRef(false);
   const socketRef = useRef(null);
+  const audioQueue = [];
+  let isPlaying = false;
 
   const channels = 1;
   const bitsPerChannel = 16;
   const sampleRate = 16000;
 
+  
+  const playFromQueue = async () => {
+    if (isPlaying || audioQueue.length === 0) return;
+
+    isPlaying = true;
+    const { text, lang } = audioQueue.shift();
+
+    try {
+      await speakTranslation(text, key, region, lang);
+    } catch (error) {
+      console.error("Error playing audio:", error);
+    } finally {
+      isPlaying = false;
+      playFromQueue(); 
+    }
+  };
   // ✅ Connect to socket.io
   useEffect(() => {
-    const socket = io('http://192.168.1.13:3001');
-    socketRef.current = socket;
+    try {
+      const socket = io('http://192.168.229.253:3001');
+      socketRef.current = socket;
 
-    socket.on('connect', () => {
-      socket.emit('register', user.uid);
-    });
+      socket.on('connect', () => {
+        try {
+          socket.emit('register', user.uid);
+          console.log('Connected to socket server, registered user:', user.uid);
+        } catch (error) {
+          console.error('Error registering user:', error);
+        }
+      });
 
-    socket.on('receive_translation', async ({ text, lang, isFinal  }) => {
-      console.log('Received translation:', text, lang, isFinal );
-      setText(text);
-      console.log("time h-m-s-ms: ")
-      const date = new Date();
-      const time = `${date.getHours()}:${date.getMinutes()}:${date.getSeconds()}.${date.getMilliseconds()}`;
-      console.log(time);
-      if (isFinal ){
+      socket.on('connect_error', (error) => {
+        console.error('Socket connection error:', error);
+      });
 
-        await speakTranslation(text, key, region, lang);
-      }
-      console.log("end time h-m-s-ms: ")
-      const endDate = new Date();
-      const endTime = `${endDate.getHours()}:${endDate.getMinutes()}:${endDate.getSeconds()}.${endDate.getMilliseconds()}`;
-      console.log(endTime);
-    });
+      socket.on('receive_translation', async ({ text, lang, isFinal }) => {
+        try {
+          console.log('Received translation:', text, lang, isFinal);
+          setText(text);
+          
+          const date = new Date();
+          const time = `${date.getHours()}:${date.getMinutes()}:${date.getSeconds()}.${date.getMilliseconds()}`;
+          console.log("time h-m-s-ms:", time);
+          
+          if (isFinal) {
+            if (!(text =="Comma." || text == "."))
+            {
+              // await speakTranslation(text, key, region, lang);
+              audioQueue.push({ text, lang }); // thêm vào queue
+              console.log("audioQueue", audioQueue);
+              playFromQueue(); // chạy hàm phát âm thanh
 
-    return () => socket.disconnect();
+
+            }
+          }
+          
+          const endDate = new Date();
+          const endTime = `${endDate.getHours()}:${endDate.getMinutes()}:${endDate.getSeconds()}.${endDate.getMilliseconds()}`;
+          console.log("end time h-m-s-ms:", endTime);
+        } catch (error) {
+          console.error('Error handling translation:', error);
+        }
+      });
+
+      return () => {
+        try {
+          socket.disconnect();
+        } catch (error) {
+          console.error('Error disconnecting socket:', error);
+        }
+      };
+    } catch (error) {
+      console.error('Error initializing socket connection:', error);
+    }
   }, []);
 
   const checkPermissions = async () => {
