@@ -207,6 +207,8 @@ const VoiceCallScreen = ({ route }) => {
               const startTime = new Date();
               console.log("time start Speak:", `${startTime.getHours()}:${startTime.getMinutes()}:${startTime.getSeconds()}.${startTime.getMilliseconds()}`);
               await speakTranslation(text, key, region, lang);
+              setText(text);
+
               const endTime = new Date();
               console.log("time start Speak:", `${endTime.getHours()}:${endTime.getMinutes()}:${endTime.getSeconds()}.${endTime.getMilliseconds()}`);
 
