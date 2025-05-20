@@ -12,6 +12,7 @@ import {
   StatusBar,
   FlatList,
   Alert,
+  ScrollView,
 } from 'react-native';
 import AudioRecord from 'react-native-live-audio-stream';
 import { AudioConfig, AudioInputStream, SpeechTranslationConfig, TranslationRecognizer } from 'microsoft-cognitiveservices-speech-sdk';
@@ -19,7 +20,6 @@ import { speakTranslation } from '../api/SpeakText';
 import Icon from 'react-native-vector-icons/MaterialIcons';
 import { useNavigation } from '@react-navigation/native';
 import io from 'socket.io-client';
-
 const VoiceCallScreen = ({ route }) => {
   const navigation = useNavigation();
   const { user, meetingId, participants } = route.params;
@@ -30,88 +30,53 @@ const VoiceCallScreen = ({ route }) => {
   const recognizerRef = useRef(null);
   const initializedRef = useRef(false);
   const socketRef = useRef(null);
-  const audioQueue = [];
-  let isPlaying = false;
+  const audioQueue = useRef([]);
+  const isPlayingRef = useRef(false);
 
   const channels = 1;
   const bitsPerChannel = 16;
   const sampleRate = 16000;
 
-  
   const playFromQueue = async () => {
-    if (isPlaying || audioQueue.length === 0) return;
+    if (isPlayingRef.current || audioQueue.current.length === 0) return;
 
-    isPlaying = true;
-    const { text, lang } = audioQueue.shift();
+    isPlayingRef.current = true;
+    const { text, lang } = audioQueue.current.shift();
 
     try {
       await speakTranslation(text, key, region, lang);
     } catch (error) {
       console.error("Error playing audio:", error);
     } finally {
-      isPlaying = false;
-      playFromQueue(); 
+      isPlayingRef.current = false;
+      playFromQueue();
     }
   };
-  // ✅ Connect to socket.io
+
   useEffect(() => {
-    try {
-      const socket = io('http://192.168.229.253:3001');
-      socketRef.current = socket;
+    const socket = io('http://192.168.2.82:3001');
+    socketRef.current = socket;
 
-      socket.on('connect', () => {
-        try {
-          socket.emit('register', user.uid);
-          console.log('Connected to socket server, registered user:', user.uid);
-        } catch (error) {
-          console.error('Error registering user:', error);
-        }
-      });
+    socket.on('connect', () => {
+      socket.emit('register', user.uid);
+      console.log('Connected to socket server, registered user:', user.uid);
+    });
 
-      socket.on('connect_error', (error) => {
-        console.error('Socket connection error:', error);
-      });
+    socket.on('connect_error', (error) => {
+      console.error('Socket connection error:', error);
+    });
 
-      socket.on('receive_translation', async ({ text, lang, isFinal }) => {
-        try {
-          console.log('Received translation:', text, lang, isFinal);
-          setText(text);
-          
-          const date = new Date();
-          const time = `${date.getHours()}:${date.getMinutes()}:${date.getSeconds()}.${date.getMilliseconds()}`;
-          console.log("time h-m-s-ms:", time);
-          
-          if (isFinal) {
-            if (!(text =="Comma." || text == "."))
-            {
-              // await speakTranslation(text, key, region, lang);
-              audioQueue.push({ text, lang }); // thêm vào queue
-              console.log("audioQueue", audioQueue);
-              playFromQueue(); // chạy hàm phát âm thanh
+    socket.on('receive_translation', ({ text, lang, isFinal }) => {
+      setText(text);
 
+      if (isFinal && !(text === "Comma." || text === ".")) {
+        audioQueue.current.push({ text, lang });
+        playFromQueue();
+      }
+    });
 
-            }
-          }
-          
-          const endDate = new Date();
-          const endTime = `${endDate.getHours()}:${endDate.getMinutes()}:${endDate.getSeconds()}.${endDate.getMilliseconds()}`;
-          console.log("end time h-m-s-ms:", endTime);
-        } catch (error) {
-          console.error('Error handling translation:', error);
-        }
-      });
-
-      return () => {
-        try {
-          socket.disconnect();
-        } catch (error) {
-          console.error('Error disconnecting socket:', error);
-        }
-      };
-    } catch (error) {
-      console.error('Error initializing socket connection:', error);
-    }
-  }, []);
+    return () => socket.disconnect();
+  }, [user.uid]);
 
   const checkPermissions = async () => {
     if (Platform.OS === 'android') {
@@ -126,77 +91,40 @@ const VoiceCallScreen = ({ route }) => {
   };
 
   const initializeAudio = async () => {
-    const hasPermission = await checkPermissions();
-    if (!hasPermission || initializedRef.current) return;
+    if (!(await checkPermissions()) || initializedRef.current) return;
 
     setIsListening(true);
     const pushStream = AudioInputStream.createPushStream();
     AudioRecord.init({ sampleRate, channels, bitsPerChannel, audioSource: 7 });
-    AudioRecord.on('data', (data) => {
-      const pcmData = Buffer.from(data, 'base64');
-      pushStream.write(pcmData);
-    });
+    AudioRecord.on('data', data => pushStream.write(Buffer.from(data, 'base64')));
     AudioRecord.start();
 
     const config = SpeechTranslationConfig.fromSubscription(key, region);
     config.speechRecognitionLanguage = user.language;
-    const filteredParticipants = participants.filter(m => m.uid !== user.uid);
-    console.log("userid ", user.uid);
-    console.log("filteredParticipants", filteredParticipants);
-    filteredParticipants.forEach(m => config.addTargetLanguage(m.translateCode));
+    participants.filter(m => m.uid !== user.uid).forEach(m => config.addTargetLanguage(m.translateCode));
 
-    const audioConfig = AudioConfig.fromStreamInput(pushStream);
-    const recognizer = new TranslationRecognizer(config, audioConfig);
+    const recognizer = new TranslationRecognizer(config, AudioConfig.fromStreamInput(pushStream));
     recognizerRef.current = recognizer;
 
     recognizer.recognizing = (s, e) => {
-      const text = e.result.text;
-      setText(text); // Hiển thị tạm
-    
-      // Gửi realtime nội dung chưa hoàn tất
-      filteredParticipants.forEach((m) => {
+      setText(e.result.text);
+    };
+
+    recognizer.recognized = (s, e) => {
+      participants.filter(m => m.uid !== user.uid).forEach(m => {
         const translated = e.result.translations.get(m.translateCode);
         if (translated) {
-
-          socketRef.current?.emit('send_translation', {
+          socketRef.current.emit('send_translation', {
             fromUserId: user.uid,
             toUserId: m.uid,
             text: translated,
             lang: m.translateCode,
-            isFinal: false, // ❌ KHÔNG phát
+            isFinal: true,
           });
-          console.log("Emit to", m.uid, translated, "isFinal:", false); // hoặc false
-
         }
       });
     };
 
-    recognizer.recognized = async (s, e) => {
-      const text = e.result.text;
-      setText(text); // Ghi nhận đoạn đã hoàn tất
-    
-      for (const m of  filteredParticipants) {
-        const translated = e.result.translations.get(m.translateCode);
-        if (translated) {
-          socketRef.current?.emit('send_translation', {
-            fromUserId: user.uid,
-            toUserId: m.uid,
-            text: translated,
-            lang: m.translateCode,
-            isFinal: true, // ✅ Phát âm thanh
-          });
-          console.log("Emit to", m.uid, translated, "isFinal:", true); // hoặc false
-
-        }
-      }
-    };
-    recognizer.canceled = (s, e) => {
-      console.warn(`CANCELED: Reason=${e.reason}, Error=${e.errorDetails}`);
-      Alert.alert('Error', `CANCELED: Reason=${e.reason}, Error=${e.errorDetails}`);
-      stopAudio();
-    };
-    
-    
     recognizer.startContinuousRecognitionAsync();
     initializedRef.current = true;
   };
@@ -234,7 +162,7 @@ const VoiceCallScreen = ({ route }) => {
         <Text style={styles.head}>Meeting in progress</Text>
         <View style={styles.timeContainer}>
           <Icon name="schedule" size={18} color="#ffffff" />
-          <Text style={styles.callStatus}>{isListening ? 'Connected' : 'Disconnected'}</Text>
+          {/* <Text style={styles.callStatus}>{isListening ? 'Connected' : 'Disconnected'}</Text> */}
         </View>
       </View>
 
@@ -247,12 +175,12 @@ const VoiceCallScreen = ({ route }) => {
           </View>
         </View>
 
-        <View style={styles.translationContainer}>
+        <ScrollView style={styles.translationContainer}>
           <Text style={styles.translationLabel}>Live Transcription</Text>
           <Text style={styles.translationText}>{text || 'No speech detected'}</Text>
-        </View>
+        </ScrollView>
 
-        <View style={styles.participantsListContainer}>
+        {/* <View style={styles.participantsListContainer}>
           <Text style={styles.participantsHeader}>Participants ({participants.length + 1})</Text>
           <FlatList
             data={participants}
@@ -266,19 +194,19 @@ const VoiceCallScreen = ({ route }) => {
               </View>
             )}
           />
-        </View>
+        </View> */}
       </View>
 
       <View style={styles.controlsContainer}>
-        <TouchableOpacity style={styles.controlButton}><Icon name="videocam-off" size={24} color="#ffffff" /></TouchableOpacity>
+        {/* <TouchableOpacity style={styles.controlButton}><Icon name="videocam-off" size={24} color="#ffffff" /></TouchableOpacity> */}
         <TouchableOpacity onPress={isListening ? stopAudio : initializeAudio} style={[styles.controlButton, isListening && styles.endCallButton]}>
           <Icon name={isListening ? 'mic' : 'mic-off'} size={24} color="#ffffff" />
         </TouchableOpacity>
         <TouchableOpacity onPress={handleExitScreen} style={[styles.callButton, styles.endCallButton]}>
           <Icon name="call-end" size={28} color="#ffffff" />
         </TouchableOpacity>
-        <TouchableOpacity style={styles.controlButton}><Icon name="screen-share" size={24} color="#ffffff" /></TouchableOpacity>
-        <TouchableOpacity style={styles.controlButton}><Icon name="more-horiz" size={24} color="#ffffff" /></TouchableOpacity>
+        {/* <TouchableOpacity style={styles.controlButton}><Icon name="screen-share" size={24} color="#ffffff" /></TouchableOpacity> */}
+        {/* <TouchableOpacity style={styles.controlButton}><Icon name="more-horiz" size={24} color="#ffffff" /></TouchableOpacity> */}
       </View>
     </SafeAreaView>
   );
@@ -340,15 +268,15 @@ const styles = StyleSheet.create({
     fontWeight: '500',
   },
   micIndicator: {
-    position: 'absolute',
-    bottom: 5,
-    right: 'auto',
+    // position: 'absolute',
+    // bottom: 5,
+    // right: 'auto',
     borderRadius: 12,
     padding: 4,
   },
   translationContainer: {
     backgroundColor: 'rgba(255, 255, 255, 0.1)',
-    padding: 15,
+    paddingHorizontal: 15,
     borderRadius: 8,
     marginBottom: 20,
   },

@@ -11,7 +11,8 @@ import {
   StyleSheet,
   SafeAreaView,
   KeyboardAvoidingView,
-  Platform
+  Platform,
+  PermissionsAndroid
 } from "react-native";
 import firestore from "@react-native-firebase/firestore";
 import { launchImageLibrary } from "react-native-image-picker";
