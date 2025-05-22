@@ -23,6 +23,9 @@ import { useNavigation } from "@react-navigation/native";
 import Icon from "react-native-vector-icons/FontAwesome5";
 import CallStarter from "../components/VoiceStarter";
 import moment  from 'moment';
+import Loading from './../components/Loading';
+import FileUpload from "../components/UploadFile";
+import RNFS from 'react-native-fs';
 
 const ChatScreen = ({ route }: any) => {
   const { user } = useAuth();
@@ -85,6 +88,19 @@ const ChatScreen = ({ route }: any) => {
       }
     }
   };
+  const uploadFile = async (url: string, fileName: string) => {
+    await firestore()
+      .collection('chats')
+      .doc(chatId)
+      .collection('messages')
+      .add({
+        from: userId,
+        to: toUserId,
+        fileURL: url,
+        fileName: fileName,
+        timestamp: firestore.FieldValue.serverTimestamp(),
+      });
+  }
 
   // // Join Agora channel
   // const joinChannel = async () => {
@@ -187,6 +203,30 @@ const ChatScreen = ({ route }: any) => {
     setMessage("");
   };
 
+  const handleFileDownload = async (fileURL: string, fileName: string) => {
+    try {
+      const downloadDest =
+        Platform.OS === 'android'
+          ? `${RNFS.DownloadDirectoryPath}/${fileName}`
+          : `${RNFS.DocumentDirectoryPath}/${fileName}`;
+
+      const res = await RNFS.downloadFile({
+        fromUrl: fileURL,
+        toFile: downloadDest,
+      }).promise;
+
+      if (res.statusCode === 200) {
+        Alert.alert('Download success', `File in: ${downloadDest}`);
+      } else {
+        Alert.alert('Error', `Code: ${res.statusCode}`);
+      }
+    } catch (error) {
+      console.error('Download error:', error);
+      Alert.alert('Download error', 'Can not download file.');
+    }
+  };
+
+
   const handlePickImage = async () => {
     const result = await launchImageLibrary({ mediaType: 'photo' });
 
@@ -281,7 +321,11 @@ const ChatScreen = ({ route }: any) => {
             <Icon name="chevron-left" size={24} color="#5B72EF" />
           </TouchableOpacity>
           <TouchableOpacity style={{ flexDirection: 'row', alignItems: 'center' }} onPress={() => navigation.navigate('ChatMembers', {chatId: chatId, currentUserId: userId })}>
-          <AvatarButton imageUrl={avatar} style={styles.avatar} />
+          <Image  source={
+              avatar
+                ? { uri: avatar }
+                : require('../assets/default-avatar.png') 
+            } style={styles.avatar} />
           <Text style={styles.headerName}>{name}</Text>
 
 
@@ -300,89 +344,107 @@ const ChatScreen = ({ route }: any) => {
         
         {/* Messages */}
         <FlatList
-         data={groupMessagesByDate(messages)}
-  ref={flatListRef}
-  keyExtractor={(_, index) => index.toString()}
-  contentContainerStyle={styles.messagesList}
-  onContentSizeChange={() => {
-    if (messages.length > 0) {
-      flatListRef.current?.scrollToEnd({ animated: false });
-    }
-  }}
-  onLayout={() => {
-    if (messages.length > 0) {
-      flatListRef.current?.scrollToEnd({ animated: false });
-    }
-  }}
-  renderItem={({ item }) => {
-    if (item.type === 'date') {
-      return (
-        <View style={{ alignItems: 'center', marginVertical: 10 }}>
-          <Text style={{ fontSize: 12, color: '#7F8C9D' }}>
-            {formatDisplayDate(item.date)}
-          </Text>
-        </View>
-      );
-    }
+          data={groupMessagesByDate(messages)}
+          ref={flatListRef}
+          keyExtractor={(_, index) => index.toString()}
+          contentContainerStyle={styles.messagesList}
+          onContentSizeChange={() => {
+            if (messages.length > 0) {
+              flatListRef.current?.scrollToEnd({ animated: false });
+            }
+          }}
+          onLayout={() => {
+            if (messages.length > 0) {
+              flatListRef.current?.scrollToEnd({ animated: false });
+            }
+          }}
+          renderItem={({ item }) => {
+            if (item.type === 'date') {
+              return (
+                <View style={{ alignItems: 'center', marginVertical: 10 }}>
+                  <Text style={{ fontSize: 12, color: '#7F8C9D' }}>
+                    {formatDisplayDate(item.date)}
+                  </Text>
+                </View>
+              );
+            }
 
-    const isCurrentUser = item.from === userId;
-    const avatar = userAvatars[item.from] || '';
-    const userName = userNames[item.from] || "Unknown User";
+            const isCurrentUser = item.from === userId;
+            const avatar = userAvatars[item.from] || '';
+            const userName = userNames[item.from] || "Unknown User";
 
-    return (
-      <View style={[
-        styles.messageContainer,
-        isCurrentUser ? styles.sentContainer : styles.receivedContainer
-      ]}>
-        {!isCurrentUser && (
-          <Image
-            source={avatar ? { uri: avatar } : require('../assets/default-avatar.png')}
-            style={styles.messageAvatar}
-          />
-        )}
-        <View style={styles.messageContentContainer}>
-          {!isCurrentUser && (
-            <Text style={styles.messageSenderName}>{userName}</Text>
-          )}
-          {item.text && (
-            <View style={[
-              styles.messageBubble,
-              isCurrentUser ? styles.sentBubble : styles.receivedBubble
-            ]}>
-              <Text style={isCurrentUser ? styles.sentText : styles.receivedText}>
-                {item.text}
-              </Text>
-            </View>
-          )}
-          {item.imageUrl && (
-            <TouchableOpacity
-              onPress={() => setSelectedImage(item.imageUrl)}
-              style={[
-                styles.imageContainer,
-                isCurrentUser ? styles.sentImageContainer : styles.receivedImageContainer
-              ]}
-            >
-              <Image source={{ uri: item.imageUrl }} style={styles.imageMessage} resizeMode="cover" />
-            </TouchableOpacity>
-          )}
-          <Text style={[
-            styles.timeStamp,
-            { alignSelf: isCurrentUser ? 'flex-end' : 'flex-start' }
-          ]}>
-            {item.timestamp ? moment(item.timestamp.toDate()).format('HH:mm') : ''}
-          </Text>
-        </View>
-        {isCurrentUser && (
-          <Image source={{ uri: currentAvatar }} style={styles.messageAvatar} />
-        )}
-      </View>
-    );
-  }}
-/>
+            return (
+              <View style={[
+                styles.messageContainer,
+                isCurrentUser ? styles.sentContainer : styles.receivedContainer
+              ]}>
+                {!isCurrentUser && (
+                  <Image
+                    source={avatar ? { uri: avatar } : require('../assets/default-avatar.png')}
+                    style={styles.messageAvatar}
+                  />
+                )}
+                <View style={styles.messageContentContainer}>
+                  {!isCurrentUser && (
+                    <Text style={styles.messageSenderName}>{userName}</Text>
+                  )}
+                  {item.text && (
+                    <View style={[
+                      styles.messageBubble,
+                      isCurrentUser ? styles.sentBubble : styles.receivedBubble
+                    ]}>
+                      <Text style={isCurrentUser ? styles.sentText : styles.receivedText}>
+                        {item.text}
+                      </Text>
+                    </View>
+                  )}
+                  {item.imageUrl && (
+                    <TouchableOpacity
+                      onPress={() => setSelectedImage(item.imageUrl)}
+                      style={[
+                        styles.imageContainer,
+                        isCurrentUser ? styles.sentImageContainer : styles.receivedImageContainer
+                      ]}
+                    >
+                      <Image source={{ uri: item.imageUrl }} style={styles.imageMessage} resizeMode="cover" />
+                    </TouchableOpacity>
+                  )}
+                  {item.fileURL && (
+                    <TouchableOpacity
+                      onPress={() => handleFileDownload(item.fileURL, item.fileName)}
+                      style={[
+                        styles.fileContainer,
+                        isCurrentUser ? styles.sentFileContainer : styles.receivedFileContainer
+                      ]}
+                    >
+                      <View style={styles.fileIconContainer}>
+                        <Icon name="file" size={24} color="#4285F4" />
+                      </View>
+                      <Text style={styles.fileName} numberOfLines={1} ellipsizeMode="middle">
+                        {item.fileName || 'File'}
+                      </Text>
+                    </TouchableOpacity>
+                  )}
+                  <Text style={[
+                    styles.timeStamp,
+                    { alignSelf: isCurrentUser ? 'flex-end' : 'flex-start' }
+                  ]}>
+                    {item.timestamp ? moment(item.timestamp.toDate()).format('HH:mm') : ''}
+                  </Text>
+                </View>
+                {isCurrentUser && (
+                  <Image source = {user?.avatar?.url ? { uri: user?.avatar?.url } : require('../assets/default-avatar.png')} style={styles.messageAvatar} />
+                )}
+              </View>
+            );
+          }}
+        />
 
 
         {/* Input Area */}
         <View style={styles.inputContainer}>
+          <FileUpload onFileUploaded={(url, fileName) => uploadFile(url, fileName)} />
+
           <TouchableOpacity onPress={handlePickImage} style={styles.attachButton}>
             <Icon name="file-image" size={18} color="#5B72EF" />
           </TouchableOpacity>
@@ -564,6 +626,33 @@ const styles = StyleSheet.create({
     color: '#95A5A6',
     marginTop: 4,
     marginHorizontal: 4
+  },
+  fileContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 10,
+    borderRadius: 8,
+    marginBottom: 5,
+    maxWidth: '80%',
+  },
+  sentFileContainer: {
+    backgroundColor: '#DCF8C6',
+    alignSelf: 'flex-end',
+    width: 140,
+  },
+  receivedFileContainer: {
+    backgroundColor: '#ECECEC',
+    alignSelf: 'flex-start',
+    width: 'auto',
+    maxWidth: '80%',
+  },
+  fileIconContainer: {
+    marginRight: 10,
+  },
+  fileName: {
+    fontSize: 14,
+    color: '#333',
+    flex: 1,
   },
   inputContainer: {
     flexDirection: 'row',

@@ -22,19 +22,31 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
  
   
   useEffect(() => {
-    const unsubscribe = auth().onAuthStateChanged(async (user) => {
-      setUser(user);
-      if (user) {
-        const userDoc = await firestore().collection('users').doc(user.uid).get();
-        const data = userDoc.data();
-        setRole(data?.role ?? null);
+    const unsubscribeAuth = auth().onAuthStateChanged((authUser) => {
+      setUser(authUser);
+      setLoading(false);
+
+      if (authUser) {
+        const unsubscribeDoc = firestore()
+          .collection('users')
+          .doc(authUser.uid)
+          .onSnapshot(doc => {
+            const data = doc.data();
+            setRole(data?.role ?? null);
+
+            setUser({
+              uid: authUser.uid,
+              ...data
+            })
+          });
+
+        return unsubscribeDoc;
       } else {
         setRole(null);
       }
-      setLoading(false);
     });
 
-    return unsubscribe;
+    return unsubscribeAuth;
   }, []);
 
   const signIn = async (email: string, password: string) => {

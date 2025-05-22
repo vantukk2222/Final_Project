@@ -3,23 +3,73 @@ import { View, Text, Modal, TouchableOpacity, FlatList, Pressable, StyleSheet, T
 import { useNavigation } from '@react-navigation/native';
 import firestore from '@react-native-firebase/firestore';
 import { combinedLanguages } from '../contains/lan_code';
-import Icon  from 'react-native-vector-icons/FontAwesome5';
+import Icon from 'react-native-vector-icons/FontAwesome5';
 import Loading from './Loading';
+import { useAuth } from '../contexts/AuthContext';
+
+type Language = {
+  code: string;
+  transCode: string;
+  name: string;
+};
+
+type Member = {
+  uid: string;
+  email: string;
+  displayName: string;
+  photoURL: string;
+  language: string;
+  translateCode: string;
+  role: string;
+};
+
+type UserProps = {
+  uid: string;
+  email: string;
+  displayName: string;
+  photoURL: string;
+  _user?: {
+    uid: string;
+    email: string;
+    displayName: string;
+    photoURL: string;
+  };
+};
 
 const CallStarter = ({ user, chatId }) => {
   const navigation = useNavigation();
-
   const [langModalVisible, setLangModalVisible] = useState(false);
   const [selectedLang, setSelectedLang] = useState(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [filteredLanguages, setFilteredLanguages] = useState(combinedLanguages);
   const [loading, setLoading] = useState(false);
- 
+  const [participants, setParticipants] = useState([]);
+
+  useEffect(() => {
+    const unsubscribe = firestore()
+      .collection('users')
+      .doc(user.uid)
+      .onSnapshot(doc => {
+        const data = doc.data();
+        if (data) {
+          console.log("datâ ", data);
+          setSelectedLang({
+            code: data.language,
+            transCode: data.translateCode,
+            name: combinedLanguages.find(lang => lang.code === data.language)?.name || 'Unknown',
+          });
+        }
+      });
+
+    return () => unsubscribe();
+  },[chatId]);
+
+
   useEffect(() => {
     if (searchQuery.trim() === '') {
       setFilteredLanguages(combinedLanguages);
     } else {
-      const filtered = combinedLanguages.filter(lang => 
+      const filtered = combinedLanguages.filter(lang =>
         lang.name.toLowerCase().includes(searchQuery.toLowerCase())
       );
       setFilteredLanguages(filtered);
@@ -29,27 +79,28 @@ const CallStarter = ({ user, chatId }) => {
   const openLanguageModal = () => {
     setLangModalVisible(true);
   };
-
-  const confirmLanguageAndNavigate = async () => {
+ const confirmLanguageAndNavigate = async () => {
     setLoading(true);
-    console.log('Selected Language:', selectedLang);
-    if (!selectedLang) return;
+    if (!selectedLang) {
+      setLoading(false);
+      return;
+    }
+    
     setLangModalVisible(false);
-    const updatedUser = {
-      uid: user.uid || user._user?.uid,
-      email: user.email || user._user?.email,
-      displayName: user.displayName || user._user?.displayName,
-      photoURL: user.photoURL || user._user?.photoURL,
+    const updatedUser: Member = {
+      uid: user.uid || user._user?.uid || '',
+      email: user.email || user._user?.email || '',
+      displayName: user.displayName || user._user?.displayName || '',
+      photoURL: user.photoURL || user._user?.photoURL || '',
       language: selectedLang.code,
       translateCode: selectedLang.transCode,
       role: 'member',
     };
 
     const meetingRef = firestore().collection('meetings').doc(chatId);
-    let updatedMembers;
+    let updatedMembers: Member[];
 
     try {
-      console.log('Meeting ID:', chatId);
       const doc = await meetingRef.get();
       if (!doc.exists) {
         updatedUser.role = 'admin';
@@ -60,40 +111,46 @@ const CallStarter = ({ user, chatId }) => {
         });
       } else {
         const currentMembers = doc.data()?.members || [];
-        const alreadyExists = currentMembers.find((m) => m.uid === updatedUser.uid);
+        const alreadyExists = currentMembers.find(
+          (m: Member) => m.uid === updatedUser.uid,
+        );
 
         if (alreadyExists) {
-          updatedMembers = currentMembers.map((m) =>
-            m.uid === updatedUser.uid ? updatedUser : m
+          updatedMembers = currentMembers.map((m: Member) =>
+            m.uid === updatedUser.uid ? updatedUser : m,
           );
         } else {
           updatedMembers = [...currentMembers, updatedUser];
         }
-        console.log('Updated Members:', updatedMembers);
-        await meetingRef.update({ members: updatedMembers });
-        setLoading(false);
+        await meetingRef.update({members: updatedMembers});
+      }
+      
+      if (user.uid) {
+        await firestore().collection('users').doc(user.uid).update({
+          language: selectedLang.code,
+          translateCode: selectedLang.transCode,
+        });
+        await firestore().collection('meetings').doc(chatId).set({
+          updatedAt: Date.now(),
+        }, { merge: true });
       }
 
+      setLoading(false);
+
       navigation.navigate('VoiceCall', {
-        user: updatedUser,
         meetingId: chatId,
-        participants: updatedMembers,
       });
     } catch (err) {
       setLoading(false);
       console.error('Lỗi khi cập nhật Firestore:', err);
     }
   };
+
+
   return (
     <View style={styles.container}>
       <TouchableOpacity onPress={openLanguageModal} style={styles.callButton}>
-        {/* <Text style={styles.callButtonText}>Call</Text> */}
-        {/* <Icon></Icon> */}
-        <Icon name="phone" size={24} color="#fff" 
-          style={{ transform: [{ rotate: '90deg' }] }}
-
-        />
-        
+        <Icon name="phone" size={24} color="#fff" style={{ transform: [{ rotate: '90deg' }] }} />
       </TouchableOpacity>
       <Loading isLoading={loading} />
       <Modal visible={langModalVisible} transparent animationType="fade">
@@ -101,49 +158,57 @@ const CallStarter = ({ user, chatId }) => {
           <View style={styles.modalContent}>
             <Text style={styles.modalTitle}>Select Your Language</Text>
             <View style={styles.separator} />
-            
             <TextInput
               style={styles.searchInput}
-              placeholderTextColor="#A0A3BD" // 🎯 màu bạn muốn
+              placeholderTextColor="#A0A3BD"
               placeholder="Search language..."
               value={searchQuery}
               onChangeText={setSearchQuery}
               clearButtonMode="while-editing"
             />
-
             <FlatList
               data={filteredLanguages}
-              keyExtractor={(item) => item.code}
+              keyExtractor={item => item.code}
               style={styles.languageList}
               showsVerticalScrollIndicator={false}
+              initialScrollIndex={selectedLang ? filteredLanguages.findIndex(lang => lang.code === selectedLang.code) : 0}
+              getItemLayout={(data, index) => ({
+              length: 53, // height of item plus margin
+              offset: 53 * index,
+              index,
+              })}
+              onScrollToIndexFailed={info => {
+              setTimeout(() => {
+                if (filteredLanguages.length > 0) {
+                const ref = info.averageItemLength * info.index;
+                this.flatListRef.scrollToOffset({ offset: ref, animated: true });
+                }
+              }, 100);
+              }}
+              ref={ref => { this.flatListRef = ref; }}
               renderItem={({ item }) => (
-                <Pressable
-                  style={[
-                    styles.languageItem,
-                    selectedLang?.code === item.code && styles.selectedLanguage,
-                  ]}
-                  onPress={() => setSelectedLang(item)}
+              <Pressable
+                style={[
+                styles.languageItem,
+                selectedLang?.code === item.code && styles.selectedLanguage,
+                ]}
+                onPress={() => setSelectedLang(item)}
+              >
+                <Text
+                style={[
+                  styles.languageText,
+                  selectedLang?.code === item.code && styles.selectedLanguageText,
+                ]}
                 >
-                  <Text
-                    style={[
-                      styles.languageText,
-                      selectedLang?.code === item.code && styles.selectedLanguageText,
-                    ]}
-                  >
-                    {item.name}
-                  </Text>
-                </Pressable>
+                {item.name}
+                </Text>
+              </Pressable>
               )}
             />
-
             <View style={styles.buttonContainer}>
-              <TouchableOpacity
-                onPress={() => setLangModalVisible(false)}
-                style={styles.cancelButton}
-              >
+              <TouchableOpacity onPress={() => setLangModalVisible(false)} style={styles.cancelButton}>
                 <Text style={styles.buttonText}>Cancel</Text>
               </TouchableOpacity>
-
               <TouchableOpacity
                 onPress={confirmLanguageAndNavigate}
                 style={[styles.confirmButton, !selectedLang && styles.disabledButton]}
@@ -288,5 +353,6 @@ const styles = StyleSheet.create({
     fontSize: 16,
   },
 });
+
 
 export default CallStarter;

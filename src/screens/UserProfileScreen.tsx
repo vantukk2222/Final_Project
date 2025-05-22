@@ -6,12 +6,15 @@ import { useAuth } from '../contexts/AuthContext';
 import { handleImageUpload } from '../utils/imageUpload';
 import Icon from 'react-native-vector-icons/FontAwesome5';
 import Loading from '../components/Loading';
+import { useNavigation } from '@react-navigation/native';
 
 const UserProfileScreen = () => {
-  const { user } = useAuth();
+  const { user, signOut } = useAuth();
+  const navigation = useNavigation();
   const userId = user?.uid;
 
   const [name, setName] = useState('');
+  const [email, setEmail] = useState('');
   const [bio, setBio] = useState('');
   const [avatarUrl, setAvatarUrl] = useState('');
   const [loading, setLoading] = useState(false);
@@ -25,8 +28,8 @@ const UserProfileScreen = () => {
         const doc = await firestore().collection('users').doc(userId).get();
         const data = doc.data();
         if (data) {
-          console.log("User data:", data);
           setName(data?.name || '');
+          setEmail(data?.email || '');
           setBio(data?.bio || '');
           setAvatarUrl(data?.avatar || '');
         }
@@ -90,7 +93,13 @@ const UserProfileScreen = () => {
     <SafeAreaView style={styles.container}>
       <ScrollView contentContainerStyle={styles.content}>
         <View style={styles.header}>
+          <TouchableOpacity onPress={() => {
+            navigation.goBack();
+          }} style={styles.headerIcon}>
+            <Icon name="arrow-left" size={24} color="#333" />
+          </TouchableOpacity>
           <Text style={styles.headerTitle}>Your Profile</Text>
+          <View></View>
         </View>
         
         <TouchableOpacity onPress={handlePickImage} style={styles.avatarContainer}>
@@ -107,8 +116,13 @@ const UserProfileScreen = () => {
           </View>
         </TouchableOpacity>
         <Loading isLoading={uploading} />
-
         <View style={styles.card}>
+          <View style={styles.inputGroup}>
+            <Text style={styles.label}>Email</Text>
+            <Text
+              style={styles.input}
+            >{email}</Text>
+          </View>
           <View style={styles.inputGroup}>
             <Text style={styles.label}>Full Name</Text>
             <TextInput
@@ -119,7 +133,6 @@ const UserProfileScreen = () => {
               placeholderTextColor="#aaa"
             />
           </View>
-
           <View style={styles.inputGroup}>
             <Text style={styles.label}>Bio</Text>
             <TextInput
@@ -131,21 +144,26 @@ const UserProfileScreen = () => {
               multiline
             />
           </View>
-
-          <TouchableOpacity 
-            style={[styles.saveButton, loading && styles.saveButtonDisabled]} 
-            onPress={handleSave} 
-            disabled={loading}
-          >
-            {loading ? (
-              <ActivityIndicator color="#fff" />
-            ) : (
-              <>
-                <Icon name="save" size={16} color="#fff" style={styles.buttonIcon} />
-                <Text style={styles.saveButtonText}>Save Changes</Text>
-              </>
-            )}
-          </TouchableOpacity>
+          <View style={styles.buttonRow}>
+            <TouchableOpacity 
+              style={[styles.saveButton, loading && styles.saveButtonDisabled]} 
+              onPress={handleSave} 
+              disabled={loading}
+            >
+              {loading ? (
+                <ActivityIndicator color="#fff" />
+              ) : (
+                <>
+                  <Icon name="save" size={16} color="#fff" style={styles.buttonIcon} />
+                  <Text style={styles.saveButtonText}>Save</Text>
+                </>
+              )}
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.logoutButton} onPress={signOut}>
+              <Icon name="sign-out-alt" size={16} color="#fff" style={styles.buttonIcon} />
+              <Text style={styles.logoutText}>Logout</Text>
+            </TouchableOpacity>
+          </View>
         </View>
       </ScrollView>
     </SafeAreaView>
@@ -153,6 +171,7 @@ const UserProfileScreen = () => {
 };
 
 const styles = StyleSheet.create({
+
   container: {
     flex: 1,
     backgroundColor: '#f0f6ff',
@@ -162,9 +181,15 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   header: {
+    display: 'flex',
+    flexDirection: 'row',
+    justifyContent: 'space-between',
     width: '100%',
     marginBottom: 20,
     alignItems: 'center',
+  },
+  headerIcon: {
+    padding: 10,
   },
   headerTitle: {
     fontSize: 24,
@@ -233,27 +258,55 @@ const styles = StyleSheet.create({
     height: 120,
     textAlignVertical: 'top',
   },
+  buttonRow: {
+  flexDirection: 'row',
+  justifyContent: 'space-between',
+  paddingHorizontal: 16,
+  marginTop: 20,
+},
+
   saveButton: {
-    marginTop: 10,
+    flex: 1,
     backgroundColor: '#4AC6D0',
-    paddingVertical: 15,
+    paddingVertical: 14,
     borderRadius: 12,
-    elevation: 3,
     flexDirection: 'row',
     justifyContent: 'center',
     alignItems: 'center',
+    marginRight: 8,
   },
+
   saveButtonDisabled: {
     backgroundColor: '#80c4cb',
   },
+
+  logoutButton: {
+    flex: 1,
+    backgroundColor: '#ff6b6b',
+    paddingVertical: 14,
+    borderRadius: 12,
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginLeft: 8,
+  },
+
   buttonIcon: {
     marginRight: 8,
   },
+
   saveButtonText: {
     color: '#fff',
     fontSize: 16,
     fontWeight: 'bold',
   },
+
+  logoutText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: 'bold',
+  },
+
 });
 
 export default UserProfileScreen;

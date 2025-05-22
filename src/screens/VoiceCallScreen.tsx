@@ -20,9 +20,12 @@ import { speakTranslation } from '../api/SpeakText';
 import Icon from 'react-native-vector-icons/MaterialIcons';
 import { useNavigation } from '@react-navigation/native';
 import io from 'socket.io-client';
+import { useAuth } from '../contexts/AuthContext';
+import firestore from '@react-native-firebase/firestore';
 const VoiceCallScreen = ({ route }) => {
   const navigation = useNavigation();
-  const { user, meetingId, participants } = route.params;
+  const { meetingId } = route.params;
+  const {user} = useAuth();
   const key = '1qepnQJBmBjwMzXHkIzvzbLOkpL9Kb8TfRAavmA8Z9VlanYj8WegJQQJ99BCACYeBjFXJ3w3AAAYACOG6bxW';
   const region = 'eastus';
   const [text, setText] = useState('');
@@ -32,10 +35,66 @@ const VoiceCallScreen = ({ route }) => {
   const socketRef = useRef(null);
   const audioQueue = useRef([]);
   const isPlayingRef = useRef(false);
+  const [participants, setParticipants] = useState([]);
 
   const channels = 1;
   const bitsPerChannel = 16;
   const sampleRate = 16000;
+  useEffect(() => {
+    const unsubscribe = firestore()
+      .collection('meetings')
+      .doc(meetingId)
+      .onSnapshot(async (doc) => {
+        if (doc.exists) {
+          console.log("meetingId", meetingId);
+          const data = doc.data();
+          console.log('Meeting data:', data);
+          const uids = data.members?.flatMap(m => m.uid !== user.uid ? m.uid : []) || [];
+
+          console.log('uids', uids);
+
+          if (uids.length === 0) {
+            setParticipants([]);
+            return;
+          }
+
+          const batchSize = 10;
+          const batches = [];
+
+          for (let i = 0; i < uids.length; i += batchSize) {
+            const batch = uids.slice(i, i + batchSize);
+            const query = firestore()
+              .collection('users')
+              .where(firestore.FieldPath.documentId(), 'in', batch)
+              .get();
+            batches.push(query);
+          }
+
+          try {
+            const snapshots = await Promise.all(batches);
+            const users = snapshots.flatMap(snap =>
+              snap.docs.map(doc => ({
+                uid: doc.id,
+                ...doc.data(),
+              }))
+            );
+
+            setParticipants(users);
+          } catch (error) {
+            console.error('Error fetching users:', error);
+          }
+
+        } else {
+          console.warn('Meeting document does not exist.');
+          setParticipants([]);
+        }
+      }, error => {
+        console.error('Firestore listener error:', error);
+      });
+
+    return () => unsubscribe();
+  }, [meetingId]);
+
 
   const playFromQueue = async () => {
     if (isPlayingRef.current || audioQueue.current.length === 0) return;
@@ -54,7 +113,7 @@ const VoiceCallScreen = ({ route }) => {
   };
 
   useEffect(() => {
-    const socket = io('http://192.168.2.82:3001');
+    const socket = io('http://192.168.1.15:3001');
     socketRef.current = socket;
 
     socket.on('connect', () => {
@@ -92,7 +151,6 @@ const VoiceCallScreen = ({ route }) => {
 
   const initializeAudio = async () => {
     if (!(await checkPermissions()) || initializedRef.current) return;
-
     setIsListening(true);
     const pushStream = AudioInputStream.createPushStream();
     AudioRecord.init({ sampleRate, channels, bitsPerChannel, audioSource: 7 });
@@ -101,12 +159,21 @@ const VoiceCallScreen = ({ route }) => {
 
     const config = SpeechTranslationConfig.fromSubscription(key, region);
     config.speechRecognitionLanguage = user.language;
-    participants.filter(m => m.uid !== user.uid).forEach(m => config.addTargetLanguage(m.translateCode));
+    (participants || []).filter(m => m.uid !== user.uid).forEach(m => {
+      if (m.translateCode) {
+      config.addTargetLanguage(m.translateCode);
+      }
+    });
+    if (!config.targetLanguages || config.targetLanguages.length === 0) {
+      config.addTargetLanguage('en');
+    }
 
     const recognizer = new TranslationRecognizer(config, AudioConfig.fromStreamInput(pushStream));
+
     recognizerRef.current = recognizer;
 
     recognizer.recognizing = (s, e) => {
+      console.log('Recognizing:', e.result.text);
       setText(e.result.text);
     };
 
@@ -168,7 +235,7 @@ const VoiceCallScreen = ({ route }) => {
 
       <View style={styles.callArea}>
         <View style={styles.participantContainer}>
-          <View style={styles.avatar}><Text style={styles.avatarText}>{user.name?.charAt(0) || 'You'}</Text></View>
+          <View style={styles.avatar}><Text style={styles.avatarText}>{user.name?.charAt(0)|| user?.email?.charAt(0).toUpperCase() || 'You'}</Text></View>
           <Text style={styles.participantName}>{user.name || 'You'}</Text>
           <View style={[styles.micIndicator, { backgroundColor: isListening ? '#6264A7' : '#555555' }]}>
             <Icon name={isListening ? 'mic' : 'mic-off'} size={16} color="#ffffff" />
