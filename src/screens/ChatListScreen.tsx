@@ -21,6 +21,7 @@ import AvatarButton from "../components/AvatarButton";
 import Icon from "react-native-vector-icons/FontAwesome5";
 import Loading from './../components/Loading';
 import { set } from "react-hook-form";
+import ChatOptionsModal from "../components/ChatOptionsModal";
 
 const ChatListScreen = () => {
   const navigation = useNavigation<any>();
@@ -36,7 +37,8 @@ const ChatListScreen = () => {
   const [groupName, setGroupName] = useState('');
   const [searchVisible, setSearchVisible] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
-
+  const [modalVisible, setModalVisible] = useState(false);
+  const [selectedChat, setSelectedChat] = useState(null);
 
 
   useEffect(() => {
@@ -140,6 +142,8 @@ const ChatListScreen = () => {
       .filter(Boolean);
 
     if (emails.length === 0) {
+      setLoading(false);
+
       Alert.alert("Error", "Please enter at least one email.");
       return;
     }
@@ -153,8 +157,11 @@ const ChatListScreen = () => {
       const users = usersSnapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
       const foundEmails = users.map((u) => u.email?.toLowerCase());
       const notFound = emails.filter((email) => !foundEmails.includes(email));
-
+  
       if (notFound.length > 0) {
+        setGroupName("");
+        setInputEmails("");
+        setLoading(false);
         Alert.alert("Error", `Emails not found: ${notFound.join(", ")}`);
         return;
       }
@@ -197,8 +204,70 @@ const ChatListScreen = () => {
       setLoading(false);
     } catch (err) {
       console.error(err);
+      setLoading(false);
+      setGroupName("");
+      setInputEmails("");
+
       Alert.alert("Error", "Failed to create chat. Check that emails exist.");
     }
+    finally {
+      setLoading(false);
+      setGroupName("");
+      setInputEmails("");
+    }
+     
+  };
+  
+  const onLongPressItem = (item) => {
+    setSelectedChat(item);
+    setModalVisible(true);
+  };
+
+  const deleteChat = (id) => {
+    setModalVisible(false);
+    Alert.alert('Xoá', `Xoá chat có id: ${id}`);
+  };
+
+  const renderItem = ({ item }) => {
+    const otherEmails = item.memberEmails?.filter(
+      (email, index) => item.members[index] !== user?.uid
+    );
+    const chatName = item.isGroup ? item.name || 'Group Chat' : `${otherEmails?.join(', ')}`;
+    let firstLetter = '';
+    if(item.lastSenderName && (user?.email == item?.lastSenderName || user?.name == item?.lastSenderName))
+    {
+      firstLetter = 'You: ' + item?.lastMessage 
+    }
+    else if (item.lastSenderName) {
+      firstLetter = item?.lastSenderName + ': ' + item?.lastMessage
+    }
+    else {
+      firstLetter = "Let's explore together!";
+    }
+    return (
+      <TouchableOpacity
+        style={styles.chatItem}
+        onPress={() => navigation.navigate('Chat', {
+          chatId: item.id,
+          toUserId: item.members.find(id => id !== user?.uid),
+          name: chatName,
+          avatar: item.avatar,
+          currentAvatar: avatarUrl,
+        })}
+        onLongPress={() => onLongPressItem(item)}
+        delayLongPress={300} 
+      >
+        <AvatarButton
+          imageUrl={item.avatar}
+          size={50}
+          style={styles.chatAvatar}
+        />
+        <View style={styles.chatInfo}>
+          <Text style={styles.chatName}>{chatName}</Text>
+          <Text style={styles.lastMessage}>{ firstLetter}</Text>
+        </View>
+      </TouchableOpacity>
+    );
   };
 
   const renderEmptyList = () => (
@@ -248,40 +317,21 @@ const ChatListScreen = () => {
       </View>
 
       <Loading isLoading={loading} />
+      <ChatOptionsModal
+        visible={modalVisible}
+        onClose={() => setModalVisible(false)}
+        onDelete={() => deleteChat(selectedChat?.id)}
+        onViewInfo={() => {
+          setModalVisible(false);
+          navigation.navigate('ChatInfo', { chatId: selectedChat?.id });
+        }}
+      />
       <FlatList
         data={filteredChats}
         keyExtractor={(item) => item.id}
         contentContainerStyle={styles.listContent}
         ListEmptyComponent={renderEmptyList}
-        renderItem={({ item }) => {
-          const otherEmails = item.memberEmails?.filter(
-            (email: string, index: number) => item.members[index] !== user?.uid
-          );
-          const chatName = item.isGroup ? item.name || "Group Chat" : `${otherEmails?.join(", ")}`;
-
-          return (
-            <TouchableOpacity
-              style={styles.chatItem}
-              onPress={() => navigation.navigate("Chat", {
-                chatId: item.id,
-                toUserId: item.members.find((id: string) => id !== user?.uid),
-                name: chatName,
-                avatar: item.avatar,
-                currentAvatar: avatarUrl,
-              })}
-            >
-              <AvatarButton
-                imageUrl={item.avatar}
-                size={50}
-                style={styles.chatAvatar}
-              />
-              <View style={styles.chatInfo}>
-                <Text style={styles.chatName}>{chatName}</Text>
-                <Text style={styles.lastMessage}>{item.lastMessage?.text || "Let's explore together!"}</Text>
-              </View>
-            </TouchableOpacity>
-          );
-        }}
+        renderItem={renderItem}
       />
 
       {/* <View style={styles.inputContainer}> */}

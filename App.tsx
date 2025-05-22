@@ -1,14 +1,16 @@
 // App.tsx
-import React from 'react';
+import React, { useEffect } from 'react';
 import { NavigationContainer } from '@react-navigation/native';
 import { ActivityIndicator, View } from 'react-native';
 import { AuthProvider, useAuth } from './src/contexts/AuthContext';
 import RootNavigator from './src/navigation/RootNavigator';
-import SocketClient from './src/components/SocketClient';
+import SocketClient from './src/services/socketClient';
+import NotificationModal from './src/components/NotificationModal';
 
 const AppContent = () => {
+  
   const { loading } = useAuth();
-
+  
   if (loading) {
     return (
       <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
@@ -23,8 +25,9 @@ const AppContent = () => {
 export default function App() {
   return (
     <AuthProvider>
-      {/* <SocketClient /> */}
       <NavigationContainer>
+        <SocketClient />
+        {/* <NotificationModal /> */}
         <AppContent />
       </NavigationContainer>
     </AuthProvider>

@@ -13,6 +13,7 @@ import {
   FlatList,
   Alert,
   ScrollView,
+  BackHandler,
 } from 'react-native';
 import AudioRecord from 'react-native-live-audio-stream';
 import { AudioConfig, AudioInputStream, SpeechTranslationConfig, TranslationRecognizer } from 'microsoft-cognitiveservices-speech-sdk';
@@ -22,6 +23,7 @@ import { useNavigation } from '@react-navigation/native';
 import io from 'socket.io-client';
 import { useAuth } from '../contexts/AuthContext';
 import firestore from '@react-native-firebase/firestore';
+
 const VoiceCallScreen = ({ route }) => {
   const navigation = useNavigation();
   const { meetingId } = route.params;
@@ -117,8 +119,12 @@ const VoiceCallScreen = ({ route }) => {
     socketRef.current = socket;
 
     socket.on('connect', () => {
-      socket.emit('register', user.uid);
-      console.log('Connected to socket server, registered user:', user.uid);
+        socketRef.current.emit('register', {
+          userId: user.uid,
+          fcmToken: user.fcmToken,
+          from: 'voiceStart',
+        });
+        console.log('Connected to socket server, registered user:', user.uid);
     });
 
     socket.on('connect_error', (error) => {
@@ -208,9 +214,27 @@ const VoiceCallScreen = ({ route }) => {
   };
 
   useEffect(() => () => { if (isListening) stopAudio(); }, [isListening]);
-
+  const handleBackPress = () => {
+    Alert.alert(
+      'Exit Meeting',
+      'Are you sure you want to exit the meeting?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'OK', onPress: handleExitScreen },
+      ],
+      { cancelable: false }
+    );
+    return true;
+  };
+  useEffect(() => {
+    const backHandler = BackHandler.addEventListener('hardwareBackPress', handleBackPress);
+    return () => backHandler.remove();
+  }, []);
   const handleExitScreen = () => {
     if (isListening) stopAudio();
+    // delete members from meetings of firestore
+  
+
     navigation.goBack();
   };
 

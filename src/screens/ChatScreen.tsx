@@ -100,6 +100,17 @@ const ChatScreen = ({ route }: any) => {
         fileName: fileName,
         timestamp: firestore.FieldValue.serverTimestamp(),
       });
+    // add last message to the chat
+    await firestore()
+      .collection('chats')
+      .doc(chatId)
+      .set({
+        lastMessage: fileName,
+        lastMessageTime: firestore.FieldValue.serverTimestamp(),
+        lastSender: userId,
+        lastSenderName: user?.name || user?.email,
+        messageType: 'file',
+      }, { merge: true });
   }
 
   // // Join Agora channel
@@ -199,6 +210,18 @@ const ChatScreen = ({ route }: any) => {
         text: message,
         timestamp: firestore.FieldValue.serverTimestamp(),
       });
+    // add last message to the chat
+    await firestore()
+      .collection("chats")
+      .doc(chatId)
+      .set({
+        lastMessage: message,
+        lastMessageTime: firestore.FieldValue.serverTimestamp(),
+        lastSenderName: user?.name || user?.email,
+        lastSender: userId,
+        messageType: "text",
+      }, { merge: true });
+
 
     setMessage("");
   };
@@ -267,6 +290,17 @@ const ChatScreen = ({ route }: any) => {
             imageUrl: json.secure_url,
             timestamp: firestore.FieldValue.serverTimestamp(),
           });
+        // add last message to the chat
+        await firestore()
+          .collection('chats')
+          .doc(chatId)
+          .set({
+            lastMessage: 'Image',
+            lastMessageTime: firestore.FieldValue.serverTimestamp(),
+            lastSenderName: user?.name || user?.email,
+            lastSender: userId,
+            messageType: 'image',
+          }, { merge: true });
       } else {
         console.error('Upload failed:', json);
         Alert.alert('Upload failed', json.error?.message || 'Unknown error');

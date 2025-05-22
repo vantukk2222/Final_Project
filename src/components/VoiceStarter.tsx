@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { View, Text, Modal, TouchableOpacity, FlatList, Pressable, StyleSheet, TextInput } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import firestore from '@react-native-firebase/firestore';
@@ -6,6 +6,9 @@ import { combinedLanguages } from '../contains/lan_code';
 import Icon from 'react-native-vector-icons/FontAwesome5';
 import Loading from './Loading';
 import { useAuth } from '../contexts/AuthContext';
+import messaging from '@react-native-firebase/messaging';
+import { io } from 'socket.io-client';
+const SOCKET_SERVER_URL = 'http://192.168.1.15:3001';
 
 type Language = {
   code: string;
@@ -44,6 +47,7 @@ const CallStarter = ({ user, chatId }) => {
   const [filteredLanguages, setFilteredLanguages] = useState(combinedLanguages);
   const [loading, setLoading] = useState(false);
   const [participants, setParticipants] = useState([]);
+  const socketRef = useRef(null);
 
   useEffect(() => {
     const unsubscribe = firestore()
@@ -64,6 +68,42 @@ const CallStarter = ({ user, chatId }) => {
     return () => unsubscribe();
   },[chatId]);
 
+  useEffect(() => {
+    async function setupSocket() {
+      // Lấy token FCM
+      const fcmToken = await messaging().getToken();
+      console.log('FCM Token ne:', fcmToken);
+
+      // Kết nối socket
+      socketRef.current = io(SOCKET_SERVER_URL);
+
+      socketRef.current.on('connect', () => {
+        console.log('Socket connected:', socketRef.current.id);
+
+        socketRef.current.emit('register', {
+          userId: user.uid,
+          fcmToken,
+          from: 'voiceStart',
+        });
+      });
+
+      socketRef.current.on('connect_error', (error) => {
+        console.error('Socket connection error:', error);
+      });
+    }
+
+    if (user?.uid) {
+      setupSocket();
+    }
+
+    return () => {
+      if (socketRef.current) {
+        socketRef.current.disconnect();
+      }
+    };
+  }, [user]);
+
+
 
   useEffect(() => {
     if (searchQuery.trim() === '') {
@@ -79,13 +119,13 @@ const CallStarter = ({ user, chatId }) => {
   const openLanguageModal = () => {
     setLangModalVisible(true);
   };
- const confirmLanguageAndNavigate = async () => {
+  const confirmLanguageAndNavigate = async () => {
     setLoading(true);
     if (!selectedLang) {
       setLoading(false);
       return;
     }
-    
+
     setLangModalVisible(false);
     const updatedUser: Member = {
       uid: user.uid || user._user?.uid || '',
@@ -109,6 +149,7 @@ const CallStarter = ({ user, chatId }) => {
           createdBy: updatedUser.uid,
           members: [updatedUser],
         });
+        updatedMembers = [updatedUser];
       } else {
         const currentMembers = doc.data()?.members || [];
         const alreadyExists = currentMembers.find(
@@ -124,7 +165,7 @@ const CallStarter = ({ user, chatId }) => {
         }
         await meetingRef.update({members: updatedMembers});
       }
-      
+
       if (user.uid) {
         await firestore().collection('users').doc(user.uid).update({
           language: selectedLang.code,
@@ -133,6 +174,19 @@ const CallStarter = ({ user, chatId }) => {
         await firestore().collection('meetings').doc(chatId).set({
           updatedAt: Date.now(),
         }, { merge: true });
+      }
+
+      // Gửi sự kiện start_call qua socket
+      console.log("memberids_ne: ", updatedMembers.map(m => m.uid));
+      if (socketRef.current) {
+        socketRef.current.emit('start_call', {
+          meetingId: chatId,
+          fromUserId: user.uid,
+          memberIds: updatedMembers.map(m => m.uid),
+        });
+        console.log('Đã gửi start_call qua socket');
+      } else {
+        console.warn('Socket chưa kết nối');
       }
 
       setLoading(false);

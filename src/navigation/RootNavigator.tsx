@@ -1,5 +1,5 @@
 // src/navigation/RootNavigator.tsx
-import React from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { useAuth } from '../contexts/AuthContext';
 import LoginScreen from '../screens/LoginScreen';
@@ -11,12 +11,57 @@ import UserProfileScreen from '../screens/UserProfileScreen';
 import { TranslateScreen } from '../../App_mic_input_translated';
 import ChatMembersList from '../components/ChatMembersList';
 import VoiceCallScreen from '../screens/VoiceCallScreen';
+import messaging from '@react-native-firebase/messaging';
+import firestore from '@react-native-firebase/firestore';
 
 const Stack = createNativeStackNavigator();
-
 const RootNavigator = () => {
   const { user, loading } = useAuth();
+  const tokenRef = useRef(null);
 
+  const [storedToken, setStoredToken] = useState(null);
+  useEffect(() => {
+    async function requestPermission() {
+      const authStatus = await messaging().requestPermission();
+      const enabled =
+        authStatus === messaging.AuthorizationStatus.AUTHORIZED ||
+        authStatus === messaging.AuthorizationStatus.PROVISIONAL;
+      if (enabled) {
+        console.log('Authorization status:', authStatus);
+      }
+    }
+    requestPermission();
+  }, []);
+ 
+  useEffect(() => {
+    if (!user?.uid) return;
+
+    async function saveTokenIfChanged() {
+      const fcmToken = await messaging().getToken();
+
+      if (fcmToken && fcmToken !== tokenRef.current) {
+        tokenRef.current = fcmToken;
+        await firestore().collection('users').doc(user.uid).update({
+          fcmToken: fcmToken,
+          updatedAt: firestore.FieldValue.serverTimestamp(),
+        });
+      }
+    }
+
+    saveTokenIfChanged();
+
+    const unsubscribe = messaging().onTokenRefresh(async (newToken) => {
+      if (newToken !== tokenRef.current && user?.uid) {
+        await firestore().collection('users').doc(user.uid).update({ fcmToken: newToken });
+        tokenRef.current = newToken;
+        console.log('FCM Token refreshed:', newToken);
+      }
+    });
+
+    return () => {
+      unsubscribe();
+    };
+  }, [user]);
   if (loading) {
     return (
       <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
