@@ -63,9 +63,14 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   };
 
   const signOut = async () => {
+    const currentUser = auth().currentUser;
+    if (currentUser) {
+      await firestore().collection('users').doc(currentUser.uid).update({
+        fcmToken: firestore.FieldValue.delete(),
+      });
+    }
     await auth().signOut();
   };
-
   return (
     <AuthContext.Provider value={{ user, role, loading, signIn, signUp, signOut }}>
       {children}

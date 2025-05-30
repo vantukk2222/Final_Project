@@ -30,7 +30,8 @@ import RNFS from 'react-native-fs';
 const ChatScreen = ({ route }: any) => {
   const { user } = useAuth();
   const userId = user?.uid;
-  const { chatId, toUserId, name, avatar, currentAvatar } = route.params || {};
+  const { chatId, toUserId, avatar, currentAvatar } = route.params || {};
+  const [name, setName] = useState(route.params?.name || '');
   const [message, setMessage] = useState("");
   const [messages, setMessages] = useState<any[]>([]);
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
@@ -157,6 +158,21 @@ const ChatScreen = ({ route }: any) => {
       meetingId: chatId,
     });
   };
+
+  useEffect(() => {
+    const unsubscribeChat = firestore()
+      .collection("chats")
+      .doc(chatId)
+      .onSnapshot(async (chatDoc) => {
+        const chatData = chatDoc.data();
+        if (!chatData || !chatData.members || chatData.members.length === 0) return;
+        
+        setName(chatData.name || 'Untitled Group');
+        
+      });
+    
+    return () => unsubscribeChat();
+  }, [chatId]);
 
 
   useEffect(() => {
@@ -351,7 +367,7 @@ const ChatScreen = ({ route }: any) => {
         <View style={styles.header}>
           {/* <CallStarter user={user} chatId={chatId}/> */}
         <View style={{flexDirection:'row', alignItems: 'center'}}>
-                    <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
+          <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
             <Icon name="chevron-left" size={24} color="#5B72EF" />
           </TouchableOpacity>
           <TouchableOpacity style={{ flexDirection: 'row', alignItems: 'center' }} onPress={() => navigation.navigate('ChatMembers', {chatId: chatId, currentUserId: userId })}>

@@ -10,10 +10,13 @@ import {
   Alert, 
   TextInput, 
   Button, 
-  SafeAreaView
+  SafeAreaView,
+  ScrollView
 } from "react-native";
 import firestore from "@react-native-firebase/firestore";
 import { useNavigation } from "@react-navigation/native";
+import Icon from 'react-native-vector-icons/FontAwesome5';
+import { useAuth } from "../contexts/AuthContext";
 
 const ChatMembersList = ({ route }: any) => {
   const [members, setMembers] = useState<any[]>([]);
@@ -22,33 +25,39 @@ const ChatMembersList = ({ route }: any) => {
   const [chatName, setChatName] = useState('');
   const [isEditingName, setIsEditingName] = useState(false); // Để kiểm tra xem có đang chỉnh sửa tên nhóm không
   const navigation = useNavigation<any>();
+  const {user} = useAuth();
   const { chatId, currentUserId } = route.params;
 
-  // Fetch members and their roles
   useEffect(() => {
-    const fetchMembers = async () => {
-      try {
-        const chatDoc = await firestore().collection("chats").doc(chatId).get();
+    const unsubscribeChat = firestore()
+      .collection("chats")
+      .doc(chatId)
+      .onSnapshot(async (chatDoc) => {
         const chatData = chatDoc.data();
-        if (chatData && chatData.members) {
+        if (!chatData || !chatData.members || chatData.members.length === 0) return;
+        
+        setChatName(chatData.name || 'Untitled Group');
+        setRoles(chatData.roles || {});
+        
+        try {
           const membersSnapshot = await firestore()
             .collection("users")
             .where(firestore.FieldPath.documentId(), "in", chatData.members)
             .get();
+            
           const membersList: any[] = [];
           membersSnapshot.forEach((doc) => {
             membersList.push({ id: doc.id, ...doc.data() });
           });
-
-          setRoles(chatData.roles || {});
           setMembers(membersList);
-          setChatName(chatData.name || 'Untitled Group');
+        } catch (error) {
+          console.error("Error fetching members:", error);
         }
-      } catch (error) {
-        console.error("Error fetching members:", error);
-      }
-    };
-    fetchMembers();
+      }, (error) => {
+        console.error("Error in chat snapshot:", error);
+      });
+    
+    return () => unsubscribeChat();
   }, [chatId]);
 
   // Handle remove member
@@ -166,175 +175,299 @@ const ChatMembersList = ({ route }: any) => {
     }
     setIsEditingName(!isEditingName); 
   };
-  console.log("Members:", members);
-  console.log("Roles:", roles);
-  return (
-    <SafeAreaView style={styles.container}>
-      
-      {/* Group Name */}
+return (
+  <SafeAreaView style={styles.container}>
+    <View style={styles.header}>
       <View style={styles.groupNameContainer}>
-        {/* back button */}
-        <TouchableOpacity onPress={() => navigation.goBack()} style={{ marginRight: 12 }}>
-          <Text style={{ color: '#5B72EF', fontSize: 16 }}>Back</Text>
+        <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
+          <Icon name="chevron-left" size={24} color="#5B72EF" />
         </TouchableOpacity>
-        <Text style={styles.groupNameLabel}>Group Name:</Text>
         {isEditingName ? (
           <TextInput
             value={chatName}
             onChangeText={setChatName}
-            style={styles.input}
+            style={styles.nameInput}
+            autoFocus
           />
         ) : (
           <Text style={styles.groupNameText}>{chatName}</Text>
         )}
         <TouchableOpacity onPress={handleEditGroupName} style={styles.editButton}>
-          <Text style={styles.editButtonText}>{isEditingName ? "Save" : "Edit"}</Text>
+          <Icon name={isEditingName ? "check" : "pencil-alt"} size={18} color="#5B72EF" />
         </TouchableOpacity>
       </View>
-      <View style={{ height: 40, flexDirection: 'row' }} >
-        <Text style={{ color: 'gray', marginBottom: 12, marginRight: 12 }}>
-          {members.length} members 
+    </View>
+
+    {/* Group Info Card */}
+    <View style={styles.infoCard}>
+      <View style={styles.memberCountRow}>
+        <Icon name="users" size={16} color="#5B72EF" />
+        <Text style={styles.memberCountText}>
+          {members.length} {members.length === 1 ? 'member' : 'members'}
         </Text>
-        <Text style={{ color: 'gray', marginBottom: 12 }}>
-          {roles[currentUserId] === "owner" ? "You are the owner" : "You are a member"}
-        </Text>
-        
+        {roles[currentUserId] === "owner" && (
+          <View style={styles.ownerBadge}>
+            <Text style={styles.ownerBadgeText}>Owner</Text>
+          </View>
+        )}
       </View>
+    </View>
 
-
-      {/* Add member */}
+    {/* Add member section */}
+    {user.role == "tour_guide" && (
       <View style={styles.addMemberContainer}>
         <TextInput
           value={newMemberEmail}
           onChangeText={setNewMemberEmail}
           placeholder="Enter email to add member"
           style={styles.input}
+          placeholderTextColor="#999"
         />
-        <Button title="Add Member" onPress={handleAddMember} />
+        <TouchableOpacity style={styles.addButton} onPress={handleAddMember}>
+          <Icon name="user-plus" size={16} color="#FFF" />
+          <Text style={styles.addButtonText}>Add</Text>
+        </TouchableOpacity>
       </View>
+    )}
 
-      {/* Member list */}
-      <FlatList
-        data={members}
-        keyExtractor={(item) => item.id}
-        renderItem={({ item }) => (
-          <View style={styles.memberItem}>
-            <TouchableOpacity
-              onPress={() => navigation.navigate("UserProfile", { userId: item.id })}
-              style={styles.memberDetails}
-            >
-              <Image
-                source={
-                  item.avatar?.url
-                    ? { uri: item.avatar.url }
-                    : require('../assets/default-avatar.png')
-                }
-                style={styles.avatar}
-              />
+    {/* Members list header */}
+    <View style={styles.listHeader}>
+      <Text style={styles.listHeaderText}>Members</Text>
+    </View>
+    
+    {/* Member list */}
+    <FlatList
+      data={members}
+      keyExtractor={(item) => item.id}
+      style={styles.memberList}
+      renderItem={({ item }) => (
+        <View style={styles.memberItem}>
+          <TouchableOpacity
+            onPress={() => navigation.navigate("UserProfile", { userId: item.id })}
+            style={styles.memberDetails}
+          >
+            <Image
+              source={
+                item.avatar?.url
+                  ? { uri: item.avatar.url }
+                  : require('../assets/default-avatar.png')
+              }
+              style={styles.avatar}
+            />
+            <View style={styles.memberInfo}>
               <Text style={styles.memberName}>{item.name || item.email}</Text>
-            </TouchableOpacity>
+              {roles[item.id] && (
+                <Text style={styles.memberRole}>{roles[item.id]}</Text>
+              )}
+            </View>
+          </TouchableOpacity>
 
-            {/* Show "Remove" button for owner/admin */}
-            {(roles[currentUserId] === "owner" || roles[currentUserId] === "admin") && item.id !== currentUserId && (
-              <TouchableOpacity
-                onPress={() => handleRemoveMember(item.id)}
-                style={styles.removeButton}
-              >
-                <Text style={styles.removeText}>Remove</Text>
-              </TouchableOpacity>
-            )}
-            {(roles[currentUserId] === "owner" || roles[currentUserId] === "admin") && item.id === currentUserId && (
-              <TouchableOpacity style={{ backgroundColor: 'white', padding: 8, borderRadius: 12 }}>
-                <Text style={{ color: 'gray' }}>Admin</Text>
-              </TouchableOpacity>
-            )}
-          </View>
-        )}
-      />
-    </SafeAreaView>
-  );
+          {/* Show actions for admins/owners */}
+          {(roles[currentUserId] === "owner" || roles[currentUserId] === "admin") && item.id !== currentUserId && (
+            <TouchableOpacity
+              onPress={() => handleRemoveMember(item.id)}
+              style={styles.removeButton}
+            >
+              <Icon name="user-minus" size={14} color="#FFF" />
+              <Text style={styles.removeText}>Remove</Text>
+            </TouchableOpacity>
+          )}
+          
+          {/* Badge for current user */}
+          {item.id === currentUserId && (
+            <View style={styles.youBadge}>
+              <Text style={styles.youBadgeText}>You</Text>
+            </View>
+          )}
+        </View>
+      )}
+    />
+  </SafeAreaView>
+);
 };
 
 const styles = StyleSheet.create({
   container: {
-    padding: 16,
-    backgroundColor: '#fff',
+    backgroundColor: '#F9FAFC',
+    flex: 1,
   },
-  title: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: '#333',
-    marginBottom: 12,
+  header: {
+    paddingVertical: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#E9EDF5',
+    backgroundColor: '#fff',
+    elevation: 2,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 2
   },
   groupNameContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 12,
+    paddingHorizontal: 16,
   },
-  groupNameLabel: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    color: '#333',
-    marginRight: 8,
+  backButton: {
+    marginRight: 12,
+    padding: 4
   },
   groupNameText: {
-    fontSize: 16,
+    fontSize: 18,
+    fontWeight: '700',
     color: '#333',
+    flex: 1,
+  },
+  nameInput: {
+    flex: 1,
+    fontSize: 18,
+    fontWeight: '600',
+    color: '#333',
+    borderBottomWidth: 1,
+    borderBottomColor: '#5B72EF',
+    padding: 4,
   },
   editButton: {
-    marginLeft: 8,
+    padding: 8,
   },
-  editButtonText: {
+  infoCard: {
+    backgroundColor: '#fff',
+    marginHorizontal: 16,
+    marginTop: 16,
+    borderRadius: 12,
+    padding: 16,
+    shadowColor: '#000',
+    shadowOffset: {width: 0, height: 1},
+    shadowOpacity: 0.05,
+    shadowRadius: 3,
+    elevation: 2,
+  },
+  memberCountRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  memberCountText: {
+    marginLeft: 8,
     fontSize: 14,
+    fontWeight: '600',
+    color: '#444',
+  },
+  ownerBadge: {
+    marginLeft: 'auto',
+    backgroundColor: '#E3E7FF',
+    paddingVertical: 3,
+    paddingHorizontal: 8,
+    borderRadius: 12,
+  },
+  ownerBadgeText: {
     color: '#5B72EF',
+    fontSize: 12,
+    fontWeight: '600',
   },
   addMemberContainer: {
     flexDirection: 'row',
-    marginBottom: 12,
+    marginHorizontal: 16,
+    marginTop: 16,
     alignItems: 'center',
   },
   input: {
     flex: 1,
     borderWidth: 1,
-    borderColor: '#ccc',
-    color: 'black',
-    backgroundColor: '#F8F8F8',
-    padding: 8,
+    borderColor: '#E1E5EB',
+    color: '#333',
+    backgroundColor: '#FFF',
+    padding: 12,
+    height: 48,
     borderRadius: 8,
     marginRight: 8,
+    fontSize: 14,
+  },
+  addButton: {
+    flexDirection: 'row',
+    backgroundColor: '#5B72EF',
+    height: 48,
+    paddingHorizontal: 16,
+    borderRadius: 8,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  addButtonText: {
+    color: '#FFF',
+    fontWeight: '600',
+    marginLeft: 6,
+  },
+  listHeader: {
+    marginTop: 24,
+    marginBottom: 8,
+    paddingHorizontal: 16,
+  },
+  listHeaderText: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#333',
+  },
+  memberList: {
+    backgroundColor: '#fff',
+    borderTopWidth: 1,
+    borderTopColor: '#E9EDF5',
   },
   memberItem: {
+    padding: 16,
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 10,
     borderBottomWidth: 1,
-    borderBottomColor: '#E4E6EB',
+    borderBottomColor: '#F0F2F5',
     justifyContent: 'space-between',
   },
   memberDetails: {
     flexDirection: 'row',
     alignItems: 'center',
+    flex: 1,
   },
   avatar: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     marginRight: 12,
   },
+  memberInfo: {
+    flex: 1,
+  },
   memberName: {
-    fontSize: 16,
+    fontSize: 15,
+    fontWeight: '600',
     color: '#333',
   },
+  memberRole: {
+    fontSize: 13,
+    color: '#777',
+    marginTop: 2,
+  },
   removeButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
     paddingHorizontal: 12,
-    paddingVertical: 6,
+    paddingVertical: 8,
     backgroundColor: '#FF4D4D',
-    borderRadius: 12,
+    borderRadius: 8,
   },
   removeText: {
     color: '#fff',
-    fontWeight: 'bold',
+    fontWeight: '600',
+    fontSize: 13,
+    marginLeft: 4,
+  },
+  youBadge: {
+    backgroundColor: '#F0F2F5',
+    paddingVertical: 3,
+    paddingHorizontal: 8,
+    borderRadius: 12,
+  },
+  youBadgeText: {
+    color: '#777',
+    fontSize: 12,
+    fontWeight: '500',
   },
 });
+
 
 export default ChatMembersList;

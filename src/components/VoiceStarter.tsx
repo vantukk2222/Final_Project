@@ -8,36 +8,8 @@ import Loading from './Loading';
 import { useAuth } from '../contexts/AuthContext';
 import messaging from '@react-native-firebase/messaging';
 import { io } from 'socket.io-client';
-const SOCKET_SERVER_URL = 'http://192.168.1.15:3001';
-
-type Language = {
-  code: string;
-  transCode: string;
-  name: string;
-};
-
-type Member = {
-  uid: string;
-  email: string;
-  displayName: string;
-  photoURL: string;
-  language: string;
-  translateCode: string;
-  role: string;
-};
-
-type UserProps = {
-  uid: string;
-  email: string;
-  displayName: string;
-  photoURL: string;
-  _user?: {
-    uid: string;
-    email: string;
-    displayName: string;
-    photoURL: string;
-  };
-};
+import { Member } from '../contains/type';
+const SOCKET_SERVER_URL = 'ws://backendfinalpro-ct.onrender.com';
 
 const CallStarter = ({ user, chatId }) => {
   const navigation = useNavigation();
@@ -119,6 +91,26 @@ const CallStarter = ({ user, chatId }) => {
   const openLanguageModal = () => {
     setLangModalVisible(true);
   };
+  async function getChatMembers(chatId) {
+    try {
+      const chatRef = firestore().collection('chats').doc(chatId);
+      const chatDoc = await chatRef.get();
+
+      if (!chatDoc.exists) {
+        console.warn('Chat not found:', chatId);
+        return;
+      }
+
+      const chatData = chatDoc.data();
+      const members = chatData?.members || [];
+
+      console.log('Members in this chat:', members);
+      return members;
+    } catch (error) {
+      console.error('Error fetching chat members:', error);
+    }
+  }
+
   const confirmLanguageAndNavigate = async () => {
     setLoading(true);
     if (!selectedLang) {
@@ -138,6 +130,9 @@ const CallStarter = ({ user, chatId }) => {
     };
 
     const meetingRef = firestore().collection('meetings').doc(chatId);
+    const chatMembers = await getChatMembers(chatId);
+
+    console.log("chatMembers: ", chatMembers);
     let updatedMembers: Member[];
 
     try {
@@ -182,7 +177,7 @@ const CallStarter = ({ user, chatId }) => {
         socketRef.current.emit('start_call', {
           meetingId: chatId,
           fromUserId: user.uid,
-          memberIds: updatedMembers.map(m => m.uid),
+          memberIds: chatMembers,
         });
         console.log('Đã gửi start_call qua socket');
       } else {

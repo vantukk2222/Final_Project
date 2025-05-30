@@ -96,7 +96,7 @@ const UserProfileScreen = () => {
           <TouchableOpacity onPress={() => {
             navigation.goBack();
           }} style={styles.headerIcon}>
-            <Icon name="arrow-left" size={24} color="#333" />
+            <Icon name="chevron-left" size={24} color="#5B72EF" />
           </TouchableOpacity>
           <Text style={styles.headerTitle}>Your Profile</Text>
           <View></View>
@@ -177,16 +177,24 @@ const styles = StyleSheet.create({
     backgroundColor: '#f0f6ff',
   },
   content: {
-    padding: 20,
     alignItems: 'center',
   },
   header: {
+    padding: 8,
+
     display: 'flex',
+    marginBottom: 20,
     flexDirection: 'row',
     justifyContent: 'space-between',
     width: '100%',
-    marginBottom: 20,
-    alignItems: 'center',
+    borderBottomWidth: 1,
+    borderBottomColor: '#E9EDF5',
+    backgroundColor: '#fff',
+    elevation: 2,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 2
   },
   headerIcon: {
     padding: 10,
@@ -201,6 +209,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#fff',
     borderRadius: 18,
     padding: 20,
+    marginHorizontal: 20,
     width: '100%',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },

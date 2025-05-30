@@ -29,6 +29,7 @@ const VoiceCallScreen = ({ route }) => {
   const { meetingId } = route.params;
   const {user} = useAuth();
   const key = '1qepnQJBmBjwMzXHkIzvzbLOkpL9Kb8TfRAavmA8Z9VlanYj8WegJQQJ99BCACYeBjFXJ3w3AAAYACOG6bxW';
+  const keySTT = 'CM9T6m7rgYNegLOVQyQllWwGbl6yrLmftrYyQDYJoKD0DlWMzVF7JQQJ99BEACYeBjFXJ3w3AAAbACOGF9m3';
   const region = 'eastus';
   const [text, setText] = useState('');
   const [isListening, setIsListening] = useState(false);
@@ -115,7 +116,7 @@ const VoiceCallScreen = ({ route }) => {
   };
 
   useEffect(() => {
-    const socket = io('http://192.168.1.15:3001');
+    const socket = io('ws://backendfinalpro-ct.onrender.com');
     socketRef.current = socket;
 
     socket.on('connect', () => {
@@ -233,10 +234,38 @@ const VoiceCallScreen = ({ route }) => {
   const handleExitScreen = () => {
     if (isListening) stopAudio();
     // delete members from meetings of firestore
-  
+    removeMemberFromMeeting(meetingId, user.uid);
 
     navigation.goBack();
   };
+  async function removeMemberFromMeeting(meetingId, userId) {
+    try {
+      // Lấy document của cuộc họp từ Firestore
+      const meetingRef = firestore().collection('meetings').doc(meetingId);
+      const meetingDoc = await meetingRef.get();
+
+      if (!meetingDoc.exists) {
+        console.warn('Meeting not found:', meetingId);
+        return;
+      }
+
+      const meetingData = meetingDoc.data();
+      const members = meetingData?.members || [];
+
+      // Tìm phần tử có uid = userId và loại bỏ khỏi mảng
+      const updatedMembers = members.filter(member => member.uid !== userId);
+
+      // Cập nhật lại members trong document
+      await meetingRef.update({
+        members: updatedMembers,
+      });
+
+      console.log(`Successfully removed user ${userId} from the meeting`);
+    } catch (error) {
+      console.error('Error removing member:', error);
+    }
+  }
+
 
   const renderParticipantItem = ({ item }) => (
     <View style={styles.participantItem}>

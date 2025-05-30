@@ -390,9 +390,9 @@ const ChatListScreen = () => {
             </View>
           </Modal>
 
-          <TouchableOpacity style={styles.createButton} onPress={() => setShowGroupModal(!showGroupModal)}>
+         {user.role == "tour_guide" && <TouchableOpacity style={styles.createButton} onPress={() => setShowGroupModal(!showGroupModal)}>
             <Icon name="plus" size={20} color="#fff" />
-          </TouchableOpacity>
+          </TouchableOpacity>}
         </View>
 
 
