@@ -12,6 +12,10 @@ import {
   Alert,
   ScrollView,
   BackHandler,
+  Animated,
+  Dimensions,
+  Image,
+  Modal,
 } from 'react-native';
 import AudioRecord from 'react-native-live-audio-stream';
 import {
@@ -30,6 +34,10 @@ import {useAuth} from '../contexts/AuthContext';
 import firestore from '@react-native-firebase/firestore';
 import {translateTextAzure} from '../api/TranslateAPI';
 import Sound from 'react-native-sound';
+import LinearGradient from 'react-native-linear-gradient';
+import moment from 'moment';
+
+const {width, height} = Dimensions.get('window');
 
 const VoiceCallScreen = ({route}) => {
   const navigation = useNavigation();
@@ -46,6 +54,15 @@ const VoiceCallScreen = ({route}) => {
   const [text, setText] = useState('');
   const [isListening, setIsListening] = useState(false);
   const [participants, setParticipants] = useState([]);
+  const [callDuration, setCallDuration] = useState(0);
+  const [startTime] = useState(Date.now());
+  const [showParticipantsModal, setShowParticipantsModal] = useState(false);
+
+  // Animation values
+  const pulseAnim = useRef(new Animated.Value(1)).current;
+  const fadeAnim = useRef(new Animated.Value(0)).current;
+  const micWaveAnim = useRef(new Animated.Value(0)).current;
+  const modalFadeAnim = useRef(new Animated.Value(0)).current;
 
   const recognizerRef = useRef(null);
   const initializedRef = useRef(false);
@@ -55,6 +72,94 @@ const VoiceCallScreen = ({route}) => {
   const channels = 1;
   const bitsPerChannel = 16;
   const sampleRate = 16000;
+
+  // Call duration timer
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setCallDuration(Date.now() - startTime);
+    }, 1000);
+
+    return () => clearInterval(timer);
+  }, [startTime]);
+
+  // Animate entrance
+  useEffect(() => {
+    Animated.timing(fadeAnim, {
+      toValue: 1,
+      duration: 500,
+      useNativeDriver: true,
+    }).start();
+  }, []);
+
+  // Modal animation
+  useEffect(() => {
+    if (showParticipantsModal) {
+      Animated.timing(modalFadeAnim, {
+        toValue: 1,
+        duration: 300,
+        useNativeDriver: true,
+      }).start();
+    } else {
+      modalFadeAnim.setValue(0);
+    }
+  }, [showParticipantsModal]);
+
+  // Mic wave animation
+  useEffect(() => {
+    if (isListening) {
+      const waveAnimation = Animated.loop(
+        Animated.sequence([
+          Animated.timing(micWaveAnim, {
+            toValue: 1,
+            duration: 1000,
+            useNativeDriver: true,
+          }),
+          Animated.timing(micWaveAnim, {
+            toValue: 0,
+            duration: 1000,
+            useNativeDriver: true,
+          }),
+        ]),
+      );
+      waveAnimation.start();
+
+      const pulseAnimation = Animated.loop(
+        Animated.sequence([
+          Animated.timing(pulseAnim, {
+            toValue: 1.1,
+            duration: 800,
+            useNativeDriver: true,
+          }),
+          Animated.timing(pulseAnim, {
+            toValue: 1,
+            duration: 800,
+            useNativeDriver: true,
+          }),
+        ]),
+      );
+      pulseAnimation.start();
+
+      return () => {
+        waveAnimation.stop();
+        pulseAnimation.stop();
+      };
+    }
+  }, [isListening]);
+
+  // Format call duration
+  const formatDuration = ms => {
+    const duration = moment.duration(ms);
+    const hours = Math.floor(duration.asHours());
+    const minutes = duration.minutes();
+    const seconds = duration.seconds();
+
+    if (hours > 0) {
+      return `${hours}:${minutes.toString().padStart(2, '0')}:${seconds
+        .toString()
+        .padStart(2, '0')}`;
+    }
+    return `${minutes}:${seconds.toString().padStart(2, '0')}`;
+  };
 
   // Setup socket event listeners
   useEffect(() => {
@@ -122,9 +227,7 @@ const VoiceCallScreen = ({route}) => {
           if (doc.exists) {
             console.log('VoiceCall: Meeting data updated for:', meetingId);
             const data = doc.data();
-            const uids =
-              data.members?.flatMap(m => (m.uid !== user.uid ? m.uid : [])) ||
-              [];
+            const uids = data.members?.flatMap(m => m.uid) || [];
 
             console.log('VoiceCall: Other participants UIDs:', uids);
 
@@ -152,6 +255,10 @@ const VoiceCallScreen = ({route}) => {
                   uid: doc.id,
                   ...doc.data(),
                 })),
+              );
+              console.log(
+                'VoiceCall: Fetched participants:',
+                users.map(u => u.name || u.email),
               );
 
               setParticipants(users);
@@ -217,77 +324,120 @@ const VoiceCallScreen = ({route}) => {
     return true;
   };
 
-  // Initialize audio recognition
   const initializeAudio = async () => {
-    if (!(await checkPermissions()) || initializedRef.current) {
-      return;
-    }
+    try {
+      if (!(await checkPermissions()) || initializedRef.current) {
+        return;
+      }
 
-    console.log('VoiceCall: Initializing audio recognition');
-    setIsListening(true);
+      setIsListening(true);
 
-    const pushStream = AudioInputStream.createPushStream();
-    AudioRecord.init({sampleRate, channels, bitsPerChannel, audioSource: 7});
-    AudioRecord.on('data', data =>
-      pushStream.write(Buffer.from(data, 'base64')),
-    );
-    AudioRecord.start();
+      try {
+        const pushStream = AudioInputStream.createPushStream();
 
-    const config = SpeechTranslationConfig.fromSubscription(key, region);
-    config.speechRecognitionLanguage = user.language;
-    config.outputFormat = sdk.OutputFormat.Detailed;
-
-    // Add target languages for all participants
-    (participants || [])
-      .filter(m => m.uid !== user.uid)
-      .forEach(m => {
-        if (m.translateCode) {
-          config.addTargetLanguage(m.translateCode);
-        }
-      });
-
-    if (!config.targetLanguages || config.targetLanguages.length === 0) {
-      config.addTargetLanguage('en');
-    }
-
-    const recognizer = new TranslationRecognizer(
-      config,
-      AudioConfig.fromStreamInput(pushStream),
-    );
-
-    recognizerRef.current = recognizer;
-
-    recognizer.recognizing = async (s, e) => {
-      const current = e.result.text;
-      setText(current);
-    };
-
-    recognizer.recognized = (s, e) => {
-      console.log('VoiceCall: Speech recognized, sending translations');
-      participants
-        .filter(m => m.uid !== user.uid)
-        .forEach(m => {
-          const translated = e.result.translations.get(m.translateCode);
-          if (translated && isConnected) {
-            emit('send_translation', {
-              fromUserId: user.uid,
-              toUserId: m.uid,
-              text: translated,
-              lang: m.translateCode,
-              isFinal: true,
-            });
-            console.log(
-              'VoiceCall: Sent translation to',
-              m.uid,
-              ':',
-              translated,
-            );
+        AudioRecord.init({
+          sampleRate,
+          channels,
+          bitsPerChannel,
+          audioSource: 7,
+        });
+        AudioRecord.on('data', data => {
+          try {
+            pushStream.write(Buffer.from(data, 'base64'));
+          } catch (audioError) {
+            console.error('VoiceCall: Error writing audio data:', audioError);
           }
         });
-    };
 
-    recognizer.startContinuousRecognitionAsync();
-    initializedRef.current = true;
+        AudioRecord.start();
+
+        const config = SpeechTranslationConfig.fromSubscription(key, region);
+        config.speechRecognitionLanguage = user.language;
+
+        (participants || [])
+          .filter(m => m.uid !== user.uid)
+          .forEach(m => {
+            if (m.translateCode) {
+              try {
+                config.addTargetLanguage(m.translateCode);
+              } catch (langError) {
+                console.error(
+                  'VoiceCall: Error adding target language:',
+                  langError,
+                );
+              }
+            }
+          });
+
+        if (!config.targetLanguages || config.targetLanguages.length === 0) {
+          config.addTargetLanguage('en');
+        }
+
+        const recognizer = new TranslationRecognizer(
+          config,
+          AudioConfig.fromStreamInput(pushStream),
+        );
+
+        recognizerRef.current = recognizer;
+
+        recognizer.recognizing = (s, e) => {
+          console.log('Recognizing:', e.result.text);
+          setText(e.result.text);
+        };
+
+        recognizer.recognized = (s, e) => {
+          try {
+            participants
+              .filter(m => m.uid !== user.uid)
+              .forEach(m => {
+                try {
+                  const translated = e.result.translations.get(m.translateCode);
+                  if (translated) {
+                    emit('send_translation', {
+                      fromUserId: user.uid,
+                      toUserId: m.uid,
+                      text: translated,
+                      lang: m.translateCode,
+                      isFinal: true,
+                    });
+                  }
+                } catch (translationError) {
+                  console.error(
+                    'VoiceCall: Translation error for user:',
+                    m.uid,
+                    translationError,
+                  );
+                }
+              });
+          } catch (recognizedError) {
+            console.error(
+              'VoiceCall: Error in recognizer callback:',
+              recognizedError,
+            );
+          }
+        };
+
+        recognizer.startContinuousRecognitionAsync();
+        initializedRef.current = true;
+      } catch (setupError) {
+        console.error(
+          'VoiceCall: Error setting up audio recognition:',
+          setupError,
+        );
+        setIsListening(false);
+        Alert.alert(
+          'Audio Error',
+          'Failed to initialize speech recognition. Please try again.',
+        );
+      }
+    } catch (error) {
+      console.error('VoiceCall: Fatal error in initializeAudio:', error);
+      setIsListening(false);
+      Alert.alert(
+        'Error',
+        'Something went wrong. Please check your internet connection and try again.',
+      );
+    }
   };
 
   // Stop audio recognition
@@ -396,98 +546,274 @@ const VoiceCallScreen = ({route}) => {
   const renderParticipantItem = ({item}) => (
     <View style={styles.participantItem}>
       <View style={styles.smallAvatar}>
-        <Text style={styles.smallAvatarText}>
-          {item.name?.charAt(0) || '?'}
+        <Image
+          source={
+            item.avatar
+              ? {uri: item?.avatar?.url || item?.avatar}
+              : require('../assets/default-avatar.png')
+          }
+          style={styles.smallAvatarImage}
+        />
+      </View>
+      <View style={styles.participantInfo}>
+        <Text style={styles.participantItemName}>{item.name}</Text>
+        <Text style={styles.participantLanguage}>
+          {item.language?.toUpperCase() || 'EN'}
         </Text>
       </View>
-      <Text style={styles.participantItemName}>{item.name}</Text>
-      <Icon
-        name="mic"
-        size={16}
-        color="#6264A7"
-        style={styles.participantMicIcon}
-      />
+      <View style={styles.participantStatusContainer}>
+        <View style={[styles.onlineIndicator, {backgroundColor: '#10B981'}]} />
+        <Icon name="mic" size={16} color="#4AC6D0" />
+      </View>
     </View>
+  );
+
+  // Render mic waves
+  const renderMicWaves = () => {
+    if (!isListening) {
+      return null;
+    }
+
+    return (
+      <View style={styles.micWavesContainer}>
+        {[...Array(4)].map((_, index) => (
+          <Animated.View
+            key={index}
+            style={[
+              styles.micWave,
+              {
+                opacity: micWaveAnim.interpolate({
+                  inputRange: [0, 1],
+                  outputRange: [0.3, 0.8],
+                }),
+                transform: [
+                  {
+                    scale: micWaveAnim.interpolate({
+                      inputRange: [0, 1],
+                      outputRange: [1, 1.5 + index * 0.3],
+                    }),
+                  },
+                ],
+              },
+            ]}
+          />
+        ))}
+      </View>
+    );
+  };
+
+  // Render participants modal
+  const renderParticipantsModal = () => (
+    <Modal
+      visible={showParticipantsModal}
+      transparent
+      animationType="fade"
+      onRequestClose={() => setShowParticipantsModal(false)}>
+      <View style={styles.modalOverlay}>
+        <Animated.View
+          style={[
+            styles.modalContent,
+            {
+              opacity: modalFadeAnim,
+              transform: [
+                {
+                  scale: modalFadeAnim.interpolate({
+                    inputRange: [0, 1],
+                    outputRange: [0.9, 1],
+                  }),
+                },
+              ],
+            },
+          ]}>
+          {/* Modal Header */}
+          <View style={styles.modalHeader}>
+            <LinearGradient
+              colors={['#4AC6D0', '#3BB8C3']}
+              style={styles.modalIcon}>
+              <Icon name="people" size={24} color="#fff" />
+            </LinearGradient>
+            <Text style={styles.modalTitle}>
+              Participants ({participants.length})
+            </Text>
+            <TouchableOpacity
+              onPress={() => setShowParticipantsModal(false)}
+              style={styles.closeButton}>
+              <Icon name="close" size={24} color="#64748B" />
+            </TouchableOpacity>
+          </View>
+
+          {/* Participants List */}
+          <FlatList
+            data={participants}
+            renderItem={renderParticipantItem}
+            keyExtractor={item => item.uid}
+            style={styles.modalParticipantsList}
+            showsVerticalScrollIndicator={false}
+            contentContainerStyle={styles.modalListContent}
+          />
+
+          {/* Modal Footer */}
+          <View style={styles.modalFooter}>
+            <TouchableOpacity
+              style={styles.modalCloseButton}
+              onPress={() => setShowParticipantsModal(false)}>
+              <Text style={styles.modalCloseText}>Close</Text>
+            </TouchableOpacity>
+          </View>
+        </Animated.View>
+      </View>
+    </Modal>
   );
 
   return (
     <SafeAreaView style={styles.main}>
-      <StatusBar backgroundColor="#252526" barStyle="light-content" />
+      <StatusBar backgroundColor="#0F172A" barStyle="light-content" />
 
-      <View style={styles.headerContainer}>
-        <Text style={styles.head}>Meeting in progress</Text>
-        <View style={styles.timeContainer}>
-          <Icon name="schedule" size={18} color="#ffffff" />
-          <View
-            style={[
-              styles.connectionIndicator,
-              {backgroundColor: isConnected ? '#10B981' : '#EF4444'},
-            ]}
-          />
-          <Text style={styles.connectionStatus}>
-            {isConnected ? 'Connected' : 'Connecting...'}
-          </Text>
-        </View>
-      </View>
-
-      <View style={styles.callArea}>
-        <View style={styles.participantContainer}>
-          <View style={styles.avatar}>
-            <Text style={styles.avatarText}>
-              {user.name?.charAt(0) ||
-                user?.email?.charAt(0).toUpperCase() ||
-                'You'}
+      {/* Header */}
+      <LinearGradient
+        colors={['#0F172A', '#1E293B']}
+        style={styles.headerContainer}>
+        <View style={styles.headerLeft}>
+          <TouchableOpacity onPress={handleBackPress} style={styles.backButton}>
+            <Icon name="arrow-back" size={24} color="#fff" />
+          </TouchableOpacity>
+          <View>
+            <Text style={styles.headerTitle}>Voice Call</Text>
+            <Text style={styles.headerSubtitle}>
+              {formatDuration(callDuration)}
             </Text>
           </View>
-          <Text style={styles.participantName}>{user.name || 'You'}</Text>
-          <View
-            style={[
-              styles.micIndicator,
-              {backgroundColor: isListening ? '#6264A7' : '#555555'},
-            ]}>
-            <Icon
-              name={isListening ? 'mic' : 'mic-off'}
-              size={16}
-              color="#ffffff"
+        </View>
+
+        <View style={styles.headerRight}>
+          <TouchableOpacity
+            onPress={() => setShowParticipantsModal(true)}
+            style={styles.participantsButton}>
+            <View style={styles.participantsCount}>
+              <Text style={styles.participantsCountText}>
+                {participants.length}
+              </Text>
+            </View>
+            <Icon name="people" size={20} color="#4AC6D0" />
+          </TouchableOpacity>
+
+          <View style={styles.connectionContainer}>
+            <View
+              style={[
+                styles.connectionIndicator,
+                {backgroundColor: isConnected ? '#10B981' : '#EF4444'},
+              ]}
             />
+            <Text style={styles.connectionStatus}>
+              {isConnected ? 'Connected' : 'Connecting...'}
+            </Text>
           </View>
         </View>
+      </LinearGradient>
 
-        <ScrollView style={styles.translationContainer}>
-          <Text style={styles.translationLabel}>Live Transcription</Text>
-          <Text style={styles.translationText}>
-            {text || 'No speech detected'}
-          </Text>
-        </ScrollView>
-
-        {/* Participants count */}
-        <View style={styles.participantsInfo}>
-          <Text style={styles.participantsCount}>
-            Participants: {participants.length + 1}
+      <Animated.View style={[styles.content, {opacity: fadeAnim}]}>
+        {/* Main User Avatar */}
+        <View style={styles.mainUserContainer}>
+          <View style={styles.avatarWrapper}>
+            {renderMicWaves()}
+            <Animated.View
+              style={[
+                styles.avatar,
+                {
+                  transform: [{scale: pulseAnim}],
+                },
+              ]}>
+              {user.avatar ? (
+                <Image
+                  source={
+                    user.avatar
+                      ? {uri: user?.avatar?.url}
+                      : require('../assets/default-avatar.png')
+                  }
+                  style={styles.avatarImage}
+                />
+              ) : (
+                <Text style={styles.avatarText}>
+                  {user.name?.charAt(0) ||
+                    user?.email?.charAt(0).toUpperCase() ||
+                    'Y'}
+                </Text>
+              )}
+            </Animated.View>
+            <View
+              style={[
+                styles.micIndicator,
+                {backgroundColor: isListening ? '#4AC6D0' : '#64748B'},
+              ]}>
+              <Icon
+                name={isListening ? 'mic' : 'mic-off'}
+                size={18}
+                color="#ffffff"
+              />
+            </View>
+          </View>
+          <Text style={styles.participantName}>{user.name || 'You'}</Text>
+          <Text style={styles.languageTag}>
+            Speaking: {user.language?.toUpperCase() || 'EN'}
           </Text>
         </View>
-      </View>
 
-      <View style={styles.controlsContainer}>
+        {/* Translation Display */}
+        <View style={styles.translationCard}>
+          <View style={styles.translationHeader}>
+            <Icon name="record-voice-over" size={20} color="#4AC6D0" />
+            <Text style={styles.translationLabel}>Live Transcription</Text>
+            {isListening && (
+              <View style={styles.liveIndicator}>
+                <View style={styles.liveDot} />
+                <Text style={styles.liveText}>LIVE</Text>
+              </View>
+            )}
+          </View>
+          <ScrollView style={styles.translationContent}>
+            <Text style={styles.translationText}>
+              {text || 'Tap the microphone to start speaking...'}
+            </Text>
+          </ScrollView>
+        </View>
+      </Animated.View>
+
+      {/* Controls */}
+      <LinearGradient
+        colors={['#1E293B', '#0F172A']}
+        style={styles.controlsContainer}>
         <TouchableOpacity
           onPress={isListening ? stopAudio : initializeAudio}
           style={[
             styles.controlButton,
             isListening ? styles.micOnButton : styles.micOffButton,
           ]}>
-          <Icon
-            name={isListening ? 'mic' : 'mic-off'}
-            size={24}
-            color="#ffffff"
-          />
+          <LinearGradient
+            colors={
+              isListening ? ['#4AC6D0', '#3BB8C3'] : ['#64748B', '#475569']
+            }
+            style={styles.controlButtonGradient}>
+            <Icon
+              name={isListening ? 'mic' : 'mic-off'}
+              size={22}
+              color="#ffffff"
+            />
+          </LinearGradient>
         </TouchableOpacity>
 
         <TouchableOpacity
           onPress={handleExitScreen}
-          style={[styles.callButton, styles.endCallButton]}>
-          <Icon name="call-end" size={28} color="#ffffff" />
+          style={styles.endCallButton}>
+          <LinearGradient
+            colors={['#EF4444', '#DC2626']}
+            style={styles.endCallButtonGradient}>
+            <Icon name="call-end" size={22} color="#ffffff" />
+          </LinearGradient>
         </TouchableOpacity>
-      </View>
+      </LinearGradient>
+
+      {/* Participants Modal */}
+      {renderParticipantsModal()}
     </SafeAreaView>
   );
 };
@@ -495,159 +821,421 @@ const VoiceCallScreen = ({route}) => {
 const styles = StyleSheet.create({
   main: {
     flex: 1,
-    backgroundColor: '#1F1F1F',
+    backgroundColor: '#0A0E1A', // Darker background để highlight màu chủ đạo
   },
   headerContainer: {
-    padding: 16,
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    backgroundColor: '#252526',
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+    elevation: 4,
+    shadowColor: '#4AC6D0',
+    shadowOffset: {width: 0, height: 2},
+    shadowOpacity: 0.15,
+    shadowRadius: 6,
   },
-  head: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: '#ffffff',
-  },
-  timeContainer: {
+  headerLeft: {
     flexDirection: 'row',
     alignItems: 'center',
+    flex: 1,
+  },
+  backButton: {
+    marginRight: 16,
+    padding: 8,
+    backgroundColor: 'rgba(74, 198, 208, 0.1)',
+    borderRadius: 8,
+  },
+  headerTitle: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: '#4AC6D0', // Màu chủ đạo cho title
+  },
+  headerSubtitle: {
+    fontSize: 14,
+    color: '#94A3B8',
+    marginTop: 2,
+  },
+  headerRight: {
+    alignItems: 'flex-end',
+  },
+  participantsButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(74, 198, 208, 0.15)',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 20,
+    marginBottom: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(74, 198, 208, 0.3)',
+  },
+  participantsCount: {
+    backgroundColor: '#4AC6D0',
+    borderRadius: 10,
+    width: 20,
+    height: 20,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 6,
+  },
+  participantsCountText: {
+    color: '#fff',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  connectionContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(74, 198, 208, 0.1)',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 12,
   },
   connectionIndicator: {
     width: 8,
     height: 8,
     borderRadius: 4,
-    marginLeft: 8,
     marginRight: 6,
   },
   connectionStatus: {
     fontSize: 12,
-    color: '#ffffff',
-    fontWeight: '500',
+    color: '#4AC6D0',
+    fontWeight: '600',
   },
-  callArea: {
+  content: {
     flex: 1,
-    padding: 20,
+    paddingHorizontal: 20,
+    paddingTop: 20,
   },
-  participantContainer: {
+  mainUserContainer: {
     alignItems: 'center',
-    marginBottom: 20,
-    position: 'relative',
+    marginBottom: 24,
   },
-  avatar: {
-    width: 140,
-    height: 140,
-    borderRadius: 70,
-    backgroundColor: '#464775',
+  avatarWrapper: {
+    position: 'relative',
+    marginBottom: 16,
+  },
+  micWavesContainer: {
+    position: 'absolute',
+    top: -20,
+    left: -20,
+    right: -20,
+    bottom: -20,
     justifyContent: 'center',
     alignItems: 'center',
+  },
+  micWave: {
+    position: 'absolute',
+    width: 160,
+    height: 160,
+    borderRadius: 80,
+    borderWidth: 2,
+    borderColor: 'rgba(74, 198, 208, 0.4)',
+  },
+  avatar: {
+    width: 120,
+    height: 120,
+    borderRadius: 60,
+    backgroundColor: '#4AC6D0',
+    justifyContent: 'center',
+    alignItems: 'center',
+    elevation: 8,
+    shadowColor: '#4AC6D0',
+    shadowOffset: {width: 0, height: 4},
+    shadowOpacity: 0.4,
+    shadowRadius: 10,
+    borderWidth: 3,
+    borderColor: 'rgba(74, 198, 208, 0.3)',
+  },
+  avatarImage: {
+    width: 114,
+    height: 114,
+    borderRadius: 57,
   },
   avatarText: {
     color: 'white',
     fontSize: 48,
-    fontWeight: 'bold',
-  },
-  participantName: {
-    color: '#ffffff',
-    fontSize: 18,
-    marginTop: 10,
-    fontWeight: '500',
+    fontWeight: '700',
   },
   micIndicator: {
-    borderRadius: 12,
-    padding: 4,
-    marginTop: 8,
+    position: 'absolute',
+    bottom: -8,
+    right: -8,
+    borderRadius: 20,
+    padding: 8,
+    borderWidth: 3,
+    borderColor: '#0A0E1A',
+    shadowColor: '#4AC6D0',
+    shadowOffset: {width: 0, height: 2},
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+    elevation: 4,
   },
-  translationContainer: {
-    backgroundColor: 'rgba(255, 255, 255, 0.1)',
-    paddingHorizontal: 15,
-    paddingVertical: 12,
-    borderRadius: 8,
-    marginBottom: 20,
+  participantName: {
+    color: '#4AC6D0',
+    fontSize: 24,
+    fontWeight: '700',
+    marginBottom: 4,
+    textShadowColor: 'rgba(74, 198, 208, 0.3)',
+    textShadowOffset: {width: 0, height: 1},
+    textShadowRadius: 3,
+  },
+  languageTag: {
+    fontSize: 14,
+    color: '#ffffff',
+    fontWeight: '600',
+    backgroundColor: '#4AC6D0',
+    paddingHorizontal: 16,
+    paddingVertical: 6,
+    borderRadius: 20,
+    overflow: 'hidden',
+  },
+
+  translationCard: {
+    backgroundColor: 'rgba(74, 198, 208, 0.08)',
+    borderRadius: 16,
+    padding: 20,
+    marginBottom: 24,
+    borderWidth: 2,
+    borderColor: 'rgba(74, 198, 208, 0.3)',
+    minHeight: 140,
+    shadowColor: '#4AC6D0',
+    shadowOffset: {width: 0, height: 4},
+    shadowOpacity: 0.15,
+    shadowRadius: 8,
+    elevation: 6,
+  },
+  translationHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 12,
   },
   translationLabel: {
-    fontSize: 14,
-    fontWeight: 'bold',
-    marginBottom: 8,
-    color: '#C8C8C8',
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#4AC6D0',
+    marginLeft: 8,
+    flex: 1,
+  },
+  liveIndicator: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(74, 198, 208, 0.2)',
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#4AC6D0',
+  },
+  liveDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: '#4AC6D0',
+    marginRight: 4,
+  },
+  liveText: {
+    fontSize: 10,
+    color: '#4AC6D0',
+    fontWeight: '700',
+  },
+  translationContent: {
+    maxHeight: 120,
+    minHeight: 80,
   },
   translationText: {
     fontSize: 16,
     color: '#ffffff',
     lineHeight: 24,
-    minHeight: 50,
+    minHeight: 80,
+    textAlignVertical: 'top',
   },
-  participantsInfo: {
-    backgroundColor: 'rgba(255, 255, 255, 0.05)',
-    borderRadius: 8,
-    padding: 12,
+  controlsContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    paddingVertical: 20,
+    elevation: 8,
+    shadowColor: '#4AC6D0',
+    shadowOffset: {width: 0, height: -4},
+    shadowOpacity: 0.2,
+    shadowRadius: 10,
+    backgroundColor: 'rgba(74, 198, 208, 0.05)',
+  },
+  controlButton: {
+    elevation: 6,
+    shadowColor: '#4AC6D0',
+    shadowOffset: {width: 0, height: 3},
+    shadowOpacity: 0.3,
+    shadowRadius: 6,
+  },
+  controlButtonGradient: {
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    justifyContent: 'center',
     alignItems: 'center',
   },
-  participantsCount: {
-    fontSize: 14,
-    color: '#C8C8C8',
-    fontWeight: '500',
+  micOnButton: {},
+  micOffButton: {},
+  endCallButton: {
+    elevation: 8,
+    shadowColor: '#EF4444',
+    shadowOffset: {width: 0, height: 4},
+    shadowOpacity: 0.4,
+    shadowRadius: 10,
+  },
+  endCallButtonGradient: {
+    width: 70,
+    height: 70,
+    borderRadius: 35,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+
+  // Modal styles
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(10, 14, 26, 0.85)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+  },
+  modalContent: {
+    backgroundColor: '#1A2332',
+    borderRadius: 20,
+    padding: 24,
+    width: '100%',
+    maxHeight: '80%',
+    elevation: 15,
+    shadowColor: '#4AC6D0',
+    shadowOffset: {width: 0, height: 8},
+    shadowOpacity: 0.3,
+    shadowRadius: 20,
+    borderWidth: 1,
+    borderColor: 'rgba(74, 198, 208, 0.3)',
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 20,
+    paddingBottom: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(74, 198, 208, 0.2)',
+  },
+  modalIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 12,
+  },
+  modalTitle: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: '#4AC6D0',
+    flex: 1,
+  },
+  closeButton: {
+    padding: 8,
+    backgroundColor: 'rgba(74, 198, 208, 0.1)',
+    borderRadius: 20,
+  },
+  modalParticipantsList: {
+    maxHeight: 400,
+  },
+  modalListContent: {
+    paddingBottom: 16,
   },
   participantItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 8,
-    paddingHorizontal: 5,
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255, 255, 255, 0.1)',
+    backgroundColor: 'rgba(74, 198, 208, 0.08)',
+    borderRadius: 14,
+    padding: 16,
+    marginBottom: 10,
+    borderWidth: 1,
+    borderColor: 'rgba(74, 198, 208, 0.2)',
+    shadowColor: '#4AC6D0',
+    shadowOffset: {width: 0, height: 2},
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
   },
   smallAvatar: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: '#464775',
+    width: 50,
+    height: 50,
+    borderRadius: 25,
+    backgroundColor: '#4AC6D0',
     justifyContent: 'center',
     alignItems: 'center',
-    marginRight: 10,
+    marginRight: 14,
+    borderWidth: 2,
+    borderColor: 'rgba(74, 198, 208, 0.4)',
   },
-  smallAvatarText: {
-    color: 'white',
-    fontSize: 16,
-    fontWeight: 'bold',
+  smallAvatarImage: {
+    width: 46,
+    height: 46,
+    borderRadius: 23,
   },
-  participantItemName: {
-    color: '#ffffff',
-    fontSize: 16,
+  participantInfo: {
     flex: 1,
   },
-  participantMicIcon: {
-    marginLeft: 10,
+  participantItemName: {
+    color: '#4AC6D0',
+    fontSize: 16,
+    fontWeight: '700',
+    marginBottom: 3,
   },
-  controlsContainer: {
-    padding: 16,
+  participantLanguage: {
+    fontSize: 12,
+    color: '#94A3B8',
+    fontWeight: '600',
+    backgroundColor: 'rgba(74, 198, 208, 0.15)',
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 8,
+    alignSelf: 'flex-start',
+  },
+  participantStatusContainer: {
     flexDirection: 'row',
-    justifyContent: 'space-around',
     alignItems: 'center',
-    backgroundColor: '#252526',
+    backgroundColor: 'rgba(74, 198, 208, 0.1)',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 12,
   },
-  controlButton: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-    justifyContent: 'center',
+  onlineIndicator: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    marginRight: 6,
+  },
+  modalFooter: {
+    marginTop: 20,
     alignItems: 'center',
+    paddingTop: 16,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(74, 198, 208, 0.2)',
   },
-  micOnButton: {
-    backgroundColor: '#6264A7',
+  modalCloseButton: {
+    backgroundColor: '#4AC6D0',
+    paddingHorizontal: 32,
+    paddingVertical: 12,
+    borderRadius: 25,
+    shadowColor: '#4AC6D0',
+    shadowOffset: {width: 0, height: 3},
+    shadowOpacity: 0.3,
+    shadowRadius: 6,
+    elevation: 5,
   },
-  micOffButton: {
-    backgroundColor: 'rgba(255, 255, 255, 0.1)',
-  },
-  callButton: {
-    backgroundColor: '#6264A7',
-    width: 64,
-    height: 64,
-    borderRadius: 32,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  endCallButton: {
-    backgroundColor: '#E81123',
+  modalCloseText: {
+    color: '#ffffff',
+    fontSize: 16,
+    fontWeight: '700',
   },
 });
 

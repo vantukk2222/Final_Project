@@ -8,6 +8,8 @@ import {
   Pressable,
   TouchableOpacity,
   StyleSheet,
+  ActivityIndicator,
+  Animated,
 } from 'react-native';
 import {combinedLanguages} from '../contains/lan_code';
 import firestore from '@react-native-firebase/firestore';
@@ -15,6 +17,8 @@ import {useAuth} from '../contexts/AuthContext';
 import {useSocket} from '../contexts/SocketContext';
 import {Member} from '../contains/type';
 import {useNavigation} from '@react-navigation/native';
+import Icon from 'react-native-vector-icons/MaterialIcons';
+import LinearGradient from 'react-native-linear-gradient';
 
 // Optimized Language Item Component
 const LanguageItem = React.memo(
@@ -31,17 +35,56 @@ const LanguageItem = React.memo(
       onPress(item);
     }, [item, onPress]);
 
+    const animatedValue = useRef(new Animated.Value(0)).current;
+
+    useEffect(() => {
+      Animated.timing(animatedValue, {
+        toValue: isSelected ? 1 : 0,
+        duration: 200,
+        useNativeDriver: false,
+      }).start();
+    }, [isSelected, animatedValue]);
+
+    const backgroundColor = animatedValue.interpolate({
+      inputRange: [0, 1],
+      outputRange: ['#F8FAFC', '#E0F7FA'],
+    });
+
+    const borderColor = animatedValue.interpolate({
+      inputRange: [0, 1],
+      outputRange: ['#E2E8F0', '#4AC6D0'],
+    });
+
     return (
-      <Pressable
-        style={[styles.languageItem, isSelected && styles.selectedLanguage]}
-        onPress={handlePress}>
-        <Text
+      <Pressable onPress={handlePress}>
+        <Animated.View
           style={[
-            styles.languageText,
-            isSelected && styles.selectedLanguageText,
+            styles.languageItem,
+            {
+              backgroundColor,
+              borderColor,
+              borderWidth: isSelected ? 2 : 1,
+            },
           ]}>
-          {item.name}
-        </Text>
+          <View style={styles.languageItemContent}>
+            <Text style={styles.languageFlag}>{item.flag}</Text>
+            <Text
+              style={[
+                styles.languageText,
+                isSelected && styles.selectedLanguageText,
+              ]}>
+              {item.name}
+            </Text>
+          </View>
+          {isSelected && (
+            <Icon
+              name="check-circle"
+              size={22}
+              color="#4AC6D0"
+              style={styles.checkIcon}
+            />
+          )}
+        </Animated.View>
       </Pressable>
     );
   },
@@ -59,9 +102,26 @@ const LanguageModal = ({
   const navigation = useNavigation();
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedLang, setSelectedLang] = useState(null);
+  const [isProcessing, setIsProcessing] = useState(false);
+  const [hasScrolledToSelected, setHasScrolledToSelected] = useState(false);
   const flatListRef = useRef(null);
+  const fadeAnim = useRef(new Animated.Value(0)).current;
 
-  // Memoize filtered languages để tránh re-calculate không cần thiết
+  // Animate modal entrance
+  useEffect(() => {
+    if (visible) {
+      Animated.timing(fadeAnim, {
+        toValue: 1,
+        duration: 300,
+        useNativeDriver: true,
+      }).start();
+      setHasScrolledToSelected(false); // Reset scroll state when modal opens
+    } else {
+      fadeAnim.setValue(0);
+    }
+  }, [visible, fadeAnim]);
+
+  // Memoize filtered languages
   const filteredLanguages = useMemo(() => {
     if (searchQuery.trim() === '') {
       return combinedLanguages;
@@ -71,20 +131,17 @@ const LanguageModal = ({
     );
   }, [searchQuery]);
 
-  // Memoize keyExtractor
   const keyExtractor = useCallback(item => item.code, []);
 
-  // Memoize getItemLayout for better performance
   const getItemLayout = useCallback(
     (data, index) => ({
-      length: 57, // item height + margin
-      offset: 57 * index,
+      length: 48, // Updated to match actual item height
+      offset: 48 * index,
       index,
     }),
     [],
   );
 
-  // Optimized renderItem with useCallback
   const renderItem = useCallback(
     ({item}) => (
       <LanguageItem
@@ -96,37 +153,129 @@ const LanguageModal = ({
     [selectedLang?.code],
   );
 
+  // Load user's current language from Firestore
   useEffect(() => {
+    if (!visible || !user?.uid) {
+      return;
+    }
+
     const unsubscribe = firestore()
       .collection('users')
       .doc(user.uid)
       .onSnapshot(doc => {
         const data = doc.data();
-        if (data) {
-          setSelectedLang({
-            code: data.language,
-            transCode: data.translateCode,
-            name:
-              combinedLanguages.find(lang => lang.code === data.language)
-                ?.name || 'Unknown',
-          });
+        if (data && data.language) {
+          const foundLang = combinedLanguages.find(
+            lang => lang.code === data.language,
+          );
+          if (foundLang) {
+            setSelectedLang({
+              code: data.language,
+              transCode: data.translateCode || data.language,
+              name: foundLang.name,
+              flag: foundLang.flag,
+            });
+          }
+        } else {
+          // Set default to English if no language is set
+          const defaultLang = combinedLanguages.find(
+            lang => lang.code === 'en',
+          );
+          if (defaultLang) {
+            setSelectedLang({
+              code: 'en',
+              transCode: 'en',
+              name: defaultLang.name,
+              flag: defaultLang.flag,
+            });
+          }
         }
       });
 
     return () => unsubscribe();
-  }, [chatId, user.uid]);
+  }, [visible, user?.uid]);
 
-  // Debounced search để giảm số lần re-render
   const handleSearchChange = useCallback(text => {
     setSearchQuery(text);
+    setHasScrolledToSelected(false); // Reset scroll state when searching
   }, []);
 
-  // Đóng modal
   const handleCancel = useCallback(() => {
     setSelectedLang(null);
     setSearchQuery('');
+    setHasScrolledToSelected(false);
     onDone(null);
   }, [onDone]);
+
+  // Scroll to selected language with improved logic
+  const scrollToSelectedLanguage = useCallback(() => {
+    if (
+      !flatListRef.current ||
+      !selectedLang ||
+      hasScrolledToSelected ||
+      filteredLanguages.length === 0
+    ) {
+      return;
+    }
+
+    const selectedIndex = filteredLanguages.findIndex(
+      lang => lang.code === selectedLang.code,
+    );
+
+    if (selectedIndex >= 0) {
+      setTimeout(() => {
+        try {
+          flatListRef.current?.scrollToIndex({
+            index: selectedIndex,
+            animated: true,
+            viewPosition: 0.5, // Center the item
+          });
+          setHasScrolledToSelected(true);
+        } catch (error) {
+          // Fallback to scroll to offset if scrollToIndex fails
+          console.log('ScrollToIndex failed, using scrollToOffset');
+          flatListRef.current?.scrollToOffset({
+            offset: selectedIndex * 48,
+            animated: true,
+          });
+          setHasScrolledToSelected(true);
+        }
+      }, 300); // Give time for modal animation to complete
+    }
+  }, [selectedLang, filteredLanguages, hasScrolledToSelected]);
+
+  // Trigger scroll when modal is visible and data is ready
+  useEffect(() => {
+    if (
+      visible &&
+      selectedLang &&
+      filteredLanguages.length > 0 &&
+      !hasScrolledToSelected
+    ) {
+      scrollToSelectedLanguage();
+    }
+  }, [
+    visible,
+    selectedLang,
+    filteredLanguages,
+    hasScrolledToSelected,
+    scrollToSelectedLanguage,
+  ]);
+
+  // Reset scroll state when search query changes
+  useEffect(() => {
+    if (searchQuery === '' && selectedLang && !hasScrolledToSelected) {
+      // When clearing search, scroll to selected item after a delay
+      setTimeout(() => {
+        scrollToSelectedLanguage();
+      }, 100);
+    }
+  }, [
+    searchQuery,
+    selectedLang,
+    hasScrolledToSelected,
+    scrollToSelectedLanguage,
+  ]);
 
   const getChatMembers = useCallback(async meetingId => {
     try {
@@ -140,7 +289,6 @@ const LanguageModal = ({
 
       const chatData = chatDoc.data();
       const members = chatData?.members || [];
-      console.log('Members in this chat:', members);
       return members;
     } catch (error) {
       console.error('Error fetching chat members:', error);
@@ -153,8 +301,8 @@ const LanguageModal = ({
       return;
     }
 
+    setIsProcessing(true);
     setLoading(true);
-    onDone(false);
 
     try {
       const updatedUser: Member = {
@@ -200,7 +348,6 @@ const LanguageModal = ({
         await meetingRef.update({members: updatedMembers});
       }
 
-      // Update user language preference
       await Promise.all([
         firestore().collection('users').doc(user.uid).update({
           language: selectedLang.code,
@@ -214,31 +361,25 @@ const LanguageModal = ({
         ),
       ]);
 
-      // Wait for socket connection before sending start_call
-      console.log('LanSelect: Waiting for socket connection...');
       const socketReady = await waitForConnection(5000);
 
       if (socketReady) {
-        console.log('LanSelect: Socket is ready, sending start_call event');
         emit('start_call', {
           meetingId: chatId,
           fromUserId: user.uid,
           memberIds: chatMembers,
         });
-        console.log('LanSelect: Đã gửi start_call qua socket');
-      } else {
-        console.warn(
-          'LanSelect: Socket not ready, proceeding without start_call event',
-        );
       }
 
-      // Navigate regardless of socket status
       navigation.navigate('VoiceCall', {
         meetingId: chatId,
       });
+
+      onDone(false);
     } catch (err) {
-      console.error('LanSelect: Lỗi khi cập nhật Firestore:', err);
+      console.error('Error updating language:', err);
     } finally {
+      setIsProcessing(false);
       setLoading(false);
     }
   }, [
@@ -253,40 +394,32 @@ const LanguageModal = ({
     emit,
   ]);
 
-  // Xác nhận chọn ngôn ngữ
   const handleConfirm = useCallback(() => {
-    if (selectedLang) {
-      onDone(selectedLang);
-      setSearchQuery('');
+    if (selectedLang && !isProcessing) {
       confirmLanguageAndNavigate();
     }
-  }, [selectedLang, onDone, confirmLanguageAndNavigate]);
+  }, [selectedLang, isProcessing, confirmLanguageAndNavigate]);
 
-  // Scroll to selected language when modal opens
-  useEffect(() => {
-    if (
-      visible &&
-      selectedLang &&
-      flatListRef.current &&
-      filteredLanguages.length > 0
-    ) {
-      const index = filteredLanguages.findIndex(
-        lang => lang.code === selectedLang.code,
-      );
-      if (index >= 0) {
-        // Use setTimeout to ensure FlatList is rendered
-        setTimeout(() => {
-          flatListRef.current?.scrollToIndex({
-            index,
+  // Handle scroll to index failed
+  const handleScrollToIndexFailed = useCallback(
+    info => {
+      console.log('ScrollToIndex failed:', info);
+      // Fallback to scroll to offset
+      setTimeout(() => {
+        if (flatListRef.current && filteredLanguages.length > 0) {
+          const offset =
+            Math.min(info.index, filteredLanguages.length - 1) * 48;
+          flatListRef.current.scrollToOffset({
+            offset,
             animated: true,
-            viewPosition: 0.5,
           });
-        }, 100);
-      }
-    }
-  }, [visible, selectedLang, filteredLanguages]);
+          setHasScrolledToSelected(true);
+        }
+      }, 100);
+    },
+    [filteredLanguages.length],
+  );
 
-  // Don't render if not visible to save performance
   if (!visible) {
     return null;
   }
@@ -294,34 +427,55 @@ const LanguageModal = ({
   return (
     <Modal visible={visible} transparent animationType="fade">
       <View style={styles.modalOverlay}>
-        <View style={styles.modalContent}>
-          <Text style={styles.modalTitle}>Select Your Language</Text>
-          <View style={styles.separator} />
-
-          {/* Socket connection status indicator */}
-          <View style={styles.statusContainer}>
-            <View
-              style={[
-                styles.statusIndicator,
-                {backgroundColor: isConnected ? '#10B981' : '#EF4444'},
-              ]}
-            />
-            <Text style={styles.statusText}>
-              {isConnected ? 'Connected' : 'Connecting...'}
+        <Animated.View
+          style={[
+            styles.modalContent,
+            {
+              opacity: fadeAnim,
+              transform: [
+                {
+                  scale: fadeAnim.interpolate({
+                    inputRange: [0, 1],
+                    outputRange: [0.9, 1],
+                  }),
+                },
+              ],
+            },
+          ]}>
+          {/* Header */}
+          <View style={styles.modalHeader}>
+            <LinearGradient
+              colors={['#4AC6D0', '#3BB8C3']}
+              style={styles.modalIcon}>
+              <Icon name="translate" size={24} color="#fff" />
+            </LinearGradient>
+            <Text style={styles.modalTitle}>Select Language</Text>
+            <Text style={styles.modalSubtitle}>
+              Choose your preferred language for voice translation
             </Text>
           </View>
 
-          <TextInput
-            style={styles.searchInput}
-            placeholderTextColor="#A0A3BD"
-            placeholder="Search language..."
-            value={searchQuery}
-            onChangeText={handleSearchChange}
-            clearButtonMode="while-editing"
-            autoCorrect={false}
-            autoCapitalize="none"
-          />
+          {/* Search Input */}
+          <View style={styles.searchContainer}>
+            <Icon
+              name="search"
+              size={16}
+              color="#6B7280"
+              style={styles.searchIcon}
+            />
+            <TextInput
+              style={styles.searchInput}
+              placeholderTextColor="#9CA3AF"
+              placeholder="Search languages..."
+              value={searchQuery}
+              onChangeText={handleSearchChange}
+              clearButtonMode="while-editing"
+              autoCorrect={false}
+              autoCapitalize="none"
+            />
+          </View>
 
+          {/* Language List */}
           <FlatList
             ref={flatListRef}
             data={filteredLanguages}
@@ -335,161 +489,205 @@ const LanguageModal = ({
             updateCellsBatchingPeriod={50}
             windowSize={10}
             initialNumToRender={15}
-            onScrollToIndexFailed={info => {
-              setTimeout(() => {
-                if (filteredLanguages.length > 0 && flatListRef.current) {
-                  flatListRef.current.scrollToOffset({
-                    offset: info.averageItemLength * info.index,
-                    animated: true,
-                  });
-                }
-              }, 100);
-            }}
+            onScrollToIndexFailed={handleScrollToIndexFailed}
           />
 
+          {/* Buttons */}
           <View style={styles.buttonContainer}>
             <TouchableOpacity
               onPress={handleCancel}
-              style={styles.cancelButton}>
-              <Text style={styles.buttonText}>Cancel</Text>
+              style={styles.cancelButton}
+              disabled={isProcessing}>
+              <Text style={styles.cancelButtonText}>Cancel</Text>
             </TouchableOpacity>
+
             <TouchableOpacity
               onPress={handleConfirm}
               style={[
                 styles.confirmButton,
-                !selectedLang && styles.disabledButton,
+                (!selectedLang || isProcessing) && styles.disabledButton,
               ]}
-              disabled={!selectedLang}>
-              <Text style={styles.buttonText}>Confirm</Text>
+              disabled={!selectedLang || isProcessing}>
+              <LinearGradient
+                colors={
+                  !selectedLang || isProcessing
+                    ? ['#BDC3C7', '#BDC3C7']
+                    : ['#4AC6D0', '#3BB8C3']
+                }
+                style={styles.confirmButtonGradient}>
+                {isProcessing ? (
+                  <ActivityIndicator color="#fff" size="small" />
+                ) : (
+                  <>
+                    <Icon
+                      name="call"
+                      size={18}
+                      color="#fff"
+                      style={styles.buttonIcon}
+                    />
+                    <Text style={styles.confirmButtonText}>Start Call</Text>
+                  </>
+                )}
+              </LinearGradient>
             </TouchableOpacity>
           </View>
-        </View>
+        </Animated.View>
       </View>
     </Modal>
   );
 };
 
-// ...existing styles...
 const styles = StyleSheet.create({
   modalOverlay: {
     flex: 1,
     justifyContent: 'center',
-    backgroundColor: 'rgba(0, 0, 0, 0.7)',
-    paddingHorizontal: 24,
+    backgroundColor: 'rgba(0, 0, 0, 0.6)',
+    paddingHorizontal: 20,
   },
   modalContent: {
-    backgroundColor: 'white',
-    borderRadius: 24,
+    backgroundColor: '#fff',
+    borderRadius: 20,
     padding: 24,
-    maxHeight: '80%',
-    shadowColor: '#000',
-    shadowOffset: {width: 0, height: 10},
-    shadowOpacity: 0.3,
-    shadowRadius: 20,
+    maxHeight: '85%',
     elevation: 10,
+    shadowColor: '#000',
+    shadowOffset: {width: 0, height: 8},
+    shadowOpacity: 0.25,
+    shadowRadius: 15,
+  },
+  modalHeader: {
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  modalIcon: {
+    width: 45,
+    height: 45,
+    borderRadius: 15,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 12,
   },
   modalTitle: {
-    fontSize: 22,
-    fontWeight: 'bold',
-    color: '#333',
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#1E293B',
     textAlign: 'center',
-    marginBottom: 16,
-    letterSpacing: 0.5,
+    marginBottom: 8,
   },
-  separator: {
-    height: 2,
-    backgroundColor: '#E0E0E0',
-    marginBottom: 20,
-    borderRadius: 1,
+  modalSubtitle: {
+    fontSize: 14,
+    color: '#64748B',
+    textAlign: 'center',
+    lineHeight: 20,
   },
-  statusContainer: {
+  searchContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
+    backgroundColor: '#F8FAFC',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    paddingHorizontal: 16,
+    // paddingVertical: 12,
     marginBottom: 16,
   },
-  statusIndicator: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
+  searchIcon: {
     marginRight: 8,
   },
-  statusText: {
-    fontSize: 12,
-    color: '#666',
-    fontWeight: '500',
-  },
   searchInput: {
-    backgroundColor: '#F5F7FF',
-    color: 'black',
-    borderWidth: 1,
-    borderColor: '#E6E8F0',
-    borderRadius: 12,
-    padding: 12,
-    fontSize: 16,
-    marginBottom: 16,
+    flex: 1,
+    fontSize: 14,
+    color: '#1E293B',
   },
   languageList: {
     marginBottom: 20,
-    maxHeight: 300,
+    maxHeight: 320,
   },
   languageItem: {
-    padding: 14,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    // padding: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+
     borderRadius: 12,
-    marginBottom: 4,
-    backgroundColor: '#F5F7FF',
-    borderWidth: 1,
-    borderColor: '#E6E8F0',
+    marginBottom: 8,
+    elevation: 1,
+    shadowColor: '#000',
+    shadowOffset: {width: 0, height: 1},
+    shadowOpacity: 0.05,
+    shadowRadius: 2,
   },
-  selectedLanguage: {
-    backgroundColor: '#E7EFFF',
-    borderColor: '#4361EE',
-    borderWidth: 2,
+  languageItemContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+  },
+  languageFlag: {
+    fontSize: 20,
+    marginRight: 12,
   },
   languageText: {
-    fontSize: 16,
-    color: '#333',
+    fontSize: 13,
+    color: '#374151',
     fontWeight: '500',
   },
   selectedLanguageText: {
-    color: '#4361EE',
-    fontWeight: 'bold',
+    color: '#4AC6D0',
+    fontWeight: '700',
+  },
+  checkIcon: {
+    marginLeft: 8,
   },
   buttonContainer: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginTop: 16,
-  },
-  confirmButton: {
-    backgroundColor: '#4361EE',
-    padding: 16,
-    borderRadius: 16,
-    flex: 1,
-    marginLeft: 10,
-    elevation: 4,
-    shadowColor: '#4361EE',
-    shadowOffset: {width: 0, height: 4},
-    shadowOpacity: 0.2,
-    shadowRadius: 8,
+    gap: 12,
+    marginTop: 20,
   },
   cancelButton: {
-    backgroundColor: 'red',
-    padding: 16,
-    borderRadius: 16,
     flex: 1,
-    marginRight: 10,
+    backgroundColor: '#F8FAFC',
+    // paddingHorizontal: 8,
+    paddingVertical: 12,
+    borderRadius: 12,
     borderWidth: 1,
-    borderColor: '#E6E8F0',
+    borderColor: '#E2E8F0',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  cancelButtonText: {
+    color: '#6B7280',
+    fontWeight: '600',
+    fontSize: 16,
+  },
+  confirmButton: {
+    flex: 1,
+    borderRadius: 12,
+    elevation: 3,
+    shadowColor: '#4AC6D0',
+    shadowOffset: {width: 0, height: 2},
+    shadowOpacity: 0.2,
+    shadowRadius: 4,
+  },
+  confirmButtonGradient: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 16,
+    borderRadius: 12,
+  },
+  confirmButtonText: {
+    color: '#fff',
+    fontWeight: '700',
+    fontSize: 16,
+    marginLeft: 4,
   },
   disabledButton: {
-    backgroundColor: '#A8B8FF',
-    opacity: 0.7,
+    opacity: 0.6,
   },
-  buttonText: {
-    color: 'white',
-    textAlign: 'center',
-    fontWeight: 'bold',
-    fontSize: 16,
+  buttonIcon: {
+    marginRight: 4,
   },
 });
 

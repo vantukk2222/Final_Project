@@ -22,6 +22,21 @@ interface User {
   name?: string;
   avatar?: string;
   bio?: string;
+  userStatus?: {
+    deviceId?: string;
+    isOnline?: boolean;
+    lastActivity?: any;
+    lastSeen?: any;
+    sessionId?: string;
+    status?: 'online' | 'offline' | 'away';
+    updatedAt?: any;
+  };
+  translateCode?: string;
+  fcmToken?: string;
+  language?: string;
+  lastActive?: string;
+  createdAt?: string;
+  updatedAt?: string;
 }
 
 interface AuthContextType {
@@ -148,7 +163,7 @@ export const AuthProvider = ({children}: {children: React.ReactNode}) => {
                 }
 
                 const userData = doc.data();
-                console.log('User data updated:', userData);
+                // console.log('User data updated:', userData);
 
                 if (!userData) {
                   // Create user document if it doesn't exist (for new users)
@@ -198,6 +213,25 @@ export const AuthProvider = ({children}: {children: React.ReactNode}) => {
                     name: userData.name,
                     avatar: userData.avatar,
                     bio: userData.bio,
+                    userStatus: userData.userStatus || {
+                      deviceId: '',
+                      isOnline: false,
+                      lastActivity: null,
+                      lastSeen: null,
+                      sessionId: '',
+                      status: 'offline',
+                      updatedAt: null,
+                    },
+                    translateCode: userData.translateCode || 'en-US',
+                    language: userData.language || 'en',
+                    fcmToken: userData.fcmToken || '',
+                    lastActive: userData.lastActive || '',
+                    createdAt: userData.createdAt
+                      ? userData.createdAt.toDate().toISOString()
+                      : new Date().toISOString(),
+                    updatedAt: userData.updatedAt
+                      ? userData.updatedAt.toDate().toISOString()
+                      : new Date().toISOString(),
                   };
 
                   setUser(fullUserData);
