@@ -131,11 +131,14 @@ export default function SocketClient() {
         const doc = await meetingRef.get();
         if (!doc.exists) {
           updatedUser.role = 'admin';
-          await meetingRef.set({
-            createdAt: firestore.Timestamp.now(),
-            createdBy: updatedUser.uid,
-            members: [updatedUser],
-          });
+          await meetingRef.set(
+            {
+              createdAt: firestore.Timestamp.now(),
+              createdBy: updatedUser.uid,
+              members: [updatedUser],
+            },
+            {merge: true},
+          );
           updatedMembers = [updatedUser];
         } else {
           const currentMembers = doc.data()?.members || [];

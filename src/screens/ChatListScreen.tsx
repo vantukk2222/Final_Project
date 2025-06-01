@@ -40,7 +40,9 @@ const ChatListScreen = () => {
   const [selectedChat, setSelectedChat] = useState(null);
 
   useEffect(() => {
-    if (!user?.uid) return;
+    if (!user?.uid) {
+      return;
+    }
     setLoading(true);
     const loadProfile = () => {
       const unsubscribeProfile = firestore()
@@ -79,22 +81,27 @@ const ChatListScreen = () => {
 
             const userIds = Array.from(userIdsSet);
             if (userIds.length > 0) {
-              const usersSnapshot = await firestore()
-                .collection('users')
-                .where(firestore.FieldPath.documentId(), 'in', userIds)
-                .get();
-
               const userMap: Record<
                 string,
                 {name: string; email: string; avatar?: string}
               > = {};
-              usersSnapshot.forEach(doc => {
-                userMap[doc.id] = {
-                  name: doc.data()?.name || doc.data().email,
-                  email: doc.data().email,
-                  avatar: doc.data()?.avatar?.url,
-                };
-              });
+
+              // Process users in batches of 10 (Firestore 'in' clause limit)
+              for (let i = 0; i < userIds.length; i += 10) {
+                const batch = userIds.slice(i, i + 10);
+                const usersSnapshot = await firestore()
+                  .collection('users')
+                  .where(firestore.FieldPath.documentId(), 'in', batch)
+                  .get();
+
+                usersSnapshot.forEach(doc => {
+                  userMap[doc.id] = {
+                    name: doc.data()?.name || doc.data().email,
+                    email: doc.data().email,
+                    avatar: doc.data()?.avatar?.url,
+                  };
+                });
+              }
 
               const enrichedChats = chatData.map(chat => {
                 const otherMemberId = chat.members.find(
@@ -182,7 +189,9 @@ const ChatListScreen = () => {
       }
 
       const memberIds = users.map(u => u.id);
-      if (!memberIds.includes(user?.uid)) memberIds.push(user?.uid);
+      if (!memberIds.includes(user?.uid)) {
+        memberIds.push(user?.uid);
+      }
 
       const roles = memberIds.reduce((acc, memberId) => {
         acc[memberId] = memberId === user?.uid ? 'owner' : 'member';

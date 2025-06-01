@@ -35,6 +35,16 @@ const RegisterScreen = () => {
         data.password,
       );
       const user = userCredential.user;
+      const userData = {
+        email: user.email,
+        role: data.role || 'tourist',
+        createdAt: firestore.FieldValue.serverTimestamp(),
+      };
+
+      // Add status for tour guides
+      if (data.role === 'tour_guide') {
+        userData.status = 'pending';
+      }
 
       await firestore()
         .collection('users')
@@ -42,9 +52,15 @@ const RegisterScreen = () => {
         .set({
           email: user.email,
           role: data.role || 'tourist',
+          createdAt: firestore.FieldValue.serverTimestamp(),
+          updatedAt: firestore.FieldValue.serverTimestamp(),
         });
+      const successMessage =
+        data.role === 'tour_guide'
+          ? 'Account created successfully! Your tour guide account will be reviewed by admin.'
+          : 'Account created successfully!';
 
-      Alert.alert('Success', 'Account created successfully!');
+      Alert.alert('Success', successMessage);
       navigation.navigate('Login');
     } catch (error: any) {
       Alert.alert('Register Failed', error.message);

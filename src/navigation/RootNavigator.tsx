@@ -13,6 +13,7 @@ import ChatMembersList from '../components/ChatMembersList';
 import VoiceCallScreen from '../screens/VoiceCallScreen';
 import messaging from '@react-native-firebase/messaging';
 import firestore from '@react-native-firebase/firestore';
+import AdminDashboardScreen from '../screens/AdminDashboardScreen';
 
 const Stack = createNativeStackNavigator();
 const RootNavigator = () => {
@@ -77,7 +78,7 @@ const RootNavigator = () => {
 
   return (
     <>
-      {user ? (
+      {user && user.role !== 'admin' ? (
         <Stack.Navigator initialRouteName="ChatList">
           <Stack.Screen
             name="ChatList"
@@ -94,11 +95,6 @@ const RootNavigator = () => {
             component={UserProfileScreen}
             options={{headerShown: false}}
           />
-          {/* <Stack.Screen
-            name="Translate"
-            component={TranslateScreen}
-            options={{ headerShown: false }}
-          /> */}
           <Stack.Screen
             name="ChatMembers"
             component={ChatMembersList}
@@ -107,6 +103,14 @@ const RootNavigator = () => {
           <Stack.Screen
             name="VoiceCall"
             component={VoiceCallScreen}
+            options={{headerShown: false}}
+          />
+        </Stack.Navigator>
+      ) : user && user.role === 'admin' ? (
+        <Stack.Navigator initialRouteName="AdminDashboard">
+          <Stack.Screen
+            name="AdminDashboard"
+            component={AdminDashboardScreen}
             options={{headerShown: false}}
           />
         </Stack.Navigator>
