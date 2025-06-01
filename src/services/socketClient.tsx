@@ -1,26 +1,45 @@
-import React, { useEffect, useState } from 'react';
-import { Alert, Modal, Text, TouchableOpacity, View, StyleSheet } from 'react-native';
+import React, {useEffect, useState} from 'react';
+import {
+  Alert,
+  Modal,
+  Text,
+  TouchableOpacity,
+  View,
+  StyleSheet,
+} from 'react-native';
 import messaging from '@react-native-firebase/messaging';
-import { useNavigation } from '@react-navigation/native';
+import {useNavigation} from '@react-navigation/native';
 import firestore from '@react-native-firebase/firestore';
-import { useAuth } from '../contexts/AuthContext';
-import { Member } from '../contains/type';
+import {useAuth} from '../contexts/AuthContext';
+import {Member} from '../contains/type';
 import Sound from 'react-native-sound';
+import CallStarter from '../components/VoiceStarter';
+import LanguageModal from '../components/LanSelect';
 
 export default function SocketClient() {
   const navigation = useNavigation();
   const {user} = useAuth();
-  
+  const [meetingID, setMeetingId] = useState<string | null>(null);
+  const [modalCalledOK, setModalCalledOK] = useState(false);
+
   Sound.setCategory('Playback');
 
-  const dingSound = new Sound(require('../assets/sounds/ringtone.mp3'), Sound.MAIN_BUNDLE, (error) => {
-    if (error) {
-      console.log('Lỗi load âm thanh:', error);
-    }
-  });
+  const dingSound = new Sound(
+    require('../assets/sounds/ringtone.mp3'),
+    Sound.MAIN_BUNDLE,
+    error => {
+      if (error) {
+        console.log('Lỗi load âm thanh:', error);
+      }
+    },
+  );
 
   const [modalVisible, setModalVisible] = useState(false);
-  const [notificationData, setNotificationData] = useState<{ title?: string; body?: string; meetingId?: string } | null>(null);
+  const [notificationData, setNotificationData] = useState<{
+    title?: string;
+    body?: string;
+    meetingId?: string;
+  } | null>(null);
 
   // Xử lý khi app foreground nhận notification
   useEffect(() => {
@@ -35,7 +54,7 @@ export default function SocketClient() {
           dingSound.play();
         });
       }
-      setNotificationData({ title, body, meetingId });
+      setNotificationData({title, body, meetingId});
       setModalVisible(true);
     });
 
@@ -45,27 +64,37 @@ export default function SocketClient() {
   // Xử lý khi app mở từ background hoặc killed do nhấn notification
   useEffect(() => {
     // Khi app từ background được mở bằng notification
-    const unsubscribeBackground = messaging().onNotificationOpenedApp(remoteMessage => {
-      const meetingId = remoteMessage.data?.meetingId;
-      if (meetingId) {
-        navigation.navigate('VoiceCall', { meetingId });
-      }
-    });
-
-    // Khi app từ killed được mở bằng notification
-    messaging().getInitialNotification().then(remoteMessage => {
-      if (remoteMessage) {
+    const unsubscribeBackground = messaging().onNotificationOpenedApp(
+      remoteMessage => {
         const meetingId = remoteMessage.data?.meetingId;
         if (meetingId) {
-          navigation.navigate('VoiceCall', { meetingId });
+          setModalCalledOK(true);
+          setMeetingId(meetingId);
+
+          // navigation.navigate('VoiceCall', { meetingId });
         }
-      }
-    });
+      },
+    );
+
+    // Khi app từ killed được mở bằng notification
+    messaging()
+      .getInitialNotification()
+      .then(remoteMessage => {
+        if (remoteMessage) {
+          const meetingId = remoteMessage.data?.meetingId;
+          if (meetingId) {
+            setModalCalledOK(true);
+            setMeetingId(meetingId);
+
+            // navigation.navigate('VoiceCall', { meetingId });
+          }
+        }
+      });
 
     return unsubscribeBackground;
   }, [navigation]);
 
-  const onModalOk = async() => {
+  const onModalOk = async () => {
     setModalVisible(false);
     if (notificationData?.meetingId) {
       const updatedUser: Member = {
@@ -77,7 +106,9 @@ export default function SocketClient() {
         translateCode: user.translateCode,
         role: 'member',
       };
-      const meetingRef = firestore().collection('meetings').doc(notificationData.meetingId);
+      const meetingRef = firestore()
+        .collection('meetings')
+        .doc(notificationData.meetingId);
       let updatedMembers: Member[];
 
       try {
@@ -107,27 +138,42 @@ export default function SocketClient() {
         }
 
         if (user.uid) {
-
-          await firestore().collection('meetings').doc(notificationData.meetingId).set({
-            updatedAt: Date.now(),
-          }, { merge: true });
+          await firestore()
+            .collection('meetings')
+            .doc(notificationData.meetingId)
+            .set(
+              {
+                updatedAt: Date.now(),
+              },
+              {merge: true},
+            );
         }
       } catch (err) {
         console.error('Lỗi khi cập nhật Firestore:', err);
       }
 
-      navigation.navigate('VoiceCall', { meetingId: notificationData.meetingId });
+      // navigation.navigate('VoiceCall', { meetingId: notificationData.meetingId });
+      setModalCalledOK(true);
+      setMeetingId(notificationData.meetingId);
     }
   };
-
+  if (modalCalledOK) {
+    return (
+      <LanguageModal
+        visible={modalCalledOK}
+        chatId={meetingID}
+        onDone={setModalCalledOK}
+        setLoading={setModalCalledOK}
+      />
+    );
+  }
   return (
     <>
       <Modal
         visible={modalVisible}
         transparent
         animationType="fade"
-        onRequestClose={() => setModalVisible(false)}
-      >
+        onRequestClose={() => setModalVisible(false)}>
         <View style={styles.modalBackground}>
           <View style={styles.modalContainer}>
             <Text style={styles.modalTitle}>{notificationData?.title}</Text>
@@ -135,7 +181,9 @@ export default function SocketClient() {
             <TouchableOpacity style={styles.button} onPress={onModalOk}>
               <Text style={styles.buttonText}>Tham gia ngay</Text>
             </TouchableOpacity>
-            <TouchableOpacity style={[styles.button, styles.buttonCancel]} onPress={() => setModalVisible(false)}>
+            <TouchableOpacity
+              style={[styles.button, styles.buttonCancel]}
+              onPress={() => setModalVisible(false)}>
               <Text style={styles.buttonCancelText}>Đóng</Text>
             </TouchableOpacity>
           </View>
@@ -164,11 +212,13 @@ const styles = StyleSheet.create({
     fontSize: 20,
     marginBottom: 10,
     textAlign: 'center',
+    color: 'black',
   },
   modalBody: {
     fontSize: 16,
     marginBottom: 20,
     textAlign: 'center',
+    color: 'black',
   },
   button: {
     backgroundColor: '#007AFF',
@@ -185,6 +235,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#ddd',
   },
   buttonCancelText: {
+    textAlign: 'center',
     color: '#333',
   },
 });

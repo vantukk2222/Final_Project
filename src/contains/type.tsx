@@ -1,4 +1,3 @@
-
 export type Language = {
   code: string;
   transCode: string;

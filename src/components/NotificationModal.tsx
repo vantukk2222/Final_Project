@@ -1,7 +1,14 @@
-import React, { useState, useEffect } from 'react';
-import { Modal, View, Text, TouchableOpacity, StyleSheet, Animated } from 'react-native';
+import React, {useState, useEffect} from 'react';
+import {
+  Modal,
+  View,
+  Text,
+  TouchableOpacity,
+  StyleSheet,
+  Animated,
+} from 'react-native';
 import messaging from '@react-native-firebase/messaging';
-import { useNavigation } from '@react-navigation/native';
+import {useNavigation} from '@react-navigation/native';
 
 export default function NotificationModal() {
   const navigation = useNavigation();
@@ -53,7 +60,7 @@ export default function NotificationModal() {
   const onConfirm = () => {
     hideModal();
     if (meetingId) {
-      navigation.navigate('VoiceCall', { meetingId });
+      navigation.navigate('VoiceCall', {meetingId});
     }
   };
 
@@ -62,9 +69,8 @@ export default function NotificationModal() {
       transparent
       visible={modalVisible}
       animationType="none"
-      onRequestClose={hideModal}
-    >
-      <Animated.View style={[styles.overlay, { opacity }]}>
+      onRequestClose={hideModal}>
+      <Animated.View style={[styles.overlay, {opacity}]}>
         <View style={styles.container}>
           <Text style={styles.title}>{notifTitle}</Text>
           <Text style={styles.body}>{notifBody}</Text>
@@ -97,7 +103,7 @@ const styles = StyleSheet.create({
     width: '80%',
     elevation: 10, // shadow for Android
     shadowColor: '#000', // shadow for iOS
-    shadowOffset: { width: 0, height: 3 },
+    shadowOffset: {width: 0, height: 3},
     shadowOpacity: 0.3,
     shadowRadius: 6,
   },

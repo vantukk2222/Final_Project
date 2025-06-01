@@ -1,9 +1,9 @@
-import React, { useState } from 'react';
-import { View, TouchableOpacity, Text, StyleSheet, Platform } from 'react-native';
+import React, {useState} from 'react';
+import {View, TouchableOpacity, Text, StyleSheet, Platform} from 'react-native';
 import DocumentPicker from 'react-native-document-picker';
-import Icon from "react-native-vector-icons/FontAwesome5";
+import Icon from 'react-native-vector-icons/FontAwesome5';
 
-const FileUpload = ({ onFileUploaded }) => {
+const FileUpload = ({onFileUploaded}) => {
   const [uploading, setUploading] = useState(false);
 
   const handleFilePick = async () => {
@@ -14,22 +14,27 @@ const FileUpload = ({ onFileUploaded }) => {
 
       const data = new FormData();
       data.append('file', {
-        uri: Platform.OS === 'ios' ? file[0].uri.replace('file://', '') : file[0].uri,
+        uri:
+          Platform.OS === 'ios'
+            ? file[0].uri.replace('file://', '')
+            : file[0].uri,
         type: file[0].type,
         name: file[0].name,
       });
-        data.append('upload_preset', 'chatapp'); // Ensure preset allows unsigned uploads
-
+      data.append('upload_preset', 'chatapp'); // Ensure preset allows unsigned uploads
 
       setUploading(true);
 
-      const response = await fetch('https://api.cloudinary.com/v1_1/djlhfgzbw/upload', {
-        method: 'POST',
-        body: data,
-        headers: {
-          'Content-Type': 'multipart/form-data',
+      const response = await fetch(
+        'https://api.cloudinary.com/v1_1/djlhfgzbw/upload',
+        {
+          method: 'POST',
+          body: data,
+          headers: {
+            'Content-Type': 'multipart/form-data',
+          },
         },
-      });
+      );
 
       const result = await response.json();
       if (response.ok) {
@@ -52,7 +57,10 @@ const FileUpload = ({ onFileUploaded }) => {
 
   return (
     <View style={styles.container}>
-      <TouchableOpacity style={styles.uploadButton} onPress={handleFilePick} disabled={uploading}>
+      <TouchableOpacity
+        style={styles.uploadButton}
+        onPress={handleFilePick}
+        disabled={uploading}>
         <Icon name="paperclip" size={18} color="#5B72EF" />
       </TouchableOpacity>
     </View>

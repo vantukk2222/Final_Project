@@ -1,7 +1,12 @@
-export const translateTextAzure = async (text, toLang = 'en',subscriptionKey, region) => {
+export const translateTextAzure = async (
+  text: string,
+  toLang: string = 'en',
+  subscriptionKey: any,
+  region: string,
+) => {
   const endpoint = 'https://api.cognitive.microsofttranslator.com/translate';
-//   const subscriptionKey = 'YOUR_TRANSLATOR_KEY'; // 🔁 thay bằng key thật
-//   const region = 'YOUR_REGION'; // ví dụ: 'eastasia'
+  //   const subscriptionKey = 'YOUR_TRANSLATOR_KEY'; // 🔁 thay bằng key thật
+  //   const region = 'YOUR_REGION'; // ví dụ: 'eastasia'
   const params = `?api-version=3.0&to=${toLang}`;
 
   const url = `${endpoint}${params}`;
@@ -11,7 +16,7 @@ export const translateTextAzure = async (text, toLang = 'en',subscriptionKey, re
     'Content-type': 'application/json',
   };
 
-  const body = JSON.stringify([{ Text: text }]);
+  const body = JSON.stringify([{Text: text}]);
 
   try {
     const response = await fetch(url, {

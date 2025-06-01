@@ -10,7 +10,6 @@
 //   appId: "1:898338707997:android:8ea8d9649d55928ea744f4"
 // };
 
-
 // let firebaseApp: FirebaseApp;
 
 // if (!initializeApp.length) {

@@ -7,7 +7,7 @@ How to run this?
 2. Check the header in index.js for futher instructions
 
  */
-import React, { Component } from 'react';
+import React, {Component} from 'react';
 import {
   Button,
   PermissionsAndroid,
@@ -18,23 +18,38 @@ import {
 } from 'react-native';
 import 'react-native-get-random-values';
 import 'node-libs-react-native/globals';
-import { AudioConfig, AudioInputStream, AudioStreamFormat, CancellationDetails, CancellationReason, NoMatchDetails, NoMatchReason, ResultReason, SpeechConfig, SpeechRecognizer, SpeechTranslationConfig, TranslationRecognizer } from 'microsoft-cognitiveservices-speech-sdk';
-import { LogBox } from 'react-native';
+import {
+  AudioConfig,
+  AudioInputStream,
+  AudioStreamFormat,
+  CancellationDetails,
+  CancellationReason,
+  NoMatchDetails,
+  NoMatchReason,
+  ResultReason,
+  SpeechConfig,
+  SpeechRecognizer,
+  SpeechTranslationConfig,
+  TranslationRecognizer,
+} from 'microsoft-cognitiveservices-speech-sdk';
+import {LogBox} from 'react-native';
 import AudioRecord from 'react-native-live-audio-stream';
-import { default_language, target_language } from './language_code';
-import { Picker } from '@react-native-picker/picker';
+import {default_language, target_language} from './language_code';
+import {Picker} from '@react-native-picker/picker';
 LogBox.ignoreLogs(['new NativeEventEmitter']); // Ignore log notification by message
 
 export const TranslateScreen = () => {
   //CHANGE THESE VALUES
-  const key = "1qepnQJBmBjwMzXHkIzvzbLOkpL9Kb8TfRAavmA8Z9VlanYj8WegJQQJ99BCACYeBjFXJ3w3AAAYACOG6bxW";
-  const region = "eastus";
-  
-  const language = "en-US"; //default language
-  const targetLanguage = "vi";
-  const [text, setText] = React.useState("");
+  const key =
+    '1qepnQJBmBjwMzXHkIzvzbLOkpL9Kb8TfRAavmA8Z9VlanYj8WegJQQJ99BCACYeBjFXJ3w3AAAYACOG6bxW';
+  const region = 'eastus';
+
+  const language = 'en-US'; //default language
+  const targetLanguage = 'vi';
+  const [text, setText] = React.useState('');
   const [languageCode, setLanguageCode] = React.useState(language);
-  const [targetLanguageCode, setTargetLanguageCode] = React.useState(targetLanguage);
+  const [targetLanguageCode, setTargetLanguageCode] =
+    React.useState(targetLanguage);
   const [isListening, setIsListening] = React.useState(false);
 
   //Settings for the audio stream
@@ -82,7 +97,7 @@ export const TranslateScreen = () => {
   //sets up speechrecognizer and audio stream
   const initializeAudio = async () => {
     await checkPermissions();
-    if(!initializedCorrectly) {
+    if (!initializedCorrectly) {
       setIsListening(true);
 
       //creates a push stream system which allows new data to be pushed to the recognizer
@@ -96,26 +111,32 @@ export const TranslateScreen = () => {
 
       AudioRecord.init(options);
       //everytime data is recieved from the mic, push it to the pushStream
-      AudioRecord.on('data', (data) => {
+      AudioRecord.on('data', data => {
         const pcmData = Buffer.from(data, 'base64');
         pushStream.write(pcmData);
       });
 
       AudioRecord.start();
 
-      const speechTranslationConfig = SpeechTranslationConfig.fromSubscription(key, region);
+      const speechTranslationConfig = SpeechTranslationConfig.fromSubscription(
+        key,
+        region,
+      );
       speechTranslationConfig.speechRecognitionLanguage = languageCode;
       speechTranslationConfig.addTargetLanguage(targetLanguageCode);
       const audioConfig = AudioConfig.fromStreamInput(pushStream); //the recognizer uses the stream to get audio data
-      recognizer = new TranslationRecognizer(speechTranslationConfig, audioConfig);
+      recognizer = new TranslationRecognizer(
+        speechTranslationConfig,
+        audioConfig,
+      );
 
       recognizer.sessionStarted = (s, e) => {
-        console.log("sessionStarted");
+        console.log('sessionStarted');
         console.log(e.sessionId);
       };
-      
+
       recognizer.sessionStopped = (s, e) => {
-        console.log("sessionStopped");
+        console.log('sessionStopped');
       };
 
       recognizer.recognizing = (s, e) => {
@@ -134,15 +155,21 @@ export const TranslateScreen = () => {
       recognizer.recognized = (s, e) => {
         //The final result of the recognition with punctuation
         console.log(`RECOGNIZED: Text=${e.result.text}`);
-        console.log(`RECOGNIZING sequence: Text=${e.result.translations.get(targetLanguageCode)}`);
+        console.log(
+          `RECOGNIZING sequence: Text=${e.result.translations.get(
+            targetLanguageCode,
+          )}`,
+        );
         console.log(e.result);
       };
-      recognizer.startContinuousRecognitionAsync(() => {
-          console.log("startContinuousRecognitionAsync");
-      },
-      (err) => {
-        console.log(err);
-      });
+      recognizer.startContinuousRecognitionAsync(
+        () => {
+          console.log('startContinuousRecognitionAsync');
+        },
+        err => {
+          console.log(err);
+        },
+      );
 
       initializedCorrectly = true;
     }
@@ -151,8 +178,8 @@ export const TranslateScreen = () => {
   //stops the audio stream and recognizer
   const stopAudio = async () => {
     setIsListening(false);
-    AudioRecord.stop(); 
-    if(!!recognizer) {
+    AudioRecord.stop();
+    if (!!recognizer) {
       recognizer.stopContinuousRecognitionAsync();
       initializedCorrectly = false;
     }
@@ -172,138 +199,159 @@ export const TranslateScreen = () => {
   //   const audioConfig = AudioConfig.fromStreamInput(pushStream); //the recognizer uses the stream to get audio data
   //   recognizer = new TranslationRecognizer(speechTranslationConfig, audioConfig);
   //   recognizer.sessionStarted = (s, e) => {
-  
+
   //   console.log(`Updated recognition language to: ${newLanguage}`);
   //   console.log(`Updated target language to: ${newTargetLanguage}`);
   // };
-  
-  return (
 
-    <SafeAreaView style={{ 
-      flex: 1, 
-      justifyContent: "center", 
-      alignItems: "center", 
-      backgroundColor: "#f0f2f5",
-      padding: 20
-    }}>
-      <Text style={{
-        fontSize: 24,
-        fontWeight: "bold",
-        marginBottom: 30,
-        color: "#333"
+  return (
+    <SafeAreaView
+      style={{
+        flex: 1,
+        justifyContent: 'center',
+        alignItems: 'center',
+        backgroundColor: '#f0f2f5',
+        padding: 20,
       }}>
+      <Text
+        style={{
+          fontSize: 24,
+          fontWeight: 'bold',
+          marginBottom: 30,
+          color: '#333',
+        }}>
         Voice Translator
       </Text>
-      <View style={{
-        width: "100%",
-        marginBottom: 20,
-        borderRadius: 15,
-        backgroundColor: "white",
-        padding: 20,
-        borderWidth: 1,
-        borderColor: "#ddd",
-        elevation: 2,
-        shadowColor: "#000",
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.1,
-        shadowRadius: 4
+      <View
+        style={{
+          width: '100%',
+          marginBottom: 20,
+          borderRadius: 15,
+          backgroundColor: 'white',
+          padding: 20,
+          borderWidth: 1,
+          borderColor: '#ddd',
+          elevation: 2,
+          shadowColor: '#000',
+          shadowOffset: {width: 0, height: 2},
+          shadowOpacity: 0.1,
+          shadowRadius: 4,
         }}>
-      <Picker
-        selectedValue={languageCode}
-        onValueChange={(itemValue) => setLanguageCode(itemValue)}
-        style={{ color: 'black', width: "100%", height: 50, marginBottom: 20, borderRadius: 50, backgroundColor: "#f8f8f8", borderWidth: 1, borderColor: "#ddd" }}
-      >
-        {default_language.map((lang) => (
-          <Picker.Item label={lang.name} value={lang.code} key={lang.code} />
-        ))}
-      </Picker>
+        <Picker
+          selectedValue={languageCode}
+          onValueChange={itemValue => setLanguageCode(itemValue)}
+          style={{
+            color: 'black',
+            width: '100%',
+            height: 50,
+            marginBottom: 20,
+            borderRadius: 50,
+            backgroundColor: '#f8f8f8',
+            borderWidth: 1,
+            borderColor: '#ddd',
+          }}>
+          {default_language.map(lang => (
+            <Picker.Item label={lang.name} value={lang.code} key={lang.code} />
+          ))}
+        </Picker>
 
-      <Text style={{
-        fontSize: 14,
-        color: "#666",
-        marginBottom: 20,
-        textAlign: "center"
-      }}>
-        ↓ Select Target Language ↓
-      </Text>
-      <Picker
-        selectedValue={targetLanguageCode}
-        onValueChange={(itemValue) => setTargetLanguageCode(itemValue)}
-        style={{ color: 'black', width: "100%", height: 50, marginBottom: 20, borderRadius: 50, backgroundColor: "#f8f8f8", borderWidth: 1, borderColor: "#ddd" }}
-      >
-        {target_language.map((lang) => (
-          <Picker.Item label={lang.name} value={lang.code} key={lang.code} />
-        ))}
-      </Picker>
+        <Text
+          style={{
+            fontSize: 14,
+            color: '#666',
+            marginBottom: 20,
+            textAlign: 'center',
+          }}>
+          ↓ Select Target Language ↓
+        </Text>
+        <Picker
+          selectedValue={targetLanguageCode}
+          onValueChange={itemValue => setTargetLanguageCode(itemValue)}
+          style={{
+            color: 'black',
+            width: '100%',
+            height: 50,
+            marginBottom: 20,
+            borderRadius: 50,
+            backgroundColor: '#f8f8f8',
+            borderWidth: 1,
+            borderColor: '#ddd',
+          }}>
+          {target_language.map(lang => (
+            <Picker.Item label={lang.name} value={lang.code} key={lang.code} />
+          ))}
+        </Picker>
       </View>
-      
-      <Text style={{
-        width: "100%",
-        minHeight: 150,
-        backgroundColor: "white",
-        borderRadius: 15,
-        padding: 20,
-        textAlign: "center",
-        color: "#333",
-        fontSize: 18,
-        borderWidth: 1,
-        borderColor: "#ddd",
-        marginBottom: 40,
-        elevation: 2,
-        shadowColor: "#000",
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.1,
-        shadowRadius: 4
-      }}>
-        {text || "Translation will appear here..."}
+
+      <Text
+        style={{
+          width: '100%',
+          minHeight: 150,
+          backgroundColor: 'white',
+          borderRadius: 15,
+          padding: 20,
+          textAlign: 'center',
+          color: '#333',
+          fontSize: 18,
+          borderWidth: 1,
+          borderColor: '#ddd',
+          marginBottom: 40,
+          elevation: 2,
+          shadowColor: '#000',
+          shadowOffset: {width: 0, height: 2},
+          shadowOpacity: 0.1,
+          shadowRadius: 4,
+        }}>
+        {text || 'Translation will appear here...'}
       </Text>
-      
+
       {!isListening ? (
         <Pressable
-          style={({ pressed }) => ({
+          style={({pressed}) => ({
             padding: 18,
-            backgroundColor: pressed ? "#0056b3" : "#007bff",
+            backgroundColor: pressed ? '#0056b3' : '#007bff',
             borderRadius: 30,
             width: 200,
-            alignItems: "center",
+            alignItems: 'center',
             elevation: 3,
-            shadowColor: "#000",
-            shadowOffset: { width: 0, height: 2 },
+            shadowColor: '#000',
+            shadowOffset: {width: 0, height: 2},
             shadowOpacity: 0.2,
-            shadowRadius: 3
+            shadowRadius: 3,
           })}
           onPress={() => {
-            console.log("Listening");
+            console.log('Listening');
             console.log(languageCode);
             console.log(targetLanguageCode);
             initializeAudio();
-          }}
-        >
-          <Text style={{ color: "white", fontWeight: "bold", fontSize: 16 }}>Start Listening</Text>
+          }}>
+          <Text style={{color: 'white', fontWeight: 'bold', fontSize: 16}}>
+            Start Listening
+          </Text>
         </Pressable>
       ) : (
         <Pressable
-          style={({ pressed }) => ({
+          style={({pressed}) => ({
             padding: 18,
-            backgroundColor: pressed ? "#c82333" : "#dc3545",
+            backgroundColor: pressed ? '#c82333' : '#dc3545',
             borderRadius: 30,
             width: 200,
-            alignItems: "center",
+            alignItems: 'center',
             elevation: 3,
-            shadowColor: "#000",
-            shadowOffset: { width: 0, height: 2 },
+            shadowColor: '#000',
+            shadowOffset: {width: 0, height: 2},
             shadowOpacity: 0.2,
-            shadowRadius: 3
+            shadowRadius: 3,
           })}
           onPress={() => {
-            console.log("Stopping");
+            console.log('Stopping');
             stopAudio();
-          }}
-        >
-          <Text style={{ color: "white", fontWeight: "bold", fontSize: 16 }}>Stop Listening</Text>
+          }}>
+          <Text style={{color: 'white', fontWeight: 'bold', fontSize: 16}}>
+            Stop Listening
+          </Text>
         </Pressable>
       )}
-      
     </SafeAreaView>
   );
 };

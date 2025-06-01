@@ -38,9 +38,8 @@
 //   {val:"westeurope", name:"West Europe"}
 // ];
 
-
 // const optList = (options: {val: string, name: string}[]) => {
-//     return( options.map( (opt) => { 
+//     return( options.map( (opt) => {
 //           return( <Picker.Item label={opt.name} key={opt.val} value={opt.val}  />)} ));
 // }
 
@@ -119,7 +118,7 @@
 //           </Text>
 //         </View>
 //         <View style={styles.sectionContainer}>
-//             <TextInput 
+//             <TextInput
 //               key="random1"
 //               value={props.value}
 //               onChangeText={(itemValue: any) => props.onChange(itemValue)}
@@ -352,7 +351,7 @@
 //     this.state = {uri: "", filename: "", results: "(from File)", events: "", subscriptionKey: "YOUR_SPEECH_API_KEY", recognizing: false, language: "en-US", region:"westus"};
 //     this.reco = null;
 //   }
-  
+
 //   requestPermissions = async () => {
 //     try {
 //       const granted = await PermissionsAndroid.request(
@@ -377,7 +376,7 @@
 
 //   updateKey = (value: string) => this.setState({ subscriptionKey: value });
 //   updateLanguage = (value: string) => this.setState({ language: value });
-//   updateRegion = (value: string) => { 
+//   updateRegion = (value: string) => {
 //     console.log(`updateRegion: ${value}`);
 //     this.setState({ region: value });
 //   };
@@ -389,9 +388,9 @@
 //         type: [DocumentPicker.types.audio], // Specify that you're looking for audio files
 //       });
 //       await this.requestPermissions();
-  
+
 //       console.log('Picked file:', res);
-  
+
 //       // Update the state with the selected file's URI and filename
 //       this.setState({
 //         filename: res[0].name,
@@ -402,7 +401,7 @@
 //       console.log('Error selecting file:', err);
 //     }
 //   };
-  
+
 //   startRecognition = async () => {
 //     console.log("Starting recognition with file:", this.state.uri);
 //     this.reco = await getRecognizer(this.state.subscriptionKey, this.state.region, this.state.language, this.state.uri, this.state.filename);
@@ -442,7 +441,7 @@
 //             <FilePicker value={this.state.filename} onFileButtonPress={this.updateFile} />
 //             <RecognitionButtons recognizing={this.state.recognizing} onStart={this.startRecognition} onStop={this.endRecognition}/>
 //           </View>
-          
+
 //           <ResultForm title="Results:" text={this.state.results} />
 //           <ResultForm title="Events:" text={this.state.events} />
 //         </View>

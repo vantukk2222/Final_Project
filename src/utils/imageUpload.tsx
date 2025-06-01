@@ -1,8 +1,8 @@
 // src/utils/imageUpload.ts
-import { launchImageLibrary } from 'react-native-image-picker';
+import {launchImageLibrary} from 'react-native-image-picker';
 
 export const handleImageUpload = async (): Promise<string | null> => {
-  const result = await launchImageLibrary({ mediaType: 'photo' });
+  const result = await launchImageLibrary({mediaType: 'photo'});
 
   if (result.didCancel) return null;
   const asset = result.assets?.[0];
@@ -21,12 +21,15 @@ export const handleImageUpload = async (): Promise<string | null> => {
   formData.append('upload_preset', upload_preset);
 
   try {
-    const res = await fetch(`https://api.cloudinary.com/v1_1/${cloud_name}/image/upload`, {
-      method: 'POST',
-      body: formData,
-    });
+    const res = await fetch(
+      `https://api.cloudinary.com/v1_1/${cloud_name}/image/upload`,
+      {
+        method: 'POST',
+        body: formData,
+      },
+    );
     const json = await res.json();
-    return json
+    return json;
   } catch (err) {
     console.error('Image upload error:', err);
     return null;

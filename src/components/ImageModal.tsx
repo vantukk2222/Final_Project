@@ -15,22 +15,20 @@ interface Props {
   onClose: () => void;
 }
 
-const ImageModal = ({ visible, imageUrl, onClose }: Props) => {
-  if (!imageUrl) return null;
+const ImageModal = ({visible, imageUrl, onClose}: Props) => {
+  if (!imageUrl) {
+    return null;
+  }
 
   return (
-    <Modal
-      visible={visible}
-      transparent
-      animationType="fade"
-    >
+    <Modal visible={visible} transparent animationType="fade">
       <Pressable style={styles.overlay} onPress={onClose}>
         <View style={styles.content}>
           <TouchableOpacity style={styles.closeButton} onPress={onClose}>
             <Text style={styles.closeText}>✕</Text>
           </TouchableOpacity>
           <Image
-            source={{ uri: imageUrl }}
+            source={{uri: imageUrl}}
             style={styles.image}
             resizeMode="contain"
           />

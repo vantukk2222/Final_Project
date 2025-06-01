@@ -7,7 +7,7 @@ How to run this?
 2. Check the header in index.js for futher instructions
 
  */
-import React, { Component } from 'react';
+import React, {Component} from 'react';
 import {
   Button,
   PermissionsAndroid,
@@ -17,18 +17,28 @@ import {
 } from 'react-native';
 import 'react-native-get-random-values';
 import 'node-libs-react-native/globals';
-import { AudioConfig, AudioInputStream, AudioStreamFormat, CancellationDetails, CancellationReason, NoMatchDetails, NoMatchReason, ResultReason, SpeechConfig, SpeechRecognizer } from 'microsoft-cognitiveservices-speech-sdk';
-import { LogBox } from 'react-native';
+import {
+  AudioConfig,
+  AudioInputStream,
+  AudioStreamFormat,
+  CancellationDetails,
+  CancellationReason,
+  NoMatchDetails,
+  NoMatchReason,
+  ResultReason,
+  SpeechConfig,
+  SpeechRecognizer,
+} from 'microsoft-cognitiveservices-speech-sdk';
+import {LogBox} from 'react-native';
 import AudioRecord from 'react-native-live-audio-stream';
 LogBox.ignoreLogs(['new NativeEventEmitter']); // Ignore log notification by message
 
 export default App = () => {
   //CHANGE THESE VALUES
-  const key = "1qepnQJBmBjwMzXHkIzvzbLOkpL9Kb8TfRAavmA8Z9VlanYj8WegJQQJ99BCACYeBjFXJ3w3AAAYACOG6bxW";
-  const region = "eastus";
-  const language = "en-US";
-
-
+  const key =
+    '1qepnQJBmBjwMzXHkIzvzbLOkpL9Kb8TfRAavmA8Z9VlanYj8WegJQQJ99BCACYeBjFXJ3w3AAAYACOG6bxW';
+  const region = 'eastus';
+  const language = 'en-US';
 
   //Settings for the audio stream
   //tuned to documentation at https://learn.microsoft.com/en-us/azure/cognitive-services/speech-service/how-to-use-audio-input-streams
@@ -75,8 +85,7 @@ export default App = () => {
   //sets up speechrecognizer and audio stream
   const initializeAudio = async () => {
     await checkPermissions();
-    if(!initializedCorrectly) {
-
+    if (!initializedCorrectly) {
       //creates a push stream system which allows new data to be pushed to the recognizer
       const pushStream = AudioInputStream.createPushStream();
       const options = {
@@ -88,7 +97,7 @@ export default App = () => {
 
       AudioRecord.init(options);
       //everytime data is recieved from the mic, push it to the pushStream
-      AudioRecord.on('data', (data) => {
+      AudioRecord.on('data', data => {
         const pcmData = Buffer.from(data, 'base64');
         pushStream.write(pcmData);
       });
@@ -101,12 +110,12 @@ export default App = () => {
       recognizer = new SpeechRecognizer(speechConfig, audioConfig);
 
       recognizer.sessionStarted = (s, e) => {
-        console.log("sessionStarted");
+        console.log('sessionStarted');
         console.log(e.sessionId);
       };
-      
+
       recognizer.sessionStopped = (s, e) => {
-        console.log("sessionStopped");
+        console.log('sessionStopped');
       };
 
       recognizer.recognizing = (s, e) => {
@@ -120,12 +129,14 @@ export default App = () => {
         console.log(`RECOGNIZED: Text=${e.result.text}`);
         console.log(e.result);
       };
-      recognizer.startContinuousRecognitionAsync(() => {
-          console.log("startContinuousRecognitionAsync");
-      },
-      (err) => {
-        console.log(err);
-      });
+      recognizer.startContinuousRecognitionAsync(
+        () => {
+          console.log('startContinuousRecognitionAsync');
+        },
+        err => {
+          console.log(err);
+        },
+      );
 
       initializedCorrectly = true;
     }
@@ -133,28 +144,32 @@ export default App = () => {
 
   //stops the audio stream and recognizer
   const stopAudio = async () => {
-    AudioRecord.stop(); 
-    if(!!recognizer) {
+    AudioRecord.stop();
+    if (!!recognizer) {
       recognizer.stopContinuousRecognitionAsync();
       initializedCorrectly = false;
     }
   };
 
-  return <SafeAreaView style={{flexGrow: 1, justifyContent: "center", alignItems: "center"}}>
-    
-    <Pressable style={{padding: 15, backgroundColor: "white", borderRadius: 15}} onPress={
-      () => {
-        console.log("Listening");
-        initializeAudio();
-      }}>
-      <Text style={{color: "black"}}>Micstream start</Text>
-    </Pressable>
-      <Pressable style={{padding: 15, backgroundColor: "white", borderRadius: 15}} onPress={
-      () => {
-        console.log("Stopping");
-        stopAudio();
-      }}>
-      <Text style={{color: "black"}}>Micstream stop</Text>
+  return (
+    <SafeAreaView
+      style={{flexGrow: 1, justifyContent: 'center', alignItems: 'center'}}>
+      <Pressable
+        style={{padding: 15, backgroundColor: 'white', borderRadius: 15}}
+        onPress={() => {
+          console.log('Listening');
+          initializeAudio();
+        }}>
+        <Text style={{color: 'black'}}>Micstream start</Text>
       </Pressable>
-  </SafeAreaView>;
+      <Pressable
+        style={{padding: 15, backgroundColor: 'white', borderRadius: 15}}
+        onPress={() => {
+          console.log('Stopping');
+          stopAudio();
+        }}>
+        <Text style={{color: 'black'}}>Micstream stop</Text>
+      </Pressable>
+    </SafeAreaView>
+  );
 };

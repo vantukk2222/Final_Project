@@ -1,14 +1,20 @@
 import React from 'react';
-import { Modal, View, Text, TouchableOpacity, StyleSheet, TouchableWithoutFeedback } from 'react-native';
+import {
+  Modal,
+  View,
+  Text,
+  TouchableOpacity,
+  StyleSheet,
+  TouchableWithoutFeedback,
+} from 'react-native';
 
-const ChatOptionsModal = ({ visible, onClose, onDelete, onViewInfo }) => {
+const ChatOptionsModal = ({visible, onClose, onDelete, onViewInfo}) => {
   return (
     <Modal
       visible={visible}
       transparent
       animationType="fade"
-      onRequestClose={onClose}
-    >
+      onRequestClose={onClose}>
       <TouchableWithoutFeedback onPress={onClose}>
         <View style={styles.modalOverlay}>
           <TouchableWithoutFeedback>
@@ -16,7 +22,9 @@ const ChatOptionsModal = ({ visible, onClose, onDelete, onViewInfo }) => {
               <Text style={styles.modalTitle}>Options</Text>
 
               <TouchableOpacity style={styles.modalButton} onPress={onDelete}>
-                <Text style={[styles.modalButtonText, { color: 'red' }]}>Delete Chat</Text>
+                <Text style={[styles.modalButtonText, {color: 'red'}]}>
+                  Delete Chat
+                </Text>
               </TouchableOpacity>
 
               <TouchableOpacity style={styles.modalButton} onPress={onViewInfo}>
@@ -24,10 +32,11 @@ const ChatOptionsModal = ({ visible, onClose, onDelete, onViewInfo }) => {
               </TouchableOpacity>
 
               <TouchableOpacity
-                style={[styles.modalButton, { backgroundColor: '#ccc' }]}
-                onPress={onClose}
-              >
-                <Text style={[styles.modalButtonText, { color: '#333' }]}>Cancel</Text>
+                style={[styles.modalButton, {backgroundColor: '#ccc'}]}
+                onPress={onClose}>
+                <Text style={[styles.modalButtonText, {color: '#333'}]}>
+                  Cancel
+                </Text>
               </TouchableOpacity>
             </View>
           </TouchableWithoutFeedback>

@@ -1,283 +1,71 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { View, Text, Modal, TouchableOpacity, FlatList, Pressable, StyleSheet, TextInput } from 'react-native';
-import { useNavigation } from '@react-navigation/native';
+import React, {useState, useEffect, useRef} from 'react';
+import {
+  View,
+  Text,
+  Modal,
+  TouchableOpacity,
+  FlatList,
+  Pressable,
+  StyleSheet,
+  TextInput,
+} from 'react-native';
+import {useNavigation} from '@react-navigation/native';
 import firestore from '@react-native-firebase/firestore';
-import { combinedLanguages } from '../contains/lan_code';
+import {combinedLanguages} from '../contains/lan_code';
 import Icon from 'react-native-vector-icons/FontAwesome5';
 import Loading from './Loading';
-import { useAuth } from '../contexts/AuthContext';
+import {useAuth} from '../contexts/AuthContext';
 import messaging from '@react-native-firebase/messaging';
-import { io } from 'socket.io-client';
-import { Member } from '../contains/type';
+import {io} from 'socket.io-client';
+import {Member} from '../contains/type';
+import LanguageModal from './LanSelect';
 const SOCKET_SERVER_URL = 'ws://backendfinalpro-ct.onrender.com';
 
-const CallStarter = ({ user, chatId }) => {
+const CallStarter = ({user, chatId, isLanModalVisible = false}) => {
   const navigation = useNavigation();
-  const [langModalVisible, setLangModalVisible] = useState(false);
-  const [selectedLang, setSelectedLang] = useState(null);
-  const [searchQuery, setSearchQuery] = useState('');
-  const [filteredLanguages, setFilteredLanguages] = useState(combinedLanguages);
+  const [langModalVisible, setLangModalVisible] = useState(isLanModalVisible);
+  // const [selectedLang, setSelectedLang] = useState(null);
   const [loading, setLoading] = useState(false);
-  const [participants, setParticipants] = useState([]);
-  const socketRef = useRef(null);
+  // ...other state...
 
-  useEffect(() => {
-    const unsubscribe = firestore()
-      .collection('users')
-      .doc(user.uid)
-      .onSnapshot(doc => {
-        const data = doc.data();
-        if (data) {
-          console.log("datâ ", data);
-          setSelectedLang({
-            code: data.language,
-            transCode: data.translateCode,
-            name: combinedLanguages.find(lang => lang.code === data.language)?.name || 'Unknown',
-          });
-        }
-      });
+  // ...other hooks...
 
-    return () => unsubscribe();
-  },[chatId]);
+  const openLanguageModal = () => setLangModalVisible(true);
 
-  useEffect(() => {
-    async function setupSocket() {
-      // Lấy token FCM
-      const fcmToken = await messaging().getToken();
-      console.log('FCM Token ne:', fcmToken);
-
-      // Kết nối socket
-      socketRef.current = io(SOCKET_SERVER_URL);
-
-      socketRef.current.on('connect', () => {
-        console.log('Socket connected:', socketRef.current.id);
-
-        socketRef.current.emit('register', {
-          userId: user.uid,
-          fcmToken,
-          from: 'voiceStart',
-        });
-      });
-
-      socketRef.current.on('connect_error', (error) => {
-        console.error('Socket connection error:', error);
-      });
-    }
-
-    if (user?.uid) {
-      setupSocket();
-    }
-
-    return () => {
-      if (socketRef.current) {
-        socketRef.current.disconnect();
-      }
-    };
-  }, [user]);
-
-
-
-  useEffect(() => {
-    if (searchQuery.trim() === '') {
-      setFilteredLanguages(combinedLanguages);
-    } else {
-      const filtered = combinedLanguages.filter(lang =>
-        lang.name.toLowerCase().includes(searchQuery.toLowerCase())
-      );
-      setFilteredLanguages(filtered);
-    }
-  }, [searchQuery]);
-
-  const openLanguageModal = () => {
-    setLangModalVisible(true);
-  };
-  async function getChatMembers(chatId) {
-    try {
-      const chatRef = firestore().collection('chats').doc(chatId);
-      const chatDoc = await chatRef.get();
-
-      if (!chatDoc.exists) {
-        console.warn('Chat not found:', chatId);
-        return;
-      }
-
-      const chatData = chatDoc.data();
-      const members = chatData?.members || [];
-
-      console.log('Members in this chat:', members);
-      return members;
-    } catch (error) {
-      console.error('Error fetching chat members:', error);
-    }
-  }
-
-  const confirmLanguageAndNavigate = async () => {
-    setLoading(true);
-    if (!selectedLang) {
-      setLoading(false);
-      return;
-    }
-
-    setLangModalVisible(false);
-    const updatedUser: Member = {
-      uid: user.uid || user._user?.uid || '',
-      email: user.email || user._user?.email || '',
-      displayName: user.displayName || user._user?.displayName || '',
-      photoURL: user.photoURL || user._user?.photoURL || '',
-      language: selectedLang.code,
-      translateCode: selectedLang.transCode,
-      role: 'member',
-    };
-
-    const meetingRef = firestore().collection('meetings').doc(chatId);
-    const chatMembers = await getChatMembers(chatId);
-
-    console.log("chatMembers: ", chatMembers);
-    let updatedMembers: Member[];
-
-    try {
-      const doc = await meetingRef.get();
-      if (!doc.exists) {
-        updatedUser.role = 'admin';
-        await meetingRef.set({
-          createdAt: firestore.Timestamp.now(),
-          createdBy: updatedUser.uid,
-          members: [updatedUser],
-        });
-        updatedMembers = [updatedUser];
-      } else {
-        const currentMembers = doc.data()?.members || [];
-        const alreadyExists = currentMembers.find(
-          (m: Member) => m.uid === updatedUser.uid,
-        );
-
-        if (alreadyExists) {
-          updatedMembers = currentMembers.map((m: Member) =>
-            m.uid === updatedUser.uid ? updatedUser : m,
-          );
-        } else {
-          updatedMembers = [...currentMembers, updatedUser];
-        }
-        await meetingRef.update({members: updatedMembers});
-      }
-
-      if (user.uid) {
-        await firestore().collection('users').doc(user.uid).update({
-          language: selectedLang.code,
-          translateCode: selectedLang.transCode,
-        });
-        await firestore().collection('meetings').doc(chatId).set({
-          updatedAt: Date.now(),
-        }, { merge: true });
-      }
-
-      // Gửi sự kiện start_call qua socket
-      console.log("memberids_ne: ", updatedMembers.map(m => m.uid));
-      if (socketRef.current) {
-        socketRef.current.emit('start_call', {
-          meetingId: chatId,
-          fromUserId: user.uid,
-          memberIds: chatMembers,
-        });
-        console.log('Đã gửi start_call qua socket');
-      } else {
-        console.warn('Socket chưa kết nối');
-      }
-
-      setLoading(false);
-
-      navigation.navigate('VoiceCall', {
-        meetingId: chatId,
-      });
-    } catch (err) {
-      setLoading(false);
-      console.error('Lỗi khi cập nhật Firestore:', err);
-    }
-  };
-
+  // Nhận selectedLang từ Modal và xử lý tiếp
+  // const handleLanguageSelected = async (lang) => {
+  //   setLangModalVisible(false);
+  //   if (!lang) return;
+  //   setSelectedLang(lang);
+  //   // setLoading(false);
+  // };
 
   return (
     <View style={styles.container}>
       <TouchableOpacity onPress={openLanguageModal} style={styles.callButton}>
-        <Icon name="phone" size={24} color="#fff" style={{ transform: [{ rotate: '90deg' }] }} />
+        <Icon
+          name="phone"
+          size={24}
+          color="#fff"
+          style={{transform: [{rotate: '90deg'}]}}
+        />
       </TouchableOpacity>
       <Loading isLoading={loading} />
-      <Modal visible={langModalVisible} transparent animationType="fade">
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
-            <Text style={styles.modalTitle}>Select Your Language</Text>
-            <View style={styles.separator} />
-            <TextInput
-              style={styles.searchInput}
-              placeholderTextColor="#A0A3BD"
-              placeholder="Search language..."
-              value={searchQuery}
-              onChangeText={setSearchQuery}
-              clearButtonMode="while-editing"
-            />
-            <FlatList
-              data={filteredLanguages}
-              keyExtractor={item => item.code}
-              style={styles.languageList}
-              showsVerticalScrollIndicator={false}
-              initialScrollIndex={selectedLang ? filteredLanguages.findIndex(lang => lang.code === selectedLang.code) : 0}
-              getItemLayout={(data, index) => ({
-              length: 53, // height of item plus margin
-              offset: 53 * index,
-              index,
-              })}
-              onScrollToIndexFailed={info => {
-              setTimeout(() => {
-                if (filteredLanguages.length > 0) {
-                const ref = info.averageItemLength * info.index;
-                this.flatListRef.scrollToOffset({ offset: ref, animated: true });
-                }
-              }, 100);
-              }}
-              ref={ref => { this.flatListRef = ref; }}
-              renderItem={({ item }) => (
-              <Pressable
-                style={[
-                styles.languageItem,
-                selectedLang?.code === item.code && styles.selectedLanguage,
-                ]}
-                onPress={() => setSelectedLang(item)}
-              >
-                <Text
-                style={[
-                  styles.languageText,
-                  selectedLang?.code === item.code && styles.selectedLanguageText,
-                ]}
-                >
-                {item.name}
-                </Text>
-              </Pressable>
-              )}
-            />
-            <View style={styles.buttonContainer}>
-              <TouchableOpacity onPress={() => setLangModalVisible(false)} style={styles.cancelButton}>
-                <Text style={styles.buttonText}>Cancel</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                onPress={confirmLanguageAndNavigate}
-                style={[styles.confirmButton, !selectedLang && styles.disabledButton]}
-                disabled={!selectedLang}
-              >
-                <Text style={styles.buttonText}>Confirm</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        </View>
-      </Modal>
+      <LanguageModal
+        visible={langModalVisible}
+        chatId={chatId}
+        onDone={setLangModalVisible}
+        setLoading={setLoading}
+        fromChatScreen={true}
+      />
     </View>
   );
 };
-
 const styles = StyleSheet.create({
   container: {
     // backgroundColor: 'red',
     // paddingHorizontal: 24,
-    alignItems: 'center'
+    alignItems: 'center',
   },
   callButton: {
     backgroundColor: '#4361EE',
@@ -286,7 +74,7 @@ const styles = StyleSheet.create({
     borderRadius: 30,
     elevation: 8,
     shadowColor: '#4361EE',
-    shadowOffset: { width: 0, height: 4 },
+    shadowOffset: {width: 0, height: 4},
     shadowOpacity: 0.3,
     shadowRadius: 10,
     width: '100%',
@@ -310,7 +98,7 @@ const styles = StyleSheet.create({
     padding: 24,
     maxHeight: '80%',
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 10 },
+    shadowOffset: {width: 0, height: 10},
     shadowOpacity: 0.3,
     shadowRadius: 20,
     elevation: 10,
@@ -378,7 +166,7 @@ const styles = StyleSheet.create({
     marginLeft: 10,
     elevation: 4,
     shadowColor: '#4361EE',
-    shadowOffset: { width: 0, height: 4 },
+    shadowOffset: {width: 0, height: 4},
     shadowOpacity: 0.2,
     shadowRadius: 8,
   },
@@ -402,6 +190,5 @@ const styles = StyleSheet.create({
     fontSize: 16,
   },
 });
-
 
 export default CallStarter;

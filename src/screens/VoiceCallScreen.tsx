@@ -1,6 +1,6 @@
 // ✅ VoiceCallScreen tích hợp socket.io thay cho Firestore (không lưu lịch sử)
 
-import React, { useRef, useState, useEffect } from 'react';
+import React, {useRef, useState, useEffect} from 'react';
 import {
   SafeAreaView,
   StyleSheet,
@@ -16,20 +16,32 @@ import {
   BackHandler,
 } from 'react-native';
 import AudioRecord from 'react-native-live-audio-stream';
-import { AudioConfig, AudioInputStream, SpeechTranslationConfig, TranslationRecognizer } from 'microsoft-cognitiveservices-speech-sdk';
-import { speakTranslation } from '../api/SpeakText';
-import Icon from 'react-native-vector-icons/MaterialIcons';
-import { useNavigation } from '@react-navigation/native';
-import io from 'socket.io-client';
-import { useAuth } from '../contexts/AuthContext';
-import firestore from '@react-native-firebase/firestore';
+import {
+  AudioConfig,
+  AudioInputStream,
+  SpeechTranslationConfig,
+  TranslationRecognizer,
+} from 'microsoft-cognitiveservices-speech-sdk';
+import * as sdk from 'microsoft-cognitiveservices-speech-sdk';
 
-const VoiceCallScreen = ({ route }) => {
+import {speakTranslation} from '../api/SpeakText';
+import Icon from 'react-native-vector-icons/MaterialIcons';
+import {useNavigation} from '@react-navigation/native';
+import io from 'socket.io-client';
+import {useAuth} from '../contexts/AuthContext';
+import firestore from '@react-native-firebase/firestore';
+import {translateTextAzure} from '../api/TranslateAPI';
+import Sound from 'react-native-sound';
+const SOCKET_SERVER_URL = 'ws://backendfinalpro-ct.onrender.com';
+
+const VoiceCallScreen = ({route}) => {
   const navigation = useNavigation();
-  const { meetingId } = route.params;
+  const {meetingId} = route.params;
   const {user} = useAuth();
-  const key = '1qepnQJBmBjwMzXHkIzvzbLOkpL9Kb8TfRAavmA8Z9VlanYj8WegJQQJ99BCACYeBjFXJ3w3AAAYACOG6bxW';
-  const keySTT = 'CM9T6m7rgYNegLOVQyQllWwGbl6yrLmftrYyQDYJoKD0DlWMzVF7JQQJ99BEACYeBjFXJ3w3AAAbACOGF9m3';
+  const key =
+    '1qepnQJBmBjwMzXHkIzvzbLOkpL9Kb8TfRAavmA8Z9VlanYj8WegJQQJ99BCACYeBjFXJ3w3AAAYACOG6bxW';
+  const keySTT =
+    'CM9T6m7rgYNegLOVQyQllWwGbl6yrLmftrYyQDYJoKD0DlWMzVF7JQQJ99BEACYeBjFXJ3w3AAAbACOGF9m3';
   const region = 'eastus';
   const [text, setText] = useState('');
   const [isListening, setIsListening] = useState(false);
@@ -47,97 +59,147 @@ const VoiceCallScreen = ({ route }) => {
     const unsubscribe = firestore()
       .collection('meetings')
       .doc(meetingId)
-      .onSnapshot(async (doc) => {
-        if (doc.exists) {
-          console.log("meetingId", meetingId);
-          const data = doc.data();
-          console.log('Meeting data:', data);
-          const uids = data.members?.flatMap(m => m.uid !== user.uid ? m.uid : []) || [];
+      .onSnapshot(
+        async doc => {
+          if (doc.exists) {
+            console.log('meetingId', meetingId);
+            const data = doc.data();
+            console.log('Meeting data:', data);
+            const uids =
+              data.members?.flatMap(m => (m.uid !== user.uid ? m.uid : [])) ||
+              [];
 
-          console.log('uids', uids);
+            console.log('uids', uids);
 
-          if (uids.length === 0) {
+            if (uids.length === 0) {
+              setParticipants([]);
+              return;
+            }
+
+            const batchSize = 10;
+            const batches = [];
+
+            for (let i = 0; i < uids.length; i += batchSize) {
+              const batch = uids.slice(i, i + batchSize);
+              const query = firestore()
+                .collection('users')
+                .where(firestore.FieldPath.documentId(), 'in', batch)
+                .get();
+              batches.push(query);
+            }
+
+            try {
+              const snapshots = await Promise.all(batches);
+              const users = snapshots.flatMap(snap =>
+                snap.docs.map(doc => ({
+                  uid: doc.id,
+                  ...doc.data(),
+                })),
+              );
+
+              setParticipants(users);
+            } catch (error) {
+              console.error('Error fetching users:', error);
+            }
+          } else {
+            console.warn('Meeting document does not exist.');
             setParticipants([]);
-            return;
           }
-
-          const batchSize = 10;
-          const batches = [];
-
-          for (let i = 0; i < uids.length; i += batchSize) {
-            const batch = uids.slice(i, i + batchSize);
-            const query = firestore()
-              .collection('users')
-              .where(firestore.FieldPath.documentId(), 'in', batch)
-              .get();
-            batches.push(query);
-          }
-
-          try {
-            const snapshots = await Promise.all(batches);
-            const users = snapshots.flatMap(snap =>
-              snap.docs.map(doc => ({
-                uid: doc.id,
-                ...doc.data(),
-              }))
-            );
-
-            setParticipants(users);
-          } catch (error) {
-            console.error('Error fetching users:', error);
-          }
-
-        } else {
-          console.warn('Meeting document does not exist.');
-          setParticipants([]);
-        }
-      }, error => {
-        console.error('Firestore listener error:', error);
-      });
+        },
+        error => {
+          console.error('Firestore listener error:', error);
+        },
+      );
 
     return () => unsubscribe();
   }, [meetingId]);
-
 
   const playFromQueue = async () => {
     if (isPlayingRef.current || audioQueue.current.length === 0) return;
 
     isPlayingRef.current = true;
-    const { text, lang } = audioQueue.current.shift();
+    const {text, lang} = audioQueue.current.shift();
 
     try {
       await speakTranslation(text, key, region, lang);
     } catch (error) {
-      console.error("Error playing audio:", error);
+      console.error('Error playing audio:', error);
     } finally {
       isPlayingRef.current = false;
       playFromQueue();
     }
   };
 
+  const playNextAudio = async () => {
+    if (isPlayingRef.current || audioQueue.current.length === 0) return;
+
+    isPlayingRef.current = true;
+    const path = audioQueue.current.shift();
+
+    if (!path) {
+      isPlayingRef.current = false;
+      return;
+    }
+
+    const sound = new Sound(path, '', error => {
+      if (error) {
+        console.error('Sound load error:', error);
+        isPlayingRef.current = false;
+        playNextAudio();
+        return;
+      }
+
+      sound.play(success => {
+        sound.release();
+        isPlayingRef.current = false;
+        playNextAudio();
+      });
+    });
+  };
+
   useEffect(() => {
-    const socket = io('ws://backendfinalpro-ct.onrender.com');
+    const socket = io(SOCKET_SERVER_URL, {
+      transports: ['websocket'],
+      secure: true,
+      rejectUnauthorized: false, // Chỉ dùng trong môi trường phát triển
+    });
     socketRef.current = socket;
 
     socket.on('connect', () => {
-        socketRef.current.emit('register', {
-          userId: user.uid,
-          fcmToken: user.fcmToken,
-          from: 'voiceStart',
-        });
-        console.log('Connected to socket server, registered user:', user.uid);
+      socketRef.current.emit('register', {
+        userId: user.uid,
+        fcmToken: user.fcmToken,
+        from: 'voiceStart',
+      });
+      console.log('Connected to socket server, registered user:', user.uid);
     });
 
-    socket.on('connect_error', (error) => {
+    socket.on('connect_error', error => {
       console.error('Socket connection error:', error);
     });
 
-    socket.on('receive_translation', ({ text, lang, isFinal }) => {
+    // socket.on('receive_translation', ({ text, lang, isFinal }) => {
+    //   setText(text);
+
+    //   if (isFinal && !(text === "Comma." || text === ".")) {
+    //     audioQueue.current.push({ text, lang });
+    //     playFromQueue();
+    //   }
+    // });
+
+    socket.on('receive_translation', async ({text, lang, isFinal}) => {
       setText(text);
 
-      if (isFinal && !(text === "Comma." || text === ".")) {
-        audioQueue.current.push({ text, lang });
-        playFromQueue();
+      if (
+        isFinal &&
+        text.trim() !== '.' &&
+        text.trim().toLowerCase() !== 'comma.'
+      ) {
+        const filePath = await speakTranslation(text, key, region, lang);
+        if (filePath) {
+          audioQueue.current.push(filePath);
+          playNextAudio();
+        }
       }
     });
 
@@ -151,7 +213,9 @@ const VoiceCallScreen = ({ route }) => {
         PermissionsAndroid.PERMISSIONS.READ_EXTERNAL_STORAGE,
         PermissionsAndroid.PERMISSIONS.RECORD_AUDIO,
       ]);
-      return Object.values(grants).every(g => g === PermissionsAndroid.RESULTS.GRANTED);
+      return Object.values(grants).every(
+        g => g === PermissionsAndroid.RESULTS.GRANTED,
+      );
     }
     return true;
   };
@@ -160,43 +224,78 @@ const VoiceCallScreen = ({ route }) => {
     if (!(await checkPermissions()) || initializedRef.current) return;
     setIsListening(true);
     const pushStream = AudioInputStream.createPushStream();
-    AudioRecord.init({ sampleRate, channels, bitsPerChannel, audioSource: 7 });
-    AudioRecord.on('data', data => pushStream.write(Buffer.from(data, 'base64')));
+    AudioRecord.init({sampleRate, channels, bitsPerChannel, audioSource: 7});
+    AudioRecord.on('data', data =>
+      pushStream.write(Buffer.from(data, 'base64')),
+    );
     AudioRecord.start();
 
     const config = SpeechTranslationConfig.fromSubscription(key, region);
     config.speechRecognitionLanguage = user.language;
-    (participants || []).filter(m => m.uid !== user.uid).forEach(m => {
-      if (m.translateCode) {
-      config.addTargetLanguage(m.translateCode);
-      }
-    });
+    config.outputFormat = sdk.OutputFormat.Detailed;
+    (participants || [])
+      .filter(m => m.uid !== user.uid)
+      .forEach(m => {
+        if (m.translateCode) {
+          config.addTargetLanguage(m.translateCode);
+        }
+      });
     if (!config.targetLanguages || config.targetLanguages.length === 0) {
       config.addTargetLanguage('en');
     }
 
-    const recognizer = new TranslationRecognizer(config, AudioConfig.fromStreamInput(pushStream));
+    const recognizer = new TranslationRecognizer(
+      config,
+      AudioConfig.fromStreamInput(pushStream),
+    );
 
     recognizerRef.current = recognizer;
 
-    recognizer.recognizing = (s, e) => {
-      console.log('Recognizing:', e.result.text);
-      setText(e.result.text);
+    recognizer.recognizing = async (s, e) => {
+      const current = e.result.text;
+      setText(current);
+      // if (!current || current === lastConfirmedText) return;
+
+      // // Tìm phần mới so với đoạn đã dịch
+      // const newText = current.slice(lastConfirmedText.length).trim();
+      // console.log('Recognizing:', newText);
+
+      // // Nếu có dấu câu hoặc đủ dài thì dịch
+      // if (/[.!?，。,]/.test(newText.slice(-1)) || newText.split(/\s+/).length >= 5) {
+      //   for (const m of participants.filter(p => p.uid !== user.uid)) {
+      //     const translated = await translateTextAzure(newText, m.translateCode, keySTT, region);
+      //     const translating = e.result.translations.get(m.translateCode);
+      //     console.log('Translating:', translating, 'for');
+      //     if (translated) {
+      //       socketRef.current.emit('send_translation', {
+      //         fromUserId: user.uid,
+      //         toUserId: m.uid,
+      //         text: translated,
+      //         lang: m.translateCode,
+      //         isFinal: true,
+      //       });
+      //     }
+      //   }
+
+      //   lastConfirmedText = current; // cập nhật lại text đã dịch
+      // }
     };
 
     recognizer.recognized = (s, e) => {
-      participants.filter(m => m.uid !== user.uid).forEach(m => {
-        const translated = e.result.translations.get(m.translateCode);
-        if (translated) {
-          socketRef.current.emit('send_translation', {
-            fromUserId: user.uid,
-            toUserId: m.uid,
-            text: translated,
-            lang: m.translateCode,
-            isFinal: true,
-          });
-        }
-      });
+      participants
+        .filter(m => m.uid !== user.uid)
+        .forEach(m => {
+          const translated = e.result.translations.get(m.translateCode);
+          if (translated) {
+            socketRef.current.emit('send_translation', {
+              fromUserId: user.uid,
+              toUserId: m.uid,
+              text: translated,
+              lang: m.translateCode,
+              isFinal: true,
+            });
+          }
+        });
     };
 
     recognizer.startContinuousRecognitionAsync();
@@ -214,21 +313,29 @@ const VoiceCallScreen = ({ route }) => {
     }
   };
 
-  useEffect(() => () => { if (isListening) stopAudio(); }, [isListening]);
+  useEffect(
+    () => () => {
+      if (isListening) stopAudio();
+    },
+    [isListening],
+  );
   const handleBackPress = () => {
     Alert.alert(
       'Exit Meeting',
       'Are you sure you want to exit the meeting?',
       [
-        { text: 'Cancel', style: 'cancel' },
-        { text: 'OK', onPress: handleExitScreen },
+        {text: 'Cancel', style: 'cancel'},
+        {text: 'OK', onPress: handleExitScreen},
       ],
-      { cancelable: false }
+      {cancelable: false},
     );
     return true;
   };
   useEffect(() => {
-    const backHandler = BackHandler.addEventListener('hardwareBackPress', handleBackPress);
+    const backHandler = BackHandler.addEventListener(
+      'hardwareBackPress',
+      handleBackPress,
+    );
     return () => backHandler.remove();
   }, []);
   const handleExitScreen = () => {
@@ -266,12 +373,20 @@ const VoiceCallScreen = ({ route }) => {
     }
   }
 
-
-  const renderParticipantItem = ({ item }) => (
+  const renderParticipantItem = ({item}) => (
     <View style={styles.participantItem}>
-      <View style={styles.smallAvatar}><Text style={styles.smallAvatarText}>{item.name?.charAt(0) || '?'}</Text></View>
+      <View style={styles.smallAvatar}>
+        <Text style={styles.smallAvatarText}>
+          {item.name?.charAt(0) || '?'}
+        </Text>
+      </View>
       <Text style={styles.participantItemName}>{item.name}</Text>
-      <Icon name="mic" size={16} color="#6264A7" style={styles.participantMicIcon} />
+      <Icon
+        name="mic"
+        size={16}
+        color="#6264A7"
+        style={styles.participantMicIcon}
+      />
     </View>
   );
 
@@ -288,16 +403,32 @@ const VoiceCallScreen = ({ route }) => {
 
       <View style={styles.callArea}>
         <View style={styles.participantContainer}>
-          <View style={styles.avatar}><Text style={styles.avatarText}>{user.name?.charAt(0)|| user?.email?.charAt(0).toUpperCase() || 'You'}</Text></View>
+          <View style={styles.avatar}>
+            <Text style={styles.avatarText}>
+              {user.name?.charAt(0) ||
+                user?.email?.charAt(0).toUpperCase() ||
+                'You'}
+            </Text>
+          </View>
           <Text style={styles.participantName}>{user.name || 'You'}</Text>
-          <View style={[styles.micIndicator, { backgroundColor: isListening ? '#6264A7' : '#555555' }]}>
-            <Icon name={isListening ? 'mic' : 'mic-off'} size={16} color="#ffffff" />
+          <View
+            style={[
+              styles.micIndicator,
+              {backgroundColor: isListening ? '#6264A7' : '#555555'},
+            ]}>
+            <Icon
+              name={isListening ? 'mic' : 'mic-off'}
+              size={16}
+              color="#ffffff"
+            />
           </View>
         </View>
 
         <ScrollView style={styles.translationContainer}>
           <Text style={styles.translationLabel}>Live Transcription</Text>
-          <Text style={styles.translationText}>{text || 'No speech detected'}</Text>
+          <Text style={styles.translationText}>
+            {text || 'No speech detected'}
+          </Text>
         </ScrollView>
 
         {/* <View style={styles.participantsListContainer}>
@@ -319,10 +450,18 @@ const VoiceCallScreen = ({ route }) => {
 
       <View style={styles.controlsContainer}>
         {/* <TouchableOpacity style={styles.controlButton}><Icon name="videocam-off" size={24} color="#ffffff" /></TouchableOpacity> */}
-        <TouchableOpacity onPress={isListening ? stopAudio : initializeAudio} style={[styles.controlButton, isListening && styles.endCallButton]}>
-          <Icon name={isListening ? 'mic' : 'mic-off'} size={24} color="#ffffff" />
+        <TouchableOpacity
+          onPress={isListening ? stopAudio : initializeAudio}
+          style={[styles.controlButton, isListening && styles.endCallButton]}>
+          <Icon
+            name={isListening ? 'mic' : 'mic-off'}
+            size={24}
+            color="#ffffff"
+          />
         </TouchableOpacity>
-        <TouchableOpacity onPress={handleExitScreen} style={[styles.callButton, styles.endCallButton]}>
+        <TouchableOpacity
+          onPress={handleExitScreen}
+          style={[styles.callButton, styles.endCallButton]}>
           <Icon name="call-end" size={28} color="#ffffff" />
         </TouchableOpacity>
         {/* <TouchableOpacity style={styles.controlButton}><Icon name="screen-share" size={24} color="#ffffff" /></TouchableOpacity> */}
@@ -331,7 +470,6 @@ const VoiceCallScreen = ({ route }) => {
     </SafeAreaView>
   );
 };
-
 
 const styles = StyleSheet.create({
   main: {

@@ -1,7 +1,6 @@
-
 /* src/screens/ChatListScreen.tsx */
 
-import React, { useEffect, useState } from "react";
+import React, {useEffect, useState} from 'react';
 import {
   View,
   Text,
@@ -13,25 +12,25 @@ import {
   StatusBar,
   SafeAreaView,
   Modal,
-} from "react-native";
-import firestore from "@react-native-firebase/firestore";
-import { useNavigation } from "@react-navigation/native";
-import { useAuth } from "../contexts/AuthContext";
-import AvatarButton from "../components/AvatarButton";
-import Icon from "react-native-vector-icons/FontAwesome5";
+} from 'react-native';
+import firestore from '@react-native-firebase/firestore';
+import {useNavigation} from '@react-navigation/native';
+import {useAuth} from '../contexts/AuthContext';
+import AvatarButton from '../components/AvatarButton';
+import Icon from 'react-native-vector-icons/FontAwesome5';
 import Loading from './../components/Loading';
-import { set } from "react-hook-form";
-import ChatOptionsModal from "../components/ChatOptionsModal";
+import {set} from 'react-hook-form';
+import ChatOptionsModal from '../components/ChatOptionsModal';
 
 const ChatListScreen = () => {
   const navigation = useNavigation<any>();
-  const { user, signOut, role } = useAuth();
+  const {user, signOut, role} = useAuth();
   // const user?.uid = ;
   const [chats, setChats] = useState<any[]>([]);
   const [filteredChats, setFilteredChats] = useState<any[]>([]);
-  const [inputEmails, setInputEmails] = useState("");
-  const [avatarUrl, setAvatarUrl] = useState("");
-  const [loading, setLoading ] = useState(false)
+  const [inputEmails, setInputEmails] = useState('');
+  const [avatarUrl, setAvatarUrl] = useState('');
+  const [loading, setLoading] = useState(false);
   const [showOptions, setShowOptions] = useState(false);
   const [showGroupModal, setShowGroupModal] = useState(false);
   const [groupName, setGroupName] = useState('');
@@ -40,95 +39,108 @@ const ChatListScreen = () => {
   const [modalVisible, setModalVisible] = useState(false);
   const [selectedChat, setSelectedChat] = useState(null);
 
-
   useEffect(() => {
     if (!user?.uid) return;
-      setLoading(true)
+    setLoading(true);
     const loadProfile = () => {
       const unsubscribeProfile = firestore()
         .collection('users')
         .doc(user?.uid)
-        .onSnapshot(doc => {
-          const data = doc.data();
-          if (data) {
-            setAvatarUrl(data?.avatar?.url || '');
-          }
-        }, error => {
-          console.error('Profile snapshot error:', error);
-        });
-        
+        .onSnapshot(
+          doc => {
+            const data = doc.data();
+            if (data) {
+              setAvatarUrl(data?.avatar?.url || '');
+            }
+          },
+          error => {
+            console.error('Profile snapshot error:', error);
+          },
+        );
+
       return () => unsubscribeProfile();
       // setAvatarUrl(user?.avatar?.url || '');
-
     };
     loadProfile();
     const unsubscribe = firestore()
-      .collection("chats")
-      .where("members", "array-contains", user?.uid)
-      .onSnapshot(async (querySnapshot) => {
-      try {
-        const chatData: any[] = [];
-        const userIdsSet = new Set<string>();
+      .collection('chats')
+      .where('members', 'array-contains', user?.uid)
+      .onSnapshot(
+        async querySnapshot => {
+          try {
+            const chatData: any[] = [];
+            const userIdsSet = new Set<string>();
 
-        querySnapshot.forEach((doc) => {
-        const data = doc.data();
-        chatData.push({ id: doc.id, ...data });
-        data.members?.forEach((id: string) => userIdsSet.add(id));
-        });
+            querySnapshot.forEach(doc => {
+              const data = doc.data();
+              chatData.push({id: doc.id, ...data});
+              data.members?.forEach((id: string) => userIdsSet.add(id));
+            });
 
-        const userIds = Array.from(userIdsSet);
-        if (userIds.length > 0) {
-        const usersSnapshot = await firestore()
-          .collection("users")
-          .where(firestore.FieldPath.documentId(), "in", userIds)
-          .get();
+            const userIds = Array.from(userIdsSet);
+            if (userIds.length > 0) {
+              const usersSnapshot = await firestore()
+                .collection('users')
+                .where(firestore.FieldPath.documentId(), 'in', userIds)
+                .get();
 
-        const userMap: Record<string, { name: string; email: string; avatar?: string }> = {};
-        usersSnapshot.forEach((doc) => {
-          userMap[doc.id] = {
-          name: doc.data()?.name || doc.data().email,
-          email: doc.data().email,
-          avatar: doc.data()?.avatar?.url,
-          };
-        });
+              const userMap: Record<
+                string,
+                {name: string; email: string; avatar?: string}
+              > = {};
+              usersSnapshot.forEach(doc => {
+                userMap[doc.id] = {
+                  name: doc.data()?.name || doc.data().email,
+                  email: doc.data().email,
+                  avatar: doc.data()?.avatar?.url,
+                };
+              });
 
-        const enrichedChats = chatData.map((chat) => {
-          const otherMemberId = chat.members.find((id: string) => id !== user?.uid);
-          return {
-          ...chat,
-          memberEmails: chat.members.map((id: string) => userMap[id]?.name || userMap[id]?.email || id),
-          avatar: otherMemberId ? userMap[otherMemberId]?.avatar : null,
-          };
-        });
+              const enrichedChats = chatData.map(chat => {
+                const otherMemberId = chat.members.find(
+                  (id: string) => id !== user?.uid,
+                );
+                return {
+                  ...chat,
+                  memberEmails: chat.members.map(
+                    (id: string) =>
+                      userMap[id]?.name || userMap[id]?.email || id,
+                  ),
+                  avatar: otherMemberId ? userMap[otherMemberId]?.avatar : null,
+                };
+              });
 
-        setChats(enrichedChats);
-        setFilteredChats(enrichedChats);
-        } else {
-          setChats([]);
-          setFilteredChats([]);
-        }
-      } catch (error) {
-        console.error("Error loading chats:", error);
-        Alert.alert("Error", "Failed to load chat list. Please try again.");
-      } finally {
-        setLoading(false);
-      }
-      }, (error) => {
-        console.error("Firestore snapshot error:", error);
-        setLoading(false);
-        Alert.alert("Error", "Failed to listen for chat updates.");
-      });
+              setChats(enrichedChats);
+              setFilteredChats(enrichedChats);
+            } else {
+              setChats([]);
+              setFilteredChats([]);
+            }
+          } catch (error) {
+            console.error('Error loading chats:', error);
+            Alert.alert('Error', 'Failed to load chat list. Please try again.');
+          } finally {
+            setLoading(false);
+          }
+        },
+        error => {
+          console.error('Firestore snapshot error:', error);
+          setLoading(false);
+          Alert.alert('Error', 'Failed to listen for chat updates.');
+        },
+      );
 
     return () => unsubscribe();
   }, [user?.uid]);
   useEffect(() => {
     if (!searchQuery.trim()) {
-      setFilteredChats(chats); 
+      setFilteredChats(chats);
     } else {
       const query = searchQuery.toLowerCase();
-      const result = chats.filter(chat =>
-        chat.name?.toLowerCase().includes(query) ||
-        chat.memberEmails?.some(email => email.toLowerCase().includes(query))
+      const result = chats.filter(
+        chat =>
+          chat.name?.toLowerCase().includes(query) ||
+          chat.memberEmails?.some(email => email.toLowerCase().includes(query)),
       );
       setFilteredChats(result);
     }
@@ -137,46 +149,49 @@ const ChatListScreen = () => {
   const handleCreateChat = async () => {
     setLoading(true);
     const emails = inputEmails
-      .split(",")
-      .map((e) => e.trim().toLowerCase())
+      .split(',')
+      .map(e => e.trim().toLowerCase())
       .filter(Boolean);
 
     if (emails.length === 0) {
       setLoading(false);
 
-      Alert.alert("Error", "Please enter at least one email.");
+      Alert.alert('Error', 'Please enter at least one email.');
       return;
     }
 
     try {
       const usersSnapshot = await firestore()
-        .collection("users")
-        .where("email", "in", emails)
+        .collection('users')
+        .where('email', 'in', emails)
         .get();
 
-      const users = usersSnapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
-      const foundEmails = users.map((u) => u.email?.toLowerCase());
-      const notFound = emails.filter((email) => !foundEmails.includes(email));
-  
+      const users = usersSnapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data(),
+      }));
+      const foundEmails = users.map(u => u.email?.toLowerCase());
+      const notFound = emails.filter(email => !foundEmails.includes(email));
+
       if (notFound.length > 0) {
-        setGroupName("");
-        setInputEmails("");
+        setGroupName('');
+        setInputEmails('');
         setLoading(false);
-        Alert.alert("Error", `Emails not found: ${notFound.join(", ")}`);
+        Alert.alert('Error', `Emails not found: ${notFound.join(', ')}`);
         return;
       }
 
-      const memberIds = users.map((u) => u.id);
+      const memberIds = users.map(u => u.id);
       if (!memberIds.includes(user?.uid)) memberIds.push(user?.uid);
 
       const roles = memberIds.reduce((acc, memberId) => {
-        acc[memberId] = memberId === user?.uid ? "owner" : "member";
+        acc[memberId] = memberId === user?.uid ? 'owner' : 'member';
         return acc;
       }, {} as Record<string, string>);
 
-      if (role == "tourist") {
-        const chatId = [memberIds[0], memberIds[1]].sort().join("_");
-        await firestore().collection("chats").doc(chatId).set(
+      if (role == 'tourist') {
+        const chatId = [memberIds[0], memberIds[1]].sort().join('_');
+        await firestore().collection('chats').doc(chatId).set(
           {
             isGroup: false,
             members: memberIds,
@@ -184,12 +199,12 @@ const ChatListScreen = () => {
             createdAt: firestore.FieldValue.serverTimestamp(),
             createdBy: user?.uid,
           },
-          { merge: true }
+          {merge: true},
         );
-        const toUser = users.find((u) => u.id !== user?.uid);
+        const toUser = users.find(u => u.id !== user?.uid);
         // navigation.navigate("Chat", { chatId, toUserId: toUser?.id });
       } else {
-        const chatRef = await firestore().collection("chats").add({
+        const chatRef = await firestore().collection('chats').add({
           isGroup: true,
           members: memberIds,
           roles,
@@ -199,64 +214,66 @@ const ChatListScreen = () => {
         });
         // navigation.navigate("Chat", { chatId: chatRef.id });
       }
-      setGroupName("");
-      setInputEmails("");
+      setGroupName('');
+      setInputEmails('');
       setLoading(false);
     } catch (err) {
       console.error(err);
       setLoading(false);
-      setGroupName("");
-      setInputEmails("");
+      setGroupName('');
+      setInputEmails('');
 
-      Alert.alert("Error", "Failed to create chat. Check that emails exist.");
-    }
-    finally {
+      Alert.alert('Error', 'Failed to create chat. Check that emails exist.');
+    } finally {
       setLoading(false);
-      setGroupName("");
-      setInputEmails("");
+      setGroupName('');
+      setInputEmails('');
     }
-     
   };
-  
-  const onLongPressItem = (item) => {
+
+  const onLongPressItem = item => {
     setSelectedChat(item);
     setModalVisible(true);
   };
 
-  const deleteChat = (id) => {
+  const deleteChat = id => {
     setModalVisible(false);
     Alert.alert('Xoá', `Xoá chat có id: ${id}`);
   };
 
-  const renderItem = ({ item }) => {
+  const renderItem = ({item}) => {
     const otherEmails = item.memberEmails?.filter(
-      (email, index) => item.members[index] !== user?.uid
+      (email, index) => item.members[index] !== user?.uid,
     );
-    const chatName = item.isGroup ? item.name || 'Group Chat' : `${otherEmails?.join(', ')}`;
+    const chatName = item.isGroup
+      ? item.name || 'Group Chat'
+      : `${otherEmails?.join(', ')}`;
     let firstLetter = '';
-    if(item.lastSenderName && (user?.email == item?.lastSenderName || user?.name == item?.lastSenderName))
-    {
-      firstLetter = 'You: ' + item?.lastMessage 
-    }
-    else if (item.lastSenderName) {
-      firstLetter = item?.lastSenderName + ': ' + item?.lastMessage
-    }
-    else {
+    if (
+      item.lastSenderName &&
+      (user?.email == item?.lastSenderName ||
+        user?.name == item?.lastSenderName)
+    ) {
+      firstLetter = 'You: ' + item?.lastMessage;
+    } else if (item.lastSenderName) {
+      firstLetter = item?.lastSenderName + ': ' + item?.lastMessage;
+    } else {
       firstLetter = "Let's explore together!";
     }
     return (
       <TouchableOpacity
         style={styles.chatItem}
-        onPress={() => navigation.navigate('Chat', {
-          chatId: item.id,
-          toUserId: item.members.find(id => id !== user?.uid),
-          name: chatName,
-          avatar: item.avatar,
-          currentAvatar: avatarUrl,
-        })}
+        onPress={() =>
+          navigation.navigate('Chat', {
+            chatId: item.id,
+            toUserId: item.members.find(id => id !== user?.uid),
+            name: chatName,
+            avatar: item.avatar,
+            currentAvatar: avatarUrl,
+          })
+        }
         onLongPress={() => onLongPressItem(item)}
-        delayLongPress={300} 
-      >
+        delayLongPress={300}>
         <AvatarButton
           imageUrl={item.avatar}
           size={50}
@@ -264,7 +281,7 @@ const ChatListScreen = () => {
         />
         <View style={styles.chatInfo}>
           <Text style={styles.chatName}>{chatName}</Text>
-          <Text style={styles.lastMessage}>{ firstLetter}</Text>
+          <Text style={styles.lastMessage}>{firstLetter}</Text>
         </View>
       </TouchableOpacity>
     );
@@ -274,7 +291,9 @@ const ChatListScreen = () => {
     <View style={styles.emptyContainer}>
       <Icon name="map-marked-alt" size={80} color="#B0BEC5" />
       <Text style={styles.emptyText}>No trips yet</Text>
-      <Text style={styles.emptySubText}>Start your journey by creating a chat</Text>
+      <Text style={styles.emptySubText}>
+        Start your journey by creating a chat
+      </Text>
     </View>
   );
 
@@ -287,10 +306,15 @@ const ChatListScreen = () => {
             <Text style={styles.headerTitle}>Travel Chats</Text>
             <View style={styles.headerActions}>
               <TouchableOpacity onPress={() => setSearchVisible(true)}>
-                <Icon name="search" size={20} color="#fff" style={styles.iconButton} />
+                <Icon
+                  name="search"
+                  size={20}
+                  color="#fff"
+                  style={styles.iconButton}
+                />
               </TouchableOpacity>
               <AvatarButton
-                onPress={() => navigation.navigate("UserProfile")}
+                onPress={() => navigation.navigate('UserProfile')}
                 imageUrl={avatarUrl}
                 style={styles.profileAvatar}
               />
@@ -306,11 +330,17 @@ const ChatListScreen = () => {
               onChangeText={setSearchQuery}
               autoFocus
             />
-            <TouchableOpacity onPress={() => {
-              setSearchVisible(false);
-              setSearchQuery('');
-            }}>
-              <Icon name="times" size={20} color="red" style={{ marginLeft: 10, padding:2 }} />
+            <TouchableOpacity
+              onPress={() => {
+                setSearchVisible(false);
+                setSearchQuery('');
+              }}>
+              <Icon
+                name="times"
+                size={20}
+                color="red"
+                style={{marginLeft: 10, padding: 2}}
+              />
             </TouchableOpacity>
           </View>
         )}
@@ -323,79 +353,79 @@ const ChatListScreen = () => {
         onDelete={() => deleteChat(selectedChat?.id)}
         onViewInfo={() => {
           setModalVisible(false);
-          navigation.navigate('ChatInfo', { chatId: selectedChat?.id });
+          navigation.navigate('ChatInfo', {chatId: selectedChat?.id});
         }}
       />
       <FlatList
         data={filteredChats}
-        keyExtractor={(item) => item.id}
+        keyExtractor={item => item.id}
         contentContainerStyle={styles.listContent}
         ListEmptyComponent={renderEmptyList}
         renderItem={renderItem}
       />
 
       {/* <View style={styles.inputContainer}> */}
-        {/* <TextInput
+      {/* <TextInput
           placeholder="Enter email(s)..."
           value={inputEmails}
           onChangeText={setInputEmails}
           style={styles.input}
           placeholderTextColor="#888"
         /> */}
-        <View style={{ position: 'absolute', bottom: 30, right: 20 }}>
-          <Modal visible={showGroupModal} transparent animationType="slide">
-            <View style={styles.modalOverlay}>
-              <View style={styles.modalContainer}>
-                <Text style={styles.modalHeader}>Create New Chat</Text>
+      <View style={{position: 'absolute', bottom: 30, right: 20}}>
+        <Modal visible={showGroupModal} transparent animationType="slide">
+          <View style={styles.modalOverlay}>
+            <View style={styles.modalContainer}>
+              <Text style={styles.modalHeader}>Create New Chat</Text>
 
-                <TextInput
-                  placeholder="Group name"
-                  value={groupName}
-                  onChangeText={setGroupName}
-                  style={styles.inputField}
-                  placeholderTextColor="#888"
-                />
+              <TextInput
+                placeholder="Group name"
+                value={groupName}
+                onChangeText={setGroupName}
+                style={styles.inputField}
+                placeholderTextColor="#888"
+              />
 
-                <TextInput
-                  placeholder="Enter email(s)..."
-                  value={inputEmails}
-                  onChangeText={setInputEmails}
-                  style={styles.inputField}
-                  placeholderTextColor="#888"
-                />
+              <TextInput
+                placeholder="Enter email(s)..."
+                value={inputEmails}
+                onChangeText={setInputEmails}
+                style={styles.inputField}
+                placeholderTextColor="#888"
+              />
 
-                <View style={styles.buttonContainer}>
-                  <TouchableOpacity
-                    style={[styles.modalButton, styles.confirmButton]}
-                    onPress={() => {
-                      handleCreateChat();
-                      setShowGroupModal(false);
-                    }}
-                  >
-                    <Text style={styles.modalButtonText}>Confirm</Text>
-                  </TouchableOpacity>
+              <View style={styles.buttonContainer}>
+                <TouchableOpacity
+                  style={[styles.modalButton, styles.confirmButton]}
+                  onPress={() => {
+                    handleCreateChat();
+                    setShowGroupModal(false);
+                  }}>
+                  <Text style={styles.modalButtonText}>Confirm</Text>
+                </TouchableOpacity>
 
-                  <TouchableOpacity
-                    style={[styles.modalButton, styles.cancelButton]}
-                    onPress={() =>{
-                      setShowGroupModal(false)
-                      setGroupName("");
-                      setInputEmails("");
-                    }}
-                  >
-                    <Text style={styles.modalButtonText}>Cancel</Text>
-                  </TouchableOpacity>
-                </View>
+                <TouchableOpacity
+                  style={[styles.modalButton, styles.cancelButton]}
+                  onPress={() => {
+                    setShowGroupModal(false);
+                    setGroupName('');
+                    setInputEmails('');
+                  }}>
+                  <Text style={styles.modalButtonText}>Cancel</Text>
+                </TouchableOpacity>
               </View>
             </View>
-          </Modal>
+          </View>
+        </Modal>
 
-         {user.role == "tour_guide" && <TouchableOpacity style={styles.createButton} onPress={() => setShowGroupModal(!showGroupModal)}>
+        {user.role == 'tour_guide' && (
+          <TouchableOpacity
+            style={styles.createButton}
+            onPress={() => setShowGroupModal(!showGroupModal)}>
             <Icon name="plus" size={20} color="#fff" />
-          </TouchableOpacity>}
-        </View>
-
-
+          </TouchableOpacity>
+        )}
+      </View>
     </SafeAreaView>
   );
 };
@@ -403,26 +433,26 @@ const ChatListScreen = () => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#E6F7FF",
+    backgroundColor: '#E6F7FF',
   },
   header: {
-    backgroundColor: "#4AC6D0",
+    backgroundColor: '#4AC6D0',
     paddingHorizontal: 20,
     paddingVertical: 16,
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
     borderBottomLeftRadius: 20,
     borderBottomRightRadius: 20,
   },
   headerTitle: {
     fontSize: 18,
-    fontWeight: "bold",
-    color: "#fff",
+    fontWeight: 'bold',
+    color: '#fff',
   },
   headerActions: {
-    flexDirection: "row",
-    alignItems: "center",
+    flexDirection: 'row',
+    alignItems: 'center',
   },
 
   iconButton: {
@@ -434,21 +464,21 @@ const styles = StyleSheet.create({
     borderRadius: 30,
     marginLeft: 15,
     borderWidth: 2,
-    borderColor: "#fff",
+    borderColor: '#fff',
   },
   listContent: {
     // marginTop: 30,
     paddingBottom: 100,
   },
   chatItem: {
-    backgroundColor: "#fff",
+    backgroundColor: '#fff',
     marginHorizontal: 16,
     marginVertical: 8,
     padding: 12,
     borderRadius: 16,
-    flexDirection: "row",
-    alignItems: "center",
-    shadowColor: "#000",
+    flexDirection: 'row',
+    alignItems: 'center',
+    shadowColor: '#000',
     shadowOpacity: 0.05,
     shadowRadius: 4,
     elevation: 2,
@@ -465,60 +495,60 @@ const styles = StyleSheet.create({
   },
   chatName: {
     fontSize: 16,
-    fontWeight: "600",
-    color: "#333",
+    fontWeight: '600',
+    color: '#333',
   },
   lastMessage: {
     fontSize: 13,
-    color: "#666",
+    color: '#666',
     marginTop: 2,
   },
   inputContainer: {
-    position: "absolute",
-    bottom:80,
+    position: 'absolute',
+    bottom: 80,
     right: 5,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "flex-end",
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'flex-end',
     padding: 12,
     // backgroundColor: "red",
     // borderTopWidth: 1,
-    borderColor: "#ddd",
+    borderColor: '#ddd',
   },
   input: {
     flex: 1,
-    backgroundColor: "#f0f0f0",
+    backgroundColor: '#f0f0f0',
     borderRadius: 25,
     paddingHorizontal: 16,
     height: 45,
     fontSize: 15,
-    color: "#000",
+    color: '#000',
   },
   createButton: {
     marginLeft: 10,
-    backgroundColor: "#4AC6D0",
+    backgroundColor: '#4AC6D0',
     borderRadius: 25,
     width: 45,
     height: 45,
-    alignItems: "center",
-    justifyContent: "center",
+    alignItems: 'center',
+    justifyContent: 'center',
   },
 
   emptyContainer: {
     flex: 1,
-    justifyContent: "center",
-    alignItems: "center",
+    justifyContent: 'center',
+    alignItems: 'center',
     marginTop: 60,
   },
   emptyText: {
     fontSize: 18,
-    color: "#444",
+    color: '#444',
     marginTop: 16,
-    fontWeight: "bold",
+    fontWeight: 'bold',
   },
   emptySubText: {
     fontSize: 14,
-    color: "#888",
+    color: '#888',
     marginTop: 6,
   },
   optionContainer: {
@@ -622,10 +652,9 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     paddingHorizontal: 12,
     fontSize: 16,
-    
+
     color: '#fff',
   },
-
 });
 
 export default ChatListScreen;
