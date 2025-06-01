@@ -1,6 +1,4 @@
-// ✅ VoiceCallScreen tích hợp socket.io thay cho Firestore (không lưu lịch sử)
-
-import React, {useRef, useState, useEffect} from 'react';
+import React, {useRef, useState, useEffect, useCallback} from 'react';
 import {
   SafeAreaView,
   StyleSheet,
@@ -27,34 +25,94 @@ import * as sdk from 'microsoft-cognitiveservices-speech-sdk';
 import {speakTranslation} from '../api/SpeakText';
 import Icon from 'react-native-vector-icons/MaterialIcons';
 import {useNavigation} from '@react-navigation/native';
-import io from 'socket.io-client';
+import {useSocket} from '../contexts/SocketContext';
 import {useAuth} from '../contexts/AuthContext';
 import firestore from '@react-native-firebase/firestore';
 import {translateTextAzure} from '../api/TranslateAPI';
 import Sound from 'react-native-sound';
-const SOCKET_SERVER_URL = 'ws://backendfinalpro-ct.onrender.com';
 
 const VoiceCallScreen = ({route}) => {
   const navigation = useNavigation();
   const {meetingId} = route.params;
   const {user} = useAuth();
+  const {isConnected, emit, on, off} = useSocket();
+
   const key =
     '1qepnQJBmBjwMzXHkIzvzbLOkpL9Kb8TfRAavmA8Z9VlanYj8WegJQQJ99BCACYeBjFXJ3w3AAAYACOG6bxW';
   const keySTT =
     'CM9T6m7rgYNegLOVQyQllWwGbl6yrLmftrYyQDYJoKD0DlWMzVF7JQQJ99BEACYeBjFXJ3w3AAAbACOGF9m3';
   const region = 'eastus';
+
   const [text, setText] = useState('');
   const [isListening, setIsListening] = useState(false);
+  const [participants, setParticipants] = useState([]);
+
   const recognizerRef = useRef(null);
   const initializedRef = useRef(false);
-  const socketRef = useRef(null);
   const audioQueue = useRef([]);
   const isPlayingRef = useRef(false);
-  const [participants, setParticipants] = useState([]);
 
   const channels = 1;
   const bitsPerChannel = 16;
   const sampleRate = 16000;
+
+  // Setup socket event listeners
+  useEffect(() => {
+    const handleReceiveTranslation = async ({text, lang, isFinal}) => {
+      console.log('VoiceCall: Received translation:', text, lang, isFinal);
+      setText(text);
+
+      if (
+        isFinal &&
+        text.trim() !== '.' &&
+        text.trim().toLowerCase() !== 'comma.'
+      ) {
+        const filePath = await speakTranslation(text, key, region, lang);
+        if (filePath) {
+          audioQueue.current.push(filePath);
+          playNextAudio();
+        }
+      }
+    };
+
+    const handleUserJoined = data => {
+      console.log('VoiceCall: User joined:', data);
+    };
+
+    const handleUserLeft = data => {
+      console.log('VoiceCall: User left:', data);
+    };
+
+    const handleCallEnded = data => {
+      console.log('VoiceCall: Call ended:', data);
+      Alert.alert(
+        'Call Ended',
+        'The call has been ended by another participant.',
+        [
+          {
+            text: 'OK',
+            onPress: handleExitScreen,
+          },
+        ],
+      );
+    };
+
+    // Add socket listeners
+    on('receive_translation', handleReceiveTranslation);
+    on('user_joined', handleUserJoined);
+    on('user_left', handleUserLeft);
+    on('call_ended', handleCallEnded);
+
+    return () => {
+      // Remove listeners on cleanup
+      off('receive_translation', handleReceiveTranslation);
+      off('user_joined', handleUserJoined);
+      off('user_left', handleUserLeft);
+      off('call_ended', handleCallEnded);
+    };
+  }, [on, off]);
+
+  // Fetch participants from Firestore
   useEffect(() => {
     const unsubscribe = firestore()
       .collection('meetings')
@@ -62,14 +120,13 @@ const VoiceCallScreen = ({route}) => {
       .onSnapshot(
         async doc => {
           if (doc.exists) {
-            console.log('meetingId', meetingId);
+            console.log('VoiceCall: Meeting data updated for:', meetingId);
             const data = doc.data();
-            console.log('Meeting data:', data);
             const uids =
               data.members?.flatMap(m => (m.uid !== user.uid ? m.uid : [])) ||
               [];
 
-            console.log('uids', uids);
+            console.log('VoiceCall: Other participants UIDs:', uids);
 
             if (uids.length === 0) {
               setParticipants([]);
@@ -98,41 +155,25 @@ const VoiceCallScreen = ({route}) => {
               );
 
               setParticipants(users);
+              console.log('VoiceCall: Participants updated:', users.length);
             } catch (error) {
-              console.error('Error fetching users:', error);
+              console.error('VoiceCall: Error fetching users:', error);
             }
           } else {
-            console.warn('Meeting document does not exist.');
+            console.warn('VoiceCall: Meeting document does not exist.');
             setParticipants([]);
           }
         },
         error => {
-          console.error('Firestore listener error:', error);
+          console.error('VoiceCall: Firestore listener error:', error);
         },
       );
 
     return () => unsubscribe();
-  }, [meetingId]);
+  }, [meetingId, user.uid]);
 
-  const playFromQueue = async () => {
-    if (isPlayingRef.current || audioQueue.current.length === 0) {
-      return;
-    }
-
-    isPlayingRef.current = true;
-    const {text, lang} = audioQueue.current.shift();
-
-    try {
-      await speakTranslation(text, key, region, lang);
-    } catch (error) {
-      console.error('Error playing audio:', error);
-    } finally {
-      isPlayingRef.current = false;
-      playFromQueue();
-    }
-  };
-
-  const playNextAudio = async () => {
+  // Audio queue management
+  const playNextAudio = useCallback(async () => {
     if (isPlayingRef.current || audioQueue.current.length === 0) {
       return;
     }
@@ -147,7 +188,7 @@ const VoiceCallScreen = ({route}) => {
 
     const sound = new Sound(path, '', error => {
       if (error) {
-        console.error('Sound load error:', error);
+        console.error('VoiceCall: Sound load error:', error);
         isPlayingRef.current = false;
         playNextAudio();
         return;
@@ -159,57 +200,9 @@ const VoiceCallScreen = ({route}) => {
         playNextAudio();
       });
     });
-  };
+  }, []);
 
-  useEffect(() => {
-    const socket = io(SOCKET_SERVER_URL, {
-      transports: ['websocket'],
-      secure: true,
-      rejectUnauthorized: false, // Chỉ dùng trong môi trường phát triển
-    });
-    socketRef.current = socket;
-
-    socket.on('connect', () => {
-      socketRef.current.emit('register', {
-        userId: user.uid,
-        fcmToken: user.fcmToken,
-        from: 'voiceStart',
-      });
-      console.log('Connected to socket server, registered user:', user.uid);
-    });
-
-    socket.on('connect_error', error => {
-      console.error('Socket connection error:', error);
-    });
-
-    // socket.on('receive_translation', ({ text, lang, isFinal }) => {
-    //   setText(text);
-
-    //   if (isFinal && !(text === "Comma." || text === ".")) {
-    //     audioQueue.current.push({ text, lang });
-    //     playFromQueue();
-    //   }
-    // });
-
-    socket.on('receive_translation', async ({text, lang, isFinal}) => {
-      setText(text);
-
-      if (
-        isFinal &&
-        text.trim() !== '.' &&
-        text.trim().toLowerCase() !== 'comma.'
-      ) {
-        const filePath = await speakTranslation(text, key, region, lang);
-        if (filePath) {
-          audioQueue.current.push(filePath);
-          playNextAudio();
-        }
-      }
-    });
-
-    return () => socket.disconnect();
-  }, [user.uid]);
-
+  // Permission check
   const checkPermissions = async () => {
     if (Platform.OS === 'android') {
       const grants = await PermissionsAndroid.requestMultiple([
@@ -224,11 +217,15 @@ const VoiceCallScreen = ({route}) => {
     return true;
   };
 
+  // Initialize audio recognition
   const initializeAudio = async () => {
     if (!(await checkPermissions()) || initializedRef.current) {
       return;
     }
+
+    console.log('VoiceCall: Initializing audio recognition');
     setIsListening(true);
+
     const pushStream = AudioInputStream.createPushStream();
     AudioRecord.init({sampleRate, channels, bitsPerChannel, audioSource: 7});
     AudioRecord.on('data', data =>
@@ -239,6 +236,8 @@ const VoiceCallScreen = ({route}) => {
     const config = SpeechTranslationConfig.fromSubscription(key, region);
     config.speechRecognitionLanguage = user.language;
     config.outputFormat = sdk.OutputFormat.Detailed;
+
+    // Add target languages for all participants
     (participants || [])
       .filter(m => m.uid !== user.uid)
       .forEach(m => {
@@ -246,6 +245,7 @@ const VoiceCallScreen = ({route}) => {
           config.addTargetLanguage(m.translateCode);
         }
       });
+
     if (!config.targetLanguages || config.targetLanguages.length === 0) {
       config.addTargetLanguage('en');
     }
@@ -260,46 +260,28 @@ const VoiceCallScreen = ({route}) => {
     recognizer.recognizing = async (s, e) => {
       const current = e.result.text;
       setText(current);
-      // if (!current || current === lastConfirmedText) return;
-
-      // // Tìm phần mới so với đoạn đã dịch
-      // const newText = current.slice(lastConfirmedText.length).trim();
-      // console.log('Recognizing:', newText);
-
-      // // Nếu có dấu câu hoặc đủ dài thì dịch
-      // if (/[.!?，。,]/.test(newText.slice(-1)) || newText.split(/\s+/).length >= 5) {
-      //   for (const m of participants.filter(p => p.uid !== user.uid)) {
-      //     const translated = await translateTextAzure(newText, m.translateCode, keySTT, region);
-      //     const translating = e.result.translations.get(m.translateCode);
-      //     console.log('Translating:', translating, 'for');
-      //     if (translated) {
-      //       socketRef.current.emit('send_translation', {
-      //         fromUserId: user.uid,
-      //         toUserId: m.uid,
-      //         text: translated,
-      //         lang: m.translateCode,
-      //         isFinal: true,
-      //       });
-      //     }
-      //   }
-
-      //   lastConfirmedText = current; // cập nhật lại text đã dịch
-      // }
     };
 
     recognizer.recognized = (s, e) => {
+      console.log('VoiceCall: Speech recognized, sending translations');
       participants
         .filter(m => m.uid !== user.uid)
         .forEach(m => {
           const translated = e.result.translations.get(m.translateCode);
-          if (translated) {
-            socketRef.current.emit('send_translation', {
+          if (translated && isConnected) {
+            emit('send_translation', {
               fromUserId: user.uid,
               toUserId: m.uid,
               text: translated,
               lang: m.translateCode,
               isFinal: true,
             });
+            console.log(
+              'VoiceCall: Sent translation to',
+              m.uid,
+              ':',
+              translated,
+            );
           }
         });
     };
@@ -308,26 +290,78 @@ const VoiceCallScreen = ({route}) => {
     initializedRef.current = true;
   };
 
-  const stopAudio = () => {
+  // Stop audio recognition
+  const stopAudio = useCallback(() => {
+    console.log('VoiceCall: Stopping audio recognition');
     setIsListening(false);
     AudioRecord.stop();
+
     if (recognizerRef.current) {
       recognizerRef.current.stopContinuousRecognitionAsync();
       recognizerRef.current.close();
       recognizerRef.current = null;
       initializedRef.current = false;
     }
-  };
+  }, []);
 
-  useEffect(
-    () => () => {
-      if (isListening) {
-        stopAudio();
+  // Remove member from meeting
+  const removeMemberFromMeeting = useCallback(async (meetingId, userId) => {
+    try {
+      console.log('VoiceCall: Removing member from meeting:', userId);
+      const meetingRef = firestore().collection('meetings').doc(meetingId);
+      const meetingDoc = await meetingRef.get();
+
+      if (!meetingDoc.exists) {
+        console.warn('VoiceCall: Meeting not found:', meetingId);
+        return;
       }
-    },
-    [isListening],
-  );
-  const handleBackPress = () => {
+
+      const meetingData = meetingDoc.data();
+      const members = meetingData?.members || [];
+      const updatedMembers = members.filter(member => member.uid !== userId);
+
+      await meetingRef.update({
+        members: updatedMembers,
+      });
+
+      console.log('VoiceCall: Successfully removed user from meeting');
+    } catch (error) {
+      console.error('VoiceCall: Error removing member:', error);
+    }
+  }, []);
+
+  // Handle exit screen
+  const handleExitScreen = useCallback(() => {
+    console.log('VoiceCall: Exiting screen');
+
+    if (isListening) {
+      stopAudio();
+    }
+
+    // Notify other users that call ended
+    if (isConnected) {
+      emit('end_call', {
+        meetingId,
+        userId: user.uid,
+      });
+    }
+
+    // Remove member from meeting
+    removeMemberFromMeeting(meetingId, user.uid);
+    navigation.goBack();
+  }, [
+    isListening,
+    stopAudio,
+    isConnected,
+    emit,
+    meetingId,
+    user.uid,
+    removeMemberFromMeeting,
+    navigation,
+  ]);
+
+  // Handle back press
+  const handleBackPress = useCallback(() => {
     Alert.alert(
       'Exit Meeting',
       'Are you sure you want to exit the meeting?',
@@ -338,51 +372,27 @@ const VoiceCallScreen = ({route}) => {
       {cancelable: false},
     );
     return true;
-  };
+  }, [handleExitScreen]);
+
+  // Setup back handler
   useEffect(() => {
     const backHandler = BackHandler.addEventListener(
       'hardwareBackPress',
       handleBackPress,
     );
     return () => backHandler.remove();
-  }, []);
-  const handleExitScreen = () => {
-    if (isListening) {
-      stopAudio();
-    }
-    // delete members from meetings of firestore
-    removeMemberFromMeeting(meetingId, user.uid);
+  }, [handleBackPress]);
 
-    navigation.goBack();
-  };
-  async function removeMemberFromMeeting(meetingId, userId) {
-    try {
-      // Lấy document của cuộc họp từ Firestore
-      const meetingRef = firestore().collection('meetings').doc(meetingId);
-      const meetingDoc = await meetingRef.get();
-
-      if (!meetingDoc.exists) {
-        console.warn('Meeting not found:', meetingId);
-        return;
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      if (isListening) {
+        stopAudio();
       }
+    };
+  }, [isListening, stopAudio]);
 
-      const meetingData = meetingDoc.data();
-      const members = meetingData?.members || [];
-
-      // Tìm phần tử có uid = userId và loại bỏ khỏi mảng
-      const updatedMembers = members.filter(member => member.uid !== userId);
-
-      // Cập nhật lại members trong document
-      await meetingRef.update({
-        members: updatedMembers,
-      });
-
-      console.log(`Successfully removed user ${userId} from the meeting`);
-    } catch (error) {
-      console.error('Error removing member:', error);
-    }
-  }
-
+  // Render participant item
   const renderParticipantItem = ({item}) => (
     <View style={styles.participantItem}>
       <View style={styles.smallAvatar}>
@@ -403,11 +413,20 @@ const VoiceCallScreen = ({route}) => {
   return (
     <SafeAreaView style={styles.main}>
       <StatusBar backgroundColor="#252526" barStyle="light-content" />
+
       <View style={styles.headerContainer}>
         <Text style={styles.head}>Meeting in progress</Text>
         <View style={styles.timeContainer}>
           <Icon name="schedule" size={18} color="#ffffff" />
-          {/* <Text style={styles.callStatus}>{isListening ? 'Connected' : 'Disconnected'}</Text> */}
+          <View
+            style={[
+              styles.connectionIndicator,
+              {backgroundColor: isConnected ? '#10B981' : '#EF4444'},
+            ]}
+          />
+          <Text style={styles.connectionStatus}>
+            {isConnected ? 'Connected' : 'Connecting...'}
+          </Text>
         </View>
       </View>
 
@@ -441,41 +460,33 @@ const VoiceCallScreen = ({route}) => {
           </Text>
         </ScrollView>
 
-        {/* <View style={styles.participantsListContainer}>
-          <Text style={styles.participantsHeader}>Participants ({participants.length + 1})</Text>
-          <FlatList
-            data={participants}
-            renderItem={renderParticipantItem}
-            keyExtractor={item => item.uid}
-            ListHeaderComponent={() => (
-              <View style={[styles.participantItem, styles.currentUserItem]}>
-                <View style={styles.smallAvatar}><Text style={styles.smallAvatarText}>{user.name?.charAt(0) || 'Y'}</Text></View>
-                <Text style={styles.participantItemName}>{user.name || 'You'} (You)</Text>
-                <Icon name={isListening ? 'mic' : 'mic-off'} size={16} color={isListening ? '#6264A7' : '#555'} style={styles.participantMicIcon} />
-              </View>
-            )}
-          />
-        </View> */}
+        {/* Participants count */}
+        <View style={styles.participantsInfo}>
+          <Text style={styles.participantsCount}>
+            Participants: {participants.length + 1}
+          </Text>
+        </View>
       </View>
 
       <View style={styles.controlsContainer}>
-        {/* <TouchableOpacity style={styles.controlButton}><Icon name="videocam-off" size={24} color="#ffffff" /></TouchableOpacity> */}
         <TouchableOpacity
           onPress={isListening ? stopAudio : initializeAudio}
-          style={[styles.controlButton, isListening && styles.endCallButton]}>
+          style={[
+            styles.controlButton,
+            isListening ? styles.micOnButton : styles.micOffButton,
+          ]}>
           <Icon
             name={isListening ? 'mic' : 'mic-off'}
             size={24}
             color="#ffffff"
           />
         </TouchableOpacity>
+
         <TouchableOpacity
           onPress={handleExitScreen}
           style={[styles.callButton, styles.endCallButton]}>
           <Icon name="call-end" size={28} color="#ffffff" />
         </TouchableOpacity>
-        {/* <TouchableOpacity style={styles.controlButton}><Icon name="screen-share" size={24} color="#ffffff" /></TouchableOpacity> */}
-        {/* <TouchableOpacity style={styles.controlButton}><Icon name="more-horiz" size={24} color="#ffffff" /></TouchableOpacity> */}
       </View>
     </SafeAreaView>
   );
@@ -502,10 +513,17 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
   },
-  callStatus: {
-    fontSize: 14,
+  connectionIndicator: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    marginLeft: 8,
+    marginRight: 6,
+  },
+  connectionStatus: {
+    fontSize: 12,
     color: '#ffffff',
-    marginLeft: 5,
+    fontWeight: '500',
   },
   callArea: {
     flex: 1,
@@ -536,15 +554,14 @@ const styles = StyleSheet.create({
     fontWeight: '500',
   },
   micIndicator: {
-    // position: 'absolute',
-    // bottom: 5,
-    // right: 'auto',
     borderRadius: 12,
     padding: 4,
+    marginTop: 8,
   },
   translationContainer: {
     backgroundColor: 'rgba(255, 255, 255, 0.1)',
     paddingHorizontal: 15,
+    paddingVertical: 12,
     borderRadius: 8,
     marginBottom: 20,
   },
@@ -558,19 +575,18 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: '#ffffff',
     lineHeight: 24,
+    minHeight: 50,
   },
-  participantsListContainer: {
+  participantsInfo: {
     backgroundColor: 'rgba(255, 255, 255, 0.05)',
     borderRadius: 8,
-    padding: 10,
-    flex: 1,
+    padding: 12,
+    alignItems: 'center',
   },
-  participantsHeader: {
-    fontSize: 16,
-    fontWeight: 'bold',
+  participantsCount: {
+    fontSize: 14,
     color: '#C8C8C8',
-    marginBottom: 10,
-    paddingHorizontal: 5,
+    fontWeight: '500',
   },
   participantItem: {
     flexDirection: 'row',
@@ -579,10 +595,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 5,
     borderBottomWidth: 1,
     borderBottomColor: 'rgba(255, 255, 255, 0.1)',
-  },
-  currentUserItem: {
-    backgroundColor: 'rgba(98, 100, 167, 0.1)',
-    borderRadius: 4,
   },
   smallAvatar: {
     width: 36,
@@ -614,18 +626,23 @@ const styles = StyleSheet.create({
     backgroundColor: '#252526',
   },
   controlButton: {
-    backgroundColor: 'rgba(255, 255, 255, 0.1)',
-    width: 44,
-    height: 44,
-    borderRadius: 22,
+    width: 56,
+    height: 56,
+    borderRadius: 28,
     justifyContent: 'center',
     alignItems: 'center',
   },
+  micOnButton: {
+    backgroundColor: '#6264A7',
+  },
+  micOffButton: {
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+  },
   callButton: {
     backgroundColor: '#6264A7',
-    width: 60,
-    height: 60,
-    borderRadius: 30,
+    width: 64,
+    height: 64,
+    borderRadius: 32,
     justifyContent: 'center',
     alignItems: 'center',
   },

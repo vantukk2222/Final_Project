@@ -99,6 +99,17 @@ const AdminDashboardScreen = () => {
       loadTourists();
     }
   }, [activeTab]);
+  const handleSignOut = async () => {
+    try {
+      setStatsLoading(true);
+      await signOut();
+      setStatsLoading(false);
+    } catch (error) {
+      console.error('Error signing out:', error);
+      Alert.alert('Error', 'Failed to sign out. Please try again.');
+    }
+  };
+
   const setActiveTab = (tab: TabType) => {
     setTitleActiveTab(tab);
     setGuidesSearchQuery('');
@@ -117,9 +128,13 @@ const AdminDashboardScreen = () => {
         }));
 
       // Get active chats
+      // const chatsSnapshot = await firestore()
+      //   .collection('chats')
+      //   .where('isActive', '==', true)
+      //   .get();
       const chatsSnapshot = await firestore()
         .collection('chats')
-        .where('isActive', '==', true)
+        .where('userStatus.isOnline', '==', true)
         .get();
 
       // Calculate statistics
@@ -361,17 +376,21 @@ const AdminDashboardScreen = () => {
 
   return (
     <SafeAreaView style={styles.container}>
-      <Loading loading={statsLoading} />
+      <Loading isLoading={statsLoading} />
 
       {/* Header */}
       <View style={styles.header}>
         <View style={styles.headerLeft}>
-          <TouchableOpacity onPress={() => navigation.goBack()}>
+          {/* <TouchableOpacity onPress={() => navigation.goBack()}>
             <Icon name="chevron-left" size={24} color="#5B72EF" />
-          </TouchableOpacity>
+          </TouchableOpacity> */}
           <Text style={styles.headerTitle}>Admin Dashboard</Text>
         </View>
-        <TouchableOpacity onPress={signOut} style={styles.logoutButton}>
+        <TouchableOpacity
+          onPress={() => {
+            handleSignOut();
+          }}
+          style={styles.logoutButton}>
           <Icon name="sign-out-alt" size={20} color="#EF4444" />
         </TouchableOpacity>
       </View>

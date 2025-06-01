@@ -6,6 +6,7 @@ import {AuthProvider, useAuth} from './src/contexts/AuthContext';
 import RootNavigator from './src/navigation/RootNavigator';
 import SocketClient from './src/services/socketClient';
 import NotificationModal from './src/components/NotificationModal';
+import {SocketProvider} from './src/contexts/SocketContext';
 
 const AppContent = () => {
   const {loading} = useAuth();
@@ -26,8 +27,10 @@ export default function App() {
     <AuthProvider>
       <NavigationContainer>
         <SocketClient />
-        {/* <NotificationModal /> */}
-        <AppContent />
+        <SocketProvider>
+          {/* <NotificationModal /> */}
+          <AppContent />
+        </SocketProvider>
       </NavigationContainer>
     </AuthProvider>
   );

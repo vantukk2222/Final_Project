@@ -24,6 +24,7 @@ import CallStarter from '../components/VoiceStarter';
 import moment from 'moment';
 import FileUpload from '../components/UploadFile';
 import RNFS from 'react-native-fs';
+import AvatarStatus from '../components/AvatarStatus';
 
 const ChatScreen = ({route}: any) => {
   const {user} = useAuth();
@@ -220,6 +221,56 @@ const ChatScreen = ({route}: any) => {
     fetchUserNames();
   }, [messages]);
 
+  const getStatusColor = (status: string) => {
+    switch (status) {
+      case 'online':
+        return '#10B981';
+      case 'away':
+        return '#F59E0B';
+      default:
+        return '#6B7280';
+    }
+  };
+
+  const getStatusText = (
+    isOnline: boolean,
+    sessionInfo: any,
+    status: string,
+    lastSeen: string,
+  ) => {
+    if (isOnline) {
+      return sessionInfo?.platform
+        ? `Online (${sessionInfo.platform})`
+        : 'Online';
+    }
+    if (status === 'away') {
+      return sessionInfo?.platform ? `Away (${sessionInfo.platform})` : 'Away';
+    }
+    return `Last seen ${formatLastSeen(lastSeen)}`;
+  };
+
+  const formatLastSeen = (lastSeenDate: any) => {
+    if (!lastSeenDate) {
+      return 'Never';
+    }
+    const now = new Date();
+    const diffInMinutes = Math.floor((now - lastSeenDate) / (1000 * 60));
+
+    if (diffInMinutes < 1) {
+      return 'Just now';
+    }
+    if (diffInMinutes < 60) {
+      return `${diffInMinutes} minute${diffInMinutes > 1 ? 's' : ''} ago`;
+    }
+
+    const diffInHours = Math.floor(diffInMinutes / 60);
+    if (diffInHours < 24) {
+      return `${diffInHours} hour${diffInHours > 1 ? 's' : ''} ago`;
+    }
+
+    const diffInDays = Math.floor(diffInHours / 24);
+    return `${diffInDays} day${diffInDays > 1 ? 's' : ''} ago`;
+  };
   const handleSend = async () => {
     if (message.trim() === '') {
       return;
@@ -469,13 +520,11 @@ const ChatScreen = ({route}: any) => {
                       : styles.receivedContainer,
                   ]}>
                   {!isCurrentUser && (
-                    <Image
-                      source={
-                        avatar
-                          ? {uri: avatar}
-                          : require('../assets/default-avatar.png')
-                      }
-                      style={styles.messageAvatar}
+                    <AvatarStatus
+                      avatarUrl={user?.avatar?.url}
+                      status={user?.status || 'offline'}
+                      size={36}
+                      style={styles.messageAvatar} // Chỉ cần marginLeft, không cần các style khác
                     />
                   )}
                   <View style={styles.messageContentContainer}>
@@ -549,13 +598,11 @@ const ChatScreen = ({route}: any) => {
                     </Text>
                   </View>
                   {isCurrentUser && (
-                    <Image
-                      source={
-                        user?.avatar?.url
-                          ? {uri: user?.avatar?.url}
-                          : require('../assets/default-avatar.png')
-                      }
-                      style={styles.messageAvatar}
+                    <AvatarStatus
+                      avatarUrl={user?.avatar?.url}
+                      status={user?.status || 'offline'}
+                      size={36}
+                      style={{marginLeft: 8}} // Chỉ cần marginLeft, không cần các style khác
                     />
                   )}
                 </View>
@@ -666,6 +713,16 @@ const styles = StyleSheet.create({
     marginRight: 12,
     borderWidth: 2,
     borderColor: '#E9EDF5',
+  },
+  statusDot: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    position: 'absolute',
+    bottom: 0,
+    right: 0,
+    borderWidth: 2,
+    borderColor: '#FFFFFF',
   },
   headerName: {
     fontSize: 18,

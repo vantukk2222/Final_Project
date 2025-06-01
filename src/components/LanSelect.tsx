@@ -1,4 +1,4 @@
-import React, {useEffect, useRef, useState} from 'react';
+import React, {useEffect, useRef, useState, useCallback, useMemo} from 'react';
 import {
   Modal,
   View,
@@ -12,8 +12,40 @@ import {
 import {combinedLanguages} from '../contains/lan_code';
 import firestore from '@react-native-firebase/firestore';
 import {useAuth} from '../contexts/AuthContext';
+import {useSocket} from '../contexts/SocketContext';
 import {Member} from '../contains/type';
 import {useNavigation} from '@react-navigation/native';
+
+// Optimized Language Item Component
+const LanguageItem = React.memo(
+  ({
+    item,
+    isSelected,
+    onPress,
+  }: {
+    item: any;
+    isSelected: boolean;
+    onPress: (item: any) => void;
+  }) => {
+    const handlePress = useCallback(() => {
+      onPress(item);
+    }, [item, onPress]);
+
+    return (
+      <Pressable
+        style={[styles.languageItem, isSelected && styles.selectedLanguage]}
+        onPress={handlePress}>
+        <Text
+          style={[
+            styles.languageText,
+            isSelected && styles.selectedLanguageText,
+          ]}>
+          {item.name}
+        </Text>
+      </Pressable>
+    );
+  },
+);
 
 const LanguageModal = ({
   visible,
@@ -23,11 +55,46 @@ const LanguageModal = ({
   fromChatScreen = false,
 }) => {
   const {user} = useAuth();
+  const {isConnected, emit, waitForConnection} = useSocket();
   const navigation = useNavigation();
   const [searchQuery, setSearchQuery] = useState('');
-  const [filteredLanguages, setFilteredLanguages] = useState(combinedLanguages);
   const [selectedLang, setSelectedLang] = useState(null);
-  const socketRef = useRef(null);
+  const flatListRef = useRef(null);
+
+  // Memoize filtered languages để tránh re-calculate không cần thiết
+  const filteredLanguages = useMemo(() => {
+    if (searchQuery.trim() === '') {
+      return combinedLanguages;
+    }
+    return combinedLanguages.filter(lang =>
+      lang.name.toLowerCase().includes(searchQuery.toLowerCase()),
+    );
+  }, [searchQuery]);
+
+  // Memoize keyExtractor
+  const keyExtractor = useCallback(item => item.code, []);
+
+  // Memoize getItemLayout for better performance
+  const getItemLayout = useCallback(
+    (data, index) => ({
+      length: 57, // item height + margin
+      offset: 57 * index,
+      index,
+    }),
+    [],
+  );
+
+  // Optimized renderItem with useCallback
+  const renderItem = useCallback(
+    ({item}) => (
+      <LanguageItem
+        item={item}
+        isSelected={selectedLang?.code === item.code}
+        onPress={setSelectedLang}
+      />
+    ),
+    [selectedLang?.code],
+  );
 
   useEffect(() => {
     const unsubscribe = firestore()
@@ -36,12 +103,6 @@ const LanguageModal = ({
       .onSnapshot(doc => {
         const data = doc.data();
         if (data) {
-          // if (data.language && data.translateCode && fromChatScreen && !visible) {
-          //   navigation.navigate('VoiceCall', {
-          //     meetingId: chatId,
-          //   });
-          //   onDone(false);
-          // }
           setSelectedLang({
             code: data.language,
             transCode: data.translateCode,
@@ -53,116 +114,64 @@ const LanguageModal = ({
       });
 
     return () => unsubscribe();
-  }, [chatId]);
+  }, [chatId, user.uid]);
 
-  useEffect(() => {
-    async function setupSocket() {
-      // Lấy token FCM
-      const fcmToken = await messaging().getToken();
-      console.log('FCM Token ne:', fcmToken);
-
-      // Kết nối socket
-      socketRef.current = io(SOCKET_SERVER_URL);
-
-      socketRef.current.on('connect', () => {
-        console.log('Socket connected:', socketRef.current.id);
-
-        socketRef.current.emit('register', {
-          userId: user.uid,
-          fcmToken,
-          from: 'voiceStart',
-        });
-      });
-
-      socketRef.current.on('connect_error', error => {
-        console.error('Socket connection error:', error);
-      });
-    }
-
-    if (user?.uid) {
-      setupSocket();
-    }
-
-    return () => {
-      if (socketRef.current) {
-        socketRef.current.disconnect();
-      }
-    };
-  }, [user]);
-
-  // Filter khi search
-  useEffect(() => {
-    if (searchQuery.trim() === '') {
-      setFilteredLanguages(combinedLanguages);
-    } else {
-      setFilteredLanguages(
-        combinedLanguages.filter(lang =>
-          lang.name.toLowerCase().includes(searchQuery.toLowerCase()),
-        ),
-      );
-    }
-  }, [searchQuery]);
+  // Debounced search để giảm số lần re-render
+  const handleSearchChange = useCallback(text => {
+    setSearchQuery(text);
+  }, []);
 
   // Đóng modal
-  const handleCancel = () => {
+  const handleCancel = useCallback(() => {
     setSelectedLang(null);
     setSearchQuery('');
-    setFilteredLanguages(combinedLanguages);
     onDone(null);
-  };
+  }, [onDone]);
 
-  // Xác nhận chọn ngôn ngữ
-  const handleConfirm = () => {
-    onDone(selectedLang);
-    setSearchQuery('');
-    setFilteredLanguages(combinedLanguages);
-    confirmLanguageAndNavigate();
-  };
-  async function getChatMembers(meetingId) {
+  const getChatMembers = useCallback(async meetingId => {
     try {
       const chatRef = firestore().collection('chats').doc(meetingId);
       const chatDoc = await chatRef.get();
 
       if (!chatDoc.exists) {
         console.warn('Chat not found:', meetingId);
-        return;
+        return [];
       }
 
       const chatData = chatDoc.data();
       const members = chatData?.members || [];
-
       console.log('Members in this chat:', members);
       return members;
     } catch (error) {
       console.error('Error fetching chat members:', error);
+      return [];
     }
-  }
+  }, []);
 
-  const confirmLanguageAndNavigate = async () => {
-    setLoading(true);
+  const confirmLanguageAndNavigate = useCallback(async () => {
     if (!selectedLang) {
-      setLoading(false);
       return;
     }
 
+    setLoading(true);
     onDone(false);
-    const updatedUser: Member = {
-      uid: user.uid || user._user?.uid || '',
-      email: user.email || user._user?.email || '',
-      displayName: user.displayName || user._user?.displayName || '',
-      photoURL: user.photoURL || user._user?.photoURL || '',
-      language: selectedLang.code,
-      translateCode: selectedLang.transCode,
-      role: 'member',
-    };
-
-    const meetingRef = firestore().collection('meetings').doc(chatId);
-    const chatMembers = await getChatMembers(chatId);
-
-    console.log('chatMembers: ', chatMembers);
-    let updatedMembers: Member[];
 
     try {
+      const updatedUser: Member = {
+        uid: user.uid || user._user?.uid || '',
+        email: user.email || user._user?.email || '',
+        displayName: user.displayName || user._user?.displayName || '',
+        photoURL: user.photoURL || user._user?.photoURL || '',
+        language: selectedLang.code,
+        translateCode: selectedLang.transCode,
+        role: 'member',
+      };
+
+      const meetingRef = firestore().collection('meetings').doc(chatId);
+      const chatMembers = await getChatMembers(chatId);
+
+      let updatedMembers: Member[];
+
       const doc = await meetingRef.get();
       if (!doc.exists) {
         updatedUser.role = 'admin';
@@ -191,45 +200,96 @@ const LanguageModal = ({
         await meetingRef.update({members: updatedMembers});
       }
 
-      if (user.uid) {
-        await firestore().collection('users').doc(user.uid).update({
+      // Update user language preference
+      await Promise.all([
+        firestore().collection('users').doc(user.uid).update({
           language: selectedLang.code,
           translateCode: selectedLang.transCode,
-        });
-        await firestore().collection('meetings').doc(chatId).set(
+        }),
+        firestore().collection('meetings').doc(chatId).set(
           {
             updatedAt: Date.now(),
           },
           {merge: true},
-        );
-      }
+        ),
+      ]);
 
-      // Gửi sự kiện start_call qua socket
-      console.log(
-        'memberids_ne: ',
-        updatedMembers.map(m => m.uid),
-      );
-      if (socketRef.current) {
-        socketRef.current.emit('start_call', {
+      // Wait for socket connection before sending start_call
+      console.log('LanSelect: Waiting for socket connection...');
+      const socketReady = await waitForConnection(5000);
+
+      if (socketReady) {
+        console.log('LanSelect: Socket is ready, sending start_call event');
+        emit('start_call', {
           meetingId: chatId,
           fromUserId: user.uid,
           memberIds: chatMembers,
         });
-        console.log('Đã gửi start_call qua socket');
+        console.log('LanSelect: Đã gửi start_call qua socket');
       } else {
-        console.warn('Socket chưa kết nối');
+        console.warn(
+          'LanSelect: Socket not ready, proceeding without start_call event',
+        );
       }
 
-      setLoading(false);
-
+      // Navigate regardless of socket status
       navigation.navigate('VoiceCall', {
         meetingId: chatId,
       });
     } catch (err) {
+      console.error('LanSelect: Lỗi khi cập nhật Firestore:', err);
+    } finally {
       setLoading(false);
-      console.error('Lỗi khi cập nhật Firestore:', err);
     }
-  };
+  }, [
+    selectedLang,
+    user,
+    chatId,
+    getChatMembers,
+    navigation,
+    setLoading,
+    onDone,
+    waitForConnection,
+    emit,
+  ]);
+
+  // Xác nhận chọn ngôn ngữ
+  const handleConfirm = useCallback(() => {
+    if (selectedLang) {
+      onDone(selectedLang);
+      setSearchQuery('');
+      confirmLanguageAndNavigate();
+    }
+  }, [selectedLang, onDone, confirmLanguageAndNavigate]);
+
+  // Scroll to selected language when modal opens
+  useEffect(() => {
+    if (
+      visible &&
+      selectedLang &&
+      flatListRef.current &&
+      filteredLanguages.length > 0
+    ) {
+      const index = filteredLanguages.findIndex(
+        lang => lang.code === selectedLang.code,
+      );
+      if (index >= 0) {
+        // Use setTimeout to ensure FlatList is rendered
+        setTimeout(() => {
+          flatListRef.current?.scrollToIndex({
+            index,
+            animated: true,
+            viewPosition: 0.5,
+          });
+        }, 100);
+      }
+    }
+  }, [visible, selectedLang, filteredLanguages]);
+
+  // Don't render if not visible to save performance
+  if (!visible) {
+    return null;
+  }
 
   return (
     <Modal visible={visible} transparent animationType="fade">
@@ -237,65 +297,56 @@ const LanguageModal = ({
         <View style={styles.modalContent}>
           <Text style={styles.modalTitle}>Select Your Language</Text>
           <View style={styles.separator} />
+
+          {/* Socket connection status indicator */}
+          <View style={styles.statusContainer}>
+            <View
+              style={[
+                styles.statusIndicator,
+                {backgroundColor: isConnected ? '#10B981' : '#EF4444'},
+              ]}
+            />
+            <Text style={styles.statusText}>
+              {isConnected ? 'Connected' : 'Connecting...'}
+            </Text>
+          </View>
+
           <TextInput
             style={styles.searchInput}
             placeholderTextColor="#A0A3BD"
             placeholder="Search language..."
             value={searchQuery}
-            onChangeText={setSearchQuery}
+            onChangeText={handleSearchChange}
             clearButtonMode="while-editing"
+            autoCorrect={false}
+            autoCapitalize="none"
           />
+
           <FlatList
+            ref={flatListRef}
             data={filteredLanguages}
-            keyExtractor={item => item.code}
+            keyExtractor={keyExtractor}
+            renderItem={renderItem}
             style={styles.languageList}
             showsVerticalScrollIndicator={false}
-            initialScrollIndex={
-              selectedLang
-                ? Math.max(
-                    0,
-                    filteredLanguages.findIndex(
-                      lang => lang.code === selectedLang.code,
-                    ),
-                  )
-                : 0
-            }
-            getItemLayout={(_, index) => ({
-              length: 53,
-              offset: 57 * index,
-              index,
-            })}
+            getItemLayout={getItemLayout}
+            removeClippedSubviews={true}
+            maxToRenderPerBatch={10}
+            updateCellsBatchingPeriod={50}
+            windowSize={10}
+            initialNumToRender={15}
             onScrollToIndexFailed={info => {
               setTimeout(() => {
-                if (filteredLanguages.length > 0 && this.flatListRef) {
-                  this.flatListRef.scrollToOffset({
+                if (filteredLanguages.length > 0 && flatListRef.current) {
+                  flatListRef.current.scrollToOffset({
                     offset: info.averageItemLength * info.index,
                     animated: true,
                   });
                 }
               }, 100);
             }}
-            ref={ref => {
-              this.flatListRef = ref;
-            }}
-            renderItem={({item}) => (
-              <Pressable
-                style={[
-                  styles.languageItem,
-                  selectedLang?.code === item.code && styles.selectedLanguage,
-                ]}
-                onPress={() => setSelectedLang(item)}>
-                <Text
-                  style={[
-                    styles.languageText,
-                    selectedLang?.code === item.code &&
-                      styles.selectedLanguageText,
-                  ]}>
-                  {item.name}
-                </Text>
-              </Pressable>
-            )}
           />
+
           <View style={styles.buttonContainer}>
             <TouchableOpacity
               onPress={handleCancel}
@@ -318,6 +369,7 @@ const LanguageModal = ({
   );
 };
 
+// ...existing styles...
 const styles = StyleSheet.create({
   modalOverlay: {
     flex: 1,
@@ -350,6 +402,23 @@ const styles = StyleSheet.create({
     marginBottom: 20,
     borderRadius: 1,
   },
+  statusContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 16,
+  },
+  statusIndicator: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    marginRight: 8,
+  },
+  statusText: {
+    fontSize: 12,
+    color: '#666',
+    fontWeight: '500',
+  },
   searchInput: {
     backgroundColor: '#F5F7FF',
     color: 'black',
@@ -367,7 +436,7 @@ const styles = StyleSheet.create({
   languageItem: {
     padding: 14,
     borderRadius: 12,
-    marginBottom: 8,
+    marginBottom: 4,
     backgroundColor: '#F5F7FF',
     borderWidth: 1,
     borderColor: '#E6E8F0',

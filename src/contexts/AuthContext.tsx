@@ -8,6 +8,7 @@ import React, {
 import auth from '@react-native-firebase/auth';
 import firestore from '@react-native-firebase/firestore';
 import {Alert} from 'react-native';
+import {fcmService} from '../services/FCMService';
 
 type Role = 'tourist' | 'tour_guide' | 'admin';
 type UserStatus = 'pending' | 'approved' | 'rejected' | 'suspended';
@@ -303,10 +304,12 @@ export const AuthProvider = ({children}: {children: React.ReactNode}) => {
       if (currentUser) {
         try {
           // Update last active time (but ignore errors if user is already signed out)
-          await firestore().collection('users').doc(currentUser.uid).update({
-            lastActive: firestore.FieldValue.serverTimestamp(),
-            fcmToken: firestore.FieldValue.delete(),
-          });
+          // await firestore().collection('users').doc(currentUser.uid).update({
+          //   lastActive: firestore.FieldValue.serverTimestamp(),
+          //   fcmToken: firestore.FieldValue.delete(),
+          // });
+          // Use FCM service to remove token
+          await fcmService.removeToken(currentUser.uid);
         } catch (updateError) {
           console.log(
             'Could not update user data on signout (user may already be signed out):',
@@ -322,6 +325,7 @@ export const AuthProvider = ({children}: {children: React.ReactNode}) => {
       setUser(null);
       setRole(null);
       setLoading(false);
+      fcmService.cleanup();
 
       // Sign out from Firebase Auth
       await auth().signOut();

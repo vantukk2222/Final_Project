@@ -17,6 +17,7 @@ import firestore from '@react-native-firebase/firestore';
 import {useNavigation} from '@react-navigation/native';
 import Icon from 'react-native-vector-icons/FontAwesome5';
 import {useAuth} from '../contexts/AuthContext';
+import AvatarStatus from './AvatarStatus';
 
 const ChatMembersList = ({route}: any) => {
   const [members, setMembers] = useState<any[]>([]);
@@ -252,12 +253,10 @@ const ChatMembersList = ({route}: any) => {
                 navigation.navigate('UserProfile', {userId: item.id})
               }
               style={styles.memberDetails}>
-              <Image
-                source={
-                  item.avatar?.url
-                    ? {uri: item.avatar.url}
-                    : require('../assets/default-avatar.png')
-                }
+              <AvatarStatus
+                avatarUrl={item.avatarUrl}
+                size={44}
+                status={item.status}
                 style={styles.avatar}
               />
               <View style={styles.memberInfo}>
