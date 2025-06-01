@@ -33,7 +33,9 @@ const UserProfileScreen = () => {
   const [uploading, setUploading] = useState(false);
 
   useEffect(() => {
-    if (!userId) return;
+    if (!userId) {
+      return;
+    }
     const loadProfile = async () => {
       setLoading(true);
       try {
@@ -54,7 +56,9 @@ const UserProfileScreen = () => {
   }, [userId]);
 
   const handleSave = async () => {
-    if (!userId) return;
+    if (!userId) {
+      return;
+    }
     setLoading(true);
     try {
       await firestore().collection('users').doc(userId).update({
@@ -111,7 +115,7 @@ const UserProfileScreen = () => {
             <Icon name="chevron-left" size={24} color="#5B72EF" />
           </TouchableOpacity>
           <Text style={styles.headerTitle}>Your Profile</Text>
-          <View></View>
+          <View />
         </View>
 
         <TouchableOpacity

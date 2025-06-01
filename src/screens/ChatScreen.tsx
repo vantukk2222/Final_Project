@@ -18,27 +18,25 @@ import firestore from '@react-native-firebase/firestore';
 import {launchImageLibrary} from 'react-native-image-picker';
 import {useAuth} from '../contexts/AuthContext';
 import ImageModal from '../components/ImageModal';
-import AvatarButton from '../components/AvatarButton';
 import {useNavigation} from '@react-navigation/native';
 import Icon from 'react-native-vector-icons/FontAwesome5';
 import CallStarter from '../components/VoiceStarter';
 import moment from 'moment';
-import Loading from './../components/Loading';
 import FileUpload from '../components/UploadFile';
 import RNFS from 'react-native-fs';
 
 const ChatScreen = ({route}: any) => {
   const {user} = useAuth();
   const userId = user?.uid;
-  const {chatId, toUserId, avatar, currentAvatar} = route.params || {};
+  const {chatId, toUserId, avatar} = route.params || {};
   const [name, setName] = useState(route.params?.name || '');
   const [message, setMessage] = useState('');
   const [messages, setMessages] = useState<any[]>([]);
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
-  const [isJoined, setIsJoined] = useState(false); // Track if the user has joined the channel
-  const [localUid, setLocalUid] = useState(0);
-  const [remoteUid, setRemoteUid] = useState(0);
-  const agoraEngineRef = useRef<IRtcEngine>();
+  // const [isJoined, setIsJoined] = useState(false); // Track if the user has joined the channel
+  // const [localUid, setLocalUid] = useState(0);
+  // const [remoteUid, setRemoteUid] = useState(0);
+  // const agoraEngineRef = useRef<IRtcEngine>();
   const [userAvatars, setUserAvatars] = useState<any>({});
   const [userNames, setUserNames] = useState<any>({});
   const flatListRef = useRef<FlatList>(null);
@@ -155,18 +153,18 @@ const ChatScreen = ({route}: any) => {
   //   }
   // };
 
-  const startVoiceCall = () => {
-    console.log('Starting voice call...');
-    console.log('user', user);
-    console.log('uid: ', user.uid);
-    navigation.navigate('VoiceCall', {
-      // chatId: chatId,
-      // localUid: userId,
-      // remoteUid: toUserId,
-      user: user,
-      meetingId: chatId,
-    });
-  };
+  // const startVoiceCall = () => {
+  //   console.log('Starting voice call...');
+  //   console.log('user', user);
+  //   console.log('uid: ', user.uid);
+  //   navigation.navigate('VoiceCall', {
+  //     // chatId: chatId,
+  //     // localUid: userId,
+  //     // remoteUid: toUserId,
+  //     user: user,
+  //     meetingId: chatId,
+  //   });
+  // };
 
   useEffect(() => {
     const unsubscribeChat = firestore()
@@ -174,7 +172,9 @@ const ChatScreen = ({route}: any) => {
       .doc(chatId)
       .onSnapshot(async chatDoc => {
         const chatData = chatDoc.data();
-        if (!chatData || !chatData.members || chatData.members.length === 0) {
+        if (!chatData) {
+          setName('Untitled Group');
+        } else if (!chatData.members || chatData.members.length === 0) {
           setName(chatData.name || 'Untitled Group');
         }
       });
@@ -346,11 +346,11 @@ const ChatScreen = ({route}: any) => {
       Alert.alert('Error', 'Failed to upload image');
     }
   };
-  const groupMessagesByDate = (messages: any[]) => {
+  const groupMessagesByDate = (Messages: any[]) => {
     const grouped: any[] = [];
     let lastDate = '';
 
-    messages.forEach(msg => {
+    Messages.forEach(msg => {
       const dateStr = moment(msg.timestamp?.toDate?.() || new Date()).format(
         'YYYY-MM-DD',
       );
@@ -566,7 +566,9 @@ const ChatScreen = ({route}: any) => {
           {/* Input Area */}
           <View style={styles.inputContainer}>
             <FileUpload
-              onFileUploaded={(url, fileName) => uploadFile(url, fileName)}
+              onFileUploaded={(url: any, fileName: any) =>
+                uploadFile(url, fileName)
+              }
             />
 
             <TouchableOpacity

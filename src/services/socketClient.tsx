@@ -1,19 +1,11 @@
-import React, {useEffect, useState} from 'react';
-import {
-  Alert,
-  Modal,
-  Text,
-  TouchableOpacity,
-  View,
-  StyleSheet,
-} from 'react-native';
+import React, {useEffect, useRef, useState} from 'react';
+import {Modal, Text, TouchableOpacity, View, StyleSheet} from 'react-native';
 import messaging from '@react-native-firebase/messaging';
 import {useNavigation} from '@react-navigation/native';
 import firestore from '@react-native-firebase/firestore';
 import {useAuth} from '../contexts/AuthContext';
 import {Member} from '../contains/type';
 import Sound from 'react-native-sound';
-import CallStarter from '../components/VoiceStarter';
 import LanguageModal from '../components/LanSelect';
 
 export default function SocketClient() {
@@ -22,17 +14,9 @@ export default function SocketClient() {
   const [meetingID, setMeetingId] = useState<string | null>(null);
   const [modalCalledOK, setModalCalledOK] = useState(false);
 
-  Sound.setCategory('Playback');
-
-  const dingSound = new Sound(
-    require('../assets/sounds/ringtone.mp3'),
-    Sound.MAIN_BUNDLE,
-    error => {
-      if (error) {
-        console.log('Lỗi load âm thanh:', error);
-      }
-    },
-  );
+  // Sound.setCategory('Playback');
+  const dingRef = useRef<Sound | null>(null); // giữ đúng 1 instance
+  Sound.setCategory('Playback', true);
 
   const [modalVisible, setModalVisible] = useState(false);
   const [notificationData, setNotificationData] = useState<{
@@ -40,6 +24,37 @@ export default function SocketClient() {
     body?: string;
     meetingId?: string;
   } | null>(null);
+  useEffect(() => {
+    console.log('Loading ding sound…');
+
+    // ①  Dùng require()  → KHÔNG truyền Sound.MAIN_BUNDLE cho Android
+    dingRef.current = new Sound(
+      require('../assets/sounds/ringtone.mp3'),
+      undefined, // để undefined
+      error => {
+        if (error) {
+          console.log('❌ Load error:', error);
+          return;
+        }
+
+        console.log(
+          '✅ Loaded. duration =',
+          dingRef.current?.getDuration(),
+          's',
+        );
+
+        dingRef.current?.setNumberOfLoops(0); // = -1 nếu muốn lặp
+        dingRef.current?.setVolume(1);
+        dingRef.current?.play(success => console.log('Finished?', success));
+      },
+    );
+
+    // dọn dẹp khi component unmount
+    return () => {
+      dingRef.current?.release();
+      dingRef.current = null;
+    };
+  }, []);
 
   // Xử lý khi app foreground nhận notification
   useEffect(() => {
@@ -47,17 +62,18 @@ export default function SocketClient() {
       const title = remoteMessage.notification?.title ?? 'Thông báo';
       const body = remoteMessage.notification?.body ?? '';
       const meetingId = remoteMessage.data?.meetingId;
-      const path = require('../assets/sounds/ringtone.mp3');
+      // const path = require('../assets/sounds/ringtone.mp3');
       console.log('Notification received in foreground:', remoteMessage);
-      if (dingSound && dingSound.isLoaded()) {
-        dingSound.stop(() => {
-          dingSound.play();
+      if (dingRef.current?.isLoaded()) {
+        console.log('Playing ding soun123d');
+        dingRef.current.stop(() => {
+          dingRef.current?.setCurrentTime(0); // về đầu
+          dingRef.current?.play();
         });
       }
       setNotificationData({title, body, meetingId});
       setModalVisible(true);
     });
-
     return unsubscribe;
   }, []);
 
@@ -155,6 +171,14 @@ export default function SocketClient() {
       // navigation.navigate('VoiceCall', { meetingId: notificationData.meetingId });
       setModalCalledOK(true);
       setMeetingId(notificationData.meetingId);
+      console.log('dingSound', dingRef.current);
+      if (dingRef.current?.isLoaded()) {
+        console.log('Stopping dingSound');
+        dingRef.current.stop(() => {
+          dingRef.current?.release(); // VERY IMPORTANT
+          dingRef.current = null; // tạo lại khi cần
+        });
+      }
     }
   };
   if (modalCalledOK) {

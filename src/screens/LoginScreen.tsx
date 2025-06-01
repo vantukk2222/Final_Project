@@ -8,9 +8,6 @@ import {
   ActivityIndicator,
   Alert,
   StyleSheet,
-  KeyboardAvoidingView,
-  Platform,
-  SafeAreaView,
   Image,
   ScrollView,
 } from 'react-native';

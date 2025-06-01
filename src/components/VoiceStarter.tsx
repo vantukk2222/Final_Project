@@ -1,28 +1,12 @@
-import React, {useState, useEffect, useRef} from 'react';
-import {
-  View,
-  Text,
-  Modal,
-  TouchableOpacity,
-  FlatList,
-  Pressable,
-  StyleSheet,
-  TextInput,
-} from 'react-native';
-import {useNavigation} from '@react-navigation/native';
-import firestore from '@react-native-firebase/firestore';
-import {combinedLanguages} from '../contains/lan_code';
+import React, {useState} from 'react';
+import {View, TouchableOpacity, StyleSheet} from 'react-native';
 import Icon from 'react-native-vector-icons/FontAwesome5';
 import Loading from './Loading';
-import {useAuth} from '../contexts/AuthContext';
-import messaging from '@react-native-firebase/messaging';
-import {io} from 'socket.io-client';
-import {Member} from '../contains/type';
 import LanguageModal from './LanSelect';
-const SOCKET_SERVER_URL = 'ws://backendfinalpro-ct.onrender.com';
+// const SOCKET_SERVER_URL = 'ws://backendfinalpro-ct.onrender.com';
 
-const CallStarter = ({user, chatId, isLanModalVisible = false}) => {
-  const navigation = useNavigation();
+const CallStarter = ({chatId, isLanModalVisible = false}) => {
+  // const navigation = useNavigation();
   const [langModalVisible, setLangModalVisible] = useState(isLanModalVisible);
   // const [selectedLang, setSelectedLang] = useState(null);
   const [loading, setLoading] = useState(false);

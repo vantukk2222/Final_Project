@@ -115,7 +115,9 @@ const VoiceCallScreen = ({route}) => {
   }, [meetingId]);
 
   const playFromQueue = async () => {
-    if (isPlayingRef.current || audioQueue.current.length === 0) return;
+    if (isPlayingRef.current || audioQueue.current.length === 0) {
+      return;
+    }
 
     isPlayingRef.current = true;
     const {text, lang} = audioQueue.current.shift();
@@ -131,7 +133,9 @@ const VoiceCallScreen = ({route}) => {
   };
 
   const playNextAudio = async () => {
-    if (isPlayingRef.current || audioQueue.current.length === 0) return;
+    if (isPlayingRef.current || audioQueue.current.length === 0) {
+      return;
+    }
 
     isPlayingRef.current = true;
     const path = audioQueue.current.shift();
@@ -221,7 +225,9 @@ const VoiceCallScreen = ({route}) => {
   };
 
   const initializeAudio = async () => {
-    if (!(await checkPermissions()) || initializedRef.current) return;
+    if (!(await checkPermissions()) || initializedRef.current) {
+      return;
+    }
     setIsListening(true);
     const pushStream = AudioInputStream.createPushStream();
     AudioRecord.init({sampleRate, channels, bitsPerChannel, audioSource: 7});
@@ -315,7 +321,9 @@ const VoiceCallScreen = ({route}) => {
 
   useEffect(
     () => () => {
-      if (isListening) stopAudio();
+      if (isListening) {
+        stopAudio();
+      }
     },
     [isListening],
   );
@@ -339,7 +347,9 @@ const VoiceCallScreen = ({route}) => {
     return () => backHandler.remove();
   }, []);
   const handleExitScreen = () => {
-    if (isListening) stopAudio();
+    if (isListening) {
+      stopAudio();
+    }
     // delete members from meetings of firestore
     removeMemberFromMeeting(meetingId, user.uid);
 

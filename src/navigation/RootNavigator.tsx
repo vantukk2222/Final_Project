@@ -34,7 +34,9 @@ const RootNavigator = () => {
   }, []);
 
   useEffect(() => {
-    if (!user?.uid) return;
+    if (!user?.uid) {
+      return;
+    }
 
     async function saveTokenIfChanged() {
       const fcmToken = await messaging().getToken();
@@ -92,9 +94,9 @@ const RootNavigator = () => {
             component={UserProfileScreen}
             options={{headerShown: false}}
           />
-          {/* <Stack.Screen 
-            name="Translate" 
-            component={TranslateScreen} 
+          {/* <Stack.Screen
+            name="Translate"
+            component={TranslateScreen}
             options={{ headerShown: false }}
           /> */}
           <Stack.Screen

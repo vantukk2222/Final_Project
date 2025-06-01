@@ -1,5 +1,7 @@
 export function formatTimeFromFirestoreTimestamp(timestamp) {
-  if (!timestamp || !timestamp.seconds) return '';
+  if (!timestamp || !timestamp.seconds) {
+    return '';
+  }
   console.log('timestamp', timestamp);
   // Chuyển sang milliseconds
   const dateObj = new Date(
