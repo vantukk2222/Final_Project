@@ -11,6 +11,7 @@ import ChatMembersList from '../components/ChatMembersList';
 import VoiceCallScreen from '../screens/VoiceCallScreen';
 import AdminDashboardScreen from '../screens/AdminDashboardScreen';
 import {fcmService} from '../services/FCMService';
+import ViewUserProfileScreen from '../screens/ViewUserProfileScreen';
 
 const Stack = createNativeStackNavigator();
 
@@ -68,12 +69,22 @@ const RootNavigator = () => {
             component={VoiceCallScreen}
             options={{headerShown: false}}
           />
+          <Stack.Screen
+            name="ViewUserProfile"
+            component={ViewUserProfileScreen}
+            options={{headerShown: false}}
+          />
         </Stack.Navigator>
       ) : user && user.role === 'admin' ? (
         <Stack.Navigator initialRouteName="AdminDashboard">
           <Stack.Screen
             name="AdminDashboard"
             component={AdminDashboardScreen}
+            options={{headerShown: false}}
+          />
+          <Stack.Screen
+            name="ViewUserProfile"
+            component={ViewUserProfileScreen}
             options={{headerShown: false}}
           />
         </Stack.Navigator>

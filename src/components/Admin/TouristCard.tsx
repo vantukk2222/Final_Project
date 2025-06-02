@@ -1,3 +1,4 @@
+import {useNavigation} from '@react-navigation/native';
 import React from 'react';
 import {View, Text, TouchableOpacity, Image, StyleSheet} from 'react-native';
 import Icon from 'react-native-vector-icons/FontAwesome5';
@@ -25,6 +26,7 @@ interface TouristCardProps {
 }
 
 const TouristCard: React.FC<TouristCardProps> = ({item, onStatusChange}) => {
+  const navigation = useNavigation();
   const formatDate = (timestamp: any) => {
     if (!timestamp) {
       return 'Unknown';
@@ -39,7 +41,11 @@ const TouristCard: React.FC<TouristCardProps> = ({item, onStatusChange}) => {
   const isActive = item?.isActive !== false; // Default to true if undefined
 
   return (
-    <View style={styles.card}>
+    <TouchableOpacity
+      style={styles.card}
+      onPress={() => {
+        navigation.navigate('ViewUserProfile', {userId: item.id});
+      }}>
       <View style={styles.header}>
         <View style={styles.avatarContainer}>
           {item?.avatar ? (
@@ -83,7 +89,6 @@ const TouristCard: React.FC<TouristCardProps> = ({item, onStatusChange}) => {
           </Text>
         </View>
       </View>
-
       <View style={styles.actionButtons}>
         <TouchableOpacity
           style={[
@@ -104,7 +109,7 @@ const TouristCard: React.FC<TouristCardProps> = ({item, onStatusChange}) => {
           </Text>
         </TouchableOpacity>
       </View>
-    </View>
+    </TouchableOpacity>
   );
 };
 

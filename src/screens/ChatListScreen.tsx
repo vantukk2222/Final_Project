@@ -12,6 +12,7 @@ import {
   Modal,
   Animated,
   Dimensions,
+  Image,
 } from 'react-native';
 import firestore from '@react-native-firebase/firestore';
 import {useNavigation} from '@react-navigation/native';
@@ -119,7 +120,6 @@ const ChatListScreen = () => {
     const unsubscribe = firestore()
       .collection('chats')
       .where('members', 'array-contains', user?.uid)
-      .orderBy('lastMessageTime', 'desc') // Sắp xếp theo thời gian
       .onSnapshot(
         async querySnapshot => {
           try {
@@ -188,8 +188,24 @@ const ChatListScreen = () => {
                 };
               });
 
-              setChats(enrichedChats);
-              setFilteredChats(enrichedChats);
+              // Sort chats by lastMessageTime if available, otherwise put them at the end
+              const sortedChats = enrichedChats.sort((a, b) => {
+                if (a.lastMessageTime && b.lastMessageTime) {
+                  return b.lastMessageTime - a.lastMessageTime;
+                } else if (a.lastMessageTime) {
+                  return -1; // a has lastMessageTime but b doesn't, so a comes first
+                } else if (b.lastMessageTime) {
+                  return 1; // b has lastMessageTime but a doesn't, so b comes first
+                } else {
+                  // Neither has lastMessageTime, sort by createdAt if available
+                  return b.createdAt && a.createdAt
+                    ? b.createdAt - a.createdAt
+                    : 0;
+                }
+              });
+
+              setChats(sortedChats);
+              setFilteredChats(sortedChats);
             } else {
               setChats([]);
               setFilteredChats([]);
@@ -384,9 +400,17 @@ const ChatListScreen = () => {
           delayLongPress={300}
           activeOpacity={0.7}>
           <View style={styles.chatAvatarContainer}>
-            <AvatarButton
+            {/* <AvatarButton
               imageUrl={item.avatar}
               size={60}
+              style={styles.chatAvatar}
+            /> */}
+            <Image
+              source={
+                item.avatar
+                  ? {uri: item.avatar}
+                  : require('../assets/default-avatar.png') // cần thêm ảnh mặc định
+              }
               style={styles.chatAvatar}
             />
             {item.isGroup && (
@@ -552,9 +576,16 @@ const ChatListScreen = () => {
               <TouchableOpacity
                 style={styles.profileContainer}
                 onPress={() => navigation.navigate('UserProfile')}>
-                <AvatarButton
+                {/* <AvatarButton
                   imageUrl={avatarUrl}
-                  size={40}
+                  style={styles.profileAvatar}
+                /> */}
+                <Image
+                  source={
+                    avatarUrl
+                      ? {uri: avatarUrl}
+                      : require('../assets/default-avatar.png') // cần thêm ảnh mặc định
+                  }
                   style={styles.profileAvatar}
                 />
                 <View style={styles.onlineIndicator} />

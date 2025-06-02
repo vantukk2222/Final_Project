@@ -11,7 +11,6 @@ import messaging from '@react-native-firebase/messaging';
 import {useAuth} from './AuthContext';
 import {AppState, AppStateStatus} from 'react-native';
 import firestore from '@react-native-firebase/firestore';
-import {fcmService} from '../services/FCMService';
 
 const SOCKET_SERVER_URL = 'ws://backendfinalpro-ct.onrender.com';
 
@@ -48,7 +47,7 @@ export const SocketProvider: React.FC<{children: React.ReactNode}> = ({
   const heartbeatIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const appStateRef = useRef<AppStateStatus>('active');
 
-  // Update user status using FCM session data
+  // Update user status in Firestore
   const updateUserStatus = useCallback(
     async (status: 'online' | 'offline' | 'away') => {
       if (!user?.uid) {
@@ -56,44 +55,29 @@ export const SocketProvider: React.FC<{children: React.ReactNode}> = ({
       }
 
       try {
-        // Update session's last active time through FCMService
-        if (status === 'online' || status === 'away') {
-          await fcmService.updateLastActive(user.uid);
-        }
-
-        // Update user status in Firestore with session info
         const statusData = {
           status: status,
           lastSeen: firestore.FieldValue.serverTimestamp(),
           lastActivity: firestore.FieldValue.serverTimestamp(),
           isOnline: status === 'online',
           updatedAt: firestore.FieldValue.serverTimestamp(),
-          sessionId: fcmService.getSessionId(), // Link to current session
-          deviceId: fcmService.getDeviceId(),
         };
 
         await firestore().collection('users').doc(user.uid).update({
           userStatus: statusData,
-          // Also update session status
-          'currentSession.status': status,
-          'currentSession.lastActive': firestore.FieldValue.serverTimestamp(),
         });
 
         setUserStatusState(status);
         setLastSeen(new Date());
 
-        console.log(
-          `SocketProvider: User status updated to ${status} with session ${fcmService.getSessionId()}`,
-        );
+        console.log(`SocketProvider: User status updated to ${status}`);
 
-        // Emit status to socket server with session info
+        // Emit status to socket server
         if (socketRef.current?.connected) {
           socketRef.current.emit('user_status_change', {
             userId: user.uid,
             status: status,
             timestamp: Date.now(),
-            sessionId: fcmService.getSessionId(),
-            deviceId: fcmService.getDeviceId(),
           });
         }
       } catch (error) {
@@ -103,26 +87,22 @@ export const SocketProvider: React.FC<{children: React.ReactNode}> = ({
     [user?.uid],
   );
 
-  // Set up heartbeat to maintain online status and session
+  // Set up heartbeat to maintain online status
   const setupHeartbeat = useCallback(() => {
     if (heartbeatIntervalRef.current) {
       clearInterval(heartbeatIntervalRef.current);
     }
 
-    heartbeatIntervalRef.current = setInterval(async () => {
+    heartbeatIntervalRef.current = setInterval(() => {
       if (user?.uid && appStateRef.current === 'active') {
-        // Update both status and session
-        await updateUserStatus('online');
-
-        // Also update FCM session
-        await fcmService.updateLastActive(user.uid);
+        updateUserStatus('online');
       }
     }, 30000); // Update every 30 seconds when app is active
   }, [user?.uid, updateUserStatus]);
 
   // Handle app state changes
   const handleAppStateChange = useCallback(
-    async (nextAppState: AppStateStatus) => {
+    (nextAppState: AppStateStatus) => {
       appStateRef.current = nextAppState;
 
       if (!user?.uid) {
@@ -131,17 +111,17 @@ export const SocketProvider: React.FC<{children: React.ReactNode}> = ({
 
       switch (nextAppState) {
         case 'active':
-          await updateUserStatus('online');
+          updateUserStatus('online');
           setupHeartbeat();
           break;
         case 'background':
-          await updateUserStatus('away');
+          updateUserStatus('away');
           if (heartbeatIntervalRef.current) {
             clearInterval(heartbeatIntervalRef.current);
           }
           break;
         case 'inactive':
-          await updateUserStatus('away');
+          updateUserStatus('away');
           break;
       }
     },
@@ -175,7 +155,7 @@ export const SocketProvider: React.FC<{children: React.ReactNode}> = ({
       });
 
       // Socket event listeners
-      socketRef.current.on('connect', async () => {
+      socketRef.current.on('connect', () => {
         console.log(
           'SocketProvider: Connected with ID:',
           socketRef.current?.id,
@@ -183,17 +163,15 @@ export const SocketProvider: React.FC<{children: React.ReactNode}> = ({
         setIsConnected(true);
         isConnectingRef.current = false;
 
-        // Register user with server including session info
+        // Register user with server
         socketRef.current?.emit('register', {
           userId: user.uid,
           fcmToken,
-          sessionId: fcmService.getSessionId(),
-          deviceId: fcmService.getDeviceId(),
           from: 'socketProvider',
         });
 
         // Set user as online when connected
-        await updateUserStatus('online');
+        updateUserStatus('online');
         setupHeartbeat();
 
         // Clear any pending reconnect timeout
@@ -203,13 +181,13 @@ export const SocketProvider: React.FC<{children: React.ReactNode}> = ({
         }
       });
 
-      socketRef.current.on('disconnect', async reason => {
+      socketRef.current.on('disconnect', reason => {
         console.log('SocketProvider: Disconnected, reason:', reason);
         setIsConnected(false);
         isConnectingRef.current = false;
 
         // Set user as offline when disconnected
-        await updateUserStatus('offline');
+        updateUserStatus('offline');
 
         // Auto reconnect for client-side disconnections
         if (reason === 'io client disconnect') {
@@ -226,11 +204,11 @@ export const SocketProvider: React.FC<{children: React.ReactNode}> = ({
         }
       });
 
-      socketRef.current.on('connect_error', async error => {
+      socketRef.current.on('connect_error', error => {
         console.error('SocketProvider: Connection error:', error);
         setIsConnected(false);
         isConnectingRef.current = false;
-        await updateUserStatus('offline');
+        updateUserStatus('offline');
 
         // Schedule reconnection on error
         if (!reconnectTimeoutRef.current) {
@@ -240,10 +218,10 @@ export const SocketProvider: React.FC<{children: React.ReactNode}> = ({
         }
       });
 
-      socketRef.current.on('reconnect', async () => {
+      socketRef.current.on('reconnect', () => {
         console.log('SocketProvider: Reconnected successfully');
         setIsConnected(true);
-        await updateUserStatus('online');
+        updateUserStatus('online');
       });
 
       // Listen for user status updates from other users
@@ -251,22 +229,16 @@ export const SocketProvider: React.FC<{children: React.ReactNode}> = ({
         console.log('SocketProvider: User status updated:', data);
         // You can emit this to other parts of your app if needed
       });
-
-      // Listen for session conflicts
-      socketRef.current.on('session_conflict', data => {
-        console.log('SocketProvider: Session conflict detected:', data);
-        // Handle session conflict if needed
-      });
     } catch (error) {
       console.error('SocketProvider: Error initializing socket:', error);
       setIsConnected(false);
       isConnectingRef.current = false;
-      await updateUserStatus('offline');
+      updateUserStatus('offline');
     }
   }, [user?.uid, updateUserStatus, setupHeartbeat]);
 
   // Cleanup socket connection
-  const cleanupSocket = useCallback(async () => {
+  const cleanupSocket = useCallback(() => {
     console.log('SocketProvider: Cleaning up socket');
 
     if (reconnectTimeoutRef.current) {
@@ -289,7 +261,7 @@ export const SocketProvider: React.FC<{children: React.ReactNode}> = ({
 
     // Set user offline when cleaning up
     if (user?.uid) {
-      await updateUserStatus('offline');
+      updateUserStatus('offline');
     }
   }, [user?.uid, updateUserStatus]);
 
@@ -303,10 +275,8 @@ export const SocketProvider: React.FC<{children: React.ReactNode}> = ({
       setLastSeen(null);
     }
 
-    return () => {
-      cleanupSocket();
-    };
-  }, [user?.uid, initializeSocket]);
+    return cleanupSocket;
+  }, [user?.uid, initializeSocket, cleanupSocket]);
 
   // Setup app state listener
   useEffect(() => {
@@ -332,16 +302,8 @@ export const SocketProvider: React.FC<{children: React.ReactNode}> = ({
   // Emit event to server
   const emit = useCallback((event: string, data?: any) => {
     if (socketRef.current?.connected) {
-      // Add session info to all emitted events
-      const eventData = {
-        ...data,
-        sessionId: fcmService.getSessionId(),
-        deviceId: fcmService.getDeviceId(),
-        timestamp: Date.now(),
-      };
-
-      console.log('SocketProvider: Emitting event:', event, eventData);
-      socketRef.current.emit(event, eventData);
+      console.log('SocketProvider: Emitting event:', event, data);
+      socketRef.current.emit(event, data);
     } else {
       console.warn('SocketProvider: Cannot emit, socket not connected');
     }
@@ -413,48 +375,26 @@ export const SocketProvider: React.FC<{children: React.ReactNode}> = ({
     [updateUserStatus],
   );
 
-  // Get user status from Firestore using session data
+  // Get user status from Firestore
   const getUserStatus = useCallback(async (userId: string) => {
     try {
       const userDoc = await firestore().collection('users').doc(userId).get();
       const userData = userDoc.data();
       const userStatus = userData?.userStatus;
-      const currentSession = userData?.currentSession;
 
-      if (userStatus && currentSession) {
+      if (userStatus) {
         const lastSeenTimestamp = userStatus.lastSeen?.toDate();
-        const sessionLastActive = currentSession.lastActive?.toDate();
+        const isOnline = userStatus.isOnline && userStatus.status === 'online';
 
-        // Use the more recent timestamp
-        const actualLastSeen =
-          sessionLastActive && lastSeenTimestamp
-            ? sessionLastActive > lastSeenTimestamp
-              ? sessionLastActive
-              : lastSeenTimestamp
-            : sessionLastActive || lastSeenTimestamp;
-
-        // Check if session is active and recent
-        const isSessionActive = currentSession.isActive;
-        const isRecentlyActive =
-          actualLastSeen &&
-          Date.now() - actualLastSeen.getTime() < 2 * 60 * 1000; // 2 minutes
-
-        const isOnline =
-          isSessionActive &&
-          userStatus.isOnline &&
-          userStatus.status === 'online' &&
-          isRecentlyActive;
+        // Check if user was online in the last 2 minutes
+        const isRecentlyOnline =
+          lastSeenTimestamp &&
+          Date.now() - lastSeenTimestamp.getTime() < 2 * 60 * 1000;
 
         return {
-          status: isRecentlyActive ? userStatus.status : 'offline',
-          lastSeen: actualLastSeen,
-          isOnline,
-          sessionInfo: {
-            sessionId: currentSession.sessionId,
-            deviceId: currentSession.deviceId,
-            platform: currentSession.platform,
-            isActive: isSessionActive,
-          },
+          status: isRecentlyOnline ? userStatus.status : 'offline',
+          lastSeen: lastSeenTimestamp,
+          isOnline: isOnline && isRecentlyOnline,
         };
       }
 
@@ -462,7 +402,6 @@ export const SocketProvider: React.FC<{children: React.ReactNode}> = ({
         status: 'offline',
         lastSeen: null,
         isOnline: false,
-        sessionInfo: null,
       };
     } catch (error) {
       console.error('SocketProvider: Error getting user status:', error);
@@ -470,7 +409,6 @@ export const SocketProvider: React.FC<{children: React.ReactNode}> = ({
         status: 'offline',
         lastSeen: null,
         isOnline: false,
-        sessionInfo: null,
       };
     }
   }, []);

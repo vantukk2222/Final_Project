@@ -1,3 +1,4 @@
+import {useNavigation} from '@react-navigation/native';
 import React from 'react';
 import {View, Text, TouchableOpacity, Image, StyleSheet} from 'react-native';
 import Icon from 'react-native-vector-icons/FontAwesome5';
@@ -28,6 +29,7 @@ const TourGuideCard: React.FC<TourGuideCardProps> = ({
   item,
   onStatusChange,
 }) => {
+  const navigation = useNavigation();
   const getStatusColor = (status: string) => {
     switch (status) {
       case 'approved':
@@ -79,7 +81,11 @@ const TourGuideCard: React.FC<TourGuideCardProps> = ({
   const currentStatus = item?.status || 'pending';
 
   return (
-    <View style={styles.card}>
+    <TouchableOpacity
+      style={styles.card}
+      onPress={() => {
+        navigation.navigate('ViewUserProfile', {userId: item.id});
+      }}>
       <View style={styles.header}>
         <View style={styles.avatarContainer}>
           {item?.avatar ? (
@@ -198,7 +204,7 @@ const TourGuideCard: React.FC<TourGuideCardProps> = ({
           </TouchableOpacity>
         )}
       </View>
-    </View>
+    </TouchableOpacity>
   );
 };
 

@@ -25,13 +25,13 @@ const AppContent = () => {
 export default function App() {
   return (
     <AuthProvider>
-      <NavigationContainer>
-        <SocketClient />
-        <SocketProvider>
+      <SocketProvider>
+        <NavigationContainer>
+          <SocketClient />
           {/* <NotificationModal /> */}
           <AppContent />
-        </SocketProvider>
-      </NavigationContainer>
+        </NavigationContainer>
+      </SocketProvider>
     </AuthProvider>
   );
 }

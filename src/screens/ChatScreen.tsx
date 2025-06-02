@@ -27,6 +27,52 @@ import FileUpload from '../components/UploadFile';
 import RNFS from 'react-native-fs';
 import AvatarStatus from '../components/AvatarStatus';
 import LinearGradient from 'react-native-linear-gradient';
+const getFileTypeInfo = (fileName: string) => {
+  const extension = fileName?.split('.').pop()?.toLowerCase();
+
+  switch (extension) {
+    case 'pdf':
+      return {
+        icon: 'picture-as-pdf',
+        color: '#EF4444',
+        bgColor: 'rgba(239, 68, 68, 0.15)',
+      };
+    case 'doc':
+    case 'docx':
+      return {
+        icon: 'description',
+        color: '#3B82F6',
+        bgColor: 'rgba(59, 130, 246, 0.15)',
+      };
+    case 'xls':
+    case 'xlsx':
+      return {
+        icon: 'grid-on',
+        color: '#10B981',
+        bgColor: 'rgba(16, 185, 129, 0.15)',
+      };
+    case 'ppt':
+    case 'pptx':
+      return {
+        icon: 'slideshow',
+        color: '#F59E0B',
+        bgColor: 'rgba(245, 158, 11, 0.15)',
+      };
+    case 'zip':
+    case 'rar':
+      return {
+        icon: 'archive',
+        color: '#8B5CF6',
+        bgColor: 'rgba(139, 92, 246, 0.15)',
+      };
+    default:
+      return {
+        icon: 'attach-file',
+        color: '#4AC6D0',
+        bgColor: 'rgba(74, 198, 208, 0.15)',
+      };
+  }
+};
 
 const ChatScreen = ({route}: any) => {
   const {user} = useAuth();
@@ -406,26 +452,47 @@ const ChatScreen = ({route}: any) => {
           )}
 
           {/* File Message */}
-          {item.fileURL && (
-            <TouchableOpacity
-              onPress={() => handleFileDownload(item.fileURL, item.fileName)}
-              style={[
-                styles.fileContainer,
-                isCurrentUser
-                  ? styles.sentFileContainer
-                  : styles.receivedFileContainer,
-              ]}>
-              <View style={styles.fileIconContainer}>
-                <Icon name="attach-file" size={24} color="#4AC6D0" />
-              </View>
-              <View style={styles.fileInfo}>
-                <Text style={styles.fileName} numberOfLines={1}>
-                  {item.fileName || 'File'}
-                </Text>
-                <Text style={styles.fileAction}>Tap to download</Text>
-              </View>
-            </TouchableOpacity>
-          )}
+          {item.fileURL &&
+            (() => {
+              const fileInfo = getFileTypeInfo(item.fileName);
+              return (
+                <TouchableOpacity
+                  onPress={() =>
+                    handleFileDownload(item.fileURL, item.fileName)
+                  }
+                  style={[
+                    styles.fileContainer,
+                    isCurrentUser
+                      ? styles.sentFileContainer
+                      : styles.receivedFileContainer,
+                  ]}
+                  activeOpacity={0.7}>
+                  <View
+                    style={[
+                      styles.fileIconContainer,
+                      {backgroundColor: fileInfo.bgColor},
+                    ]}>
+                    <Icon
+                      name={fileInfo.icon}
+                      size={22}
+                      color={fileInfo.color}
+                    />
+                  </View>
+                  <View style={styles.fileInfo}>
+                    <Text
+                      style={styles.fileName}
+                      numberOfLines={2}
+                      ellipsizeMode="middle">
+                      {item.fileName || 'Unknown File'}
+                    </Text>
+                    <Text style={styles.fileAction}>Tap to download</Text>
+                  </View>
+                  <View style={styles.fileDownloadIcon}>
+                    <Icon name="download" size={18} color="#4AC6D0" />
+                  </View>
+                </TouchableOpacity>
+              );
+            })()}
 
           <Text
             style={[
@@ -725,36 +792,8 @@ const styles = StyleSheet.create({
     fontSize: 15,
     lineHeight: 20,
   },
-  imageContainer: {
-    marginVertical: 4,
-    borderRadius: 16,
-    overflow: 'hidden',
-    elevation: 3,
-    shadowColor: '#000',
-    shadowOffset: {width: 0, height: 2},
-    shadowOpacity: 0.15,
-    shadowRadius: 4,
-    position: 'relative',
-  },
-  sentImageContainer: {
-    alignSelf: 'flex-end',
-  },
-  receivedImageContainer: {
-    alignSelf: 'flex-start',
-  },
-  imageMessage: {
-    width: 240,
-    height: 240,
-    borderRadius: 16,
-  },
-  imageOverlay: {
-    position: 'absolute',
-    top: 8,
-    right: 8,
-    backgroundColor: 'rgba(0,0,0,0.3)',
-    borderRadius: 16,
-    padding: 6,
-  },
+
+  // Fixed file container styles
   fileContainer: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -765,38 +804,164 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#E2E8F0',
     elevation: 1,
+    shadowColor: '#000',
+    shadowOffset: {width: 0, height: 1},
+    shadowOpacity: 0.1,
+    shadowRadius: 2,
+    maxWidth: '100%', // Ensure it doesn't overflow
+    minWidth: 200, // Minimum width for better appearance
   },
+
   sentFileContainer: {
     alignSelf: 'flex-end',
-    backgroundColor: '#E0F7FA',
+    backgroundColor: 'rgba(74, 198, 208, 0.1)',
     borderColor: '#4AC6D0',
   },
+
   receivedFileContainer: {
     alignSelf: 'flex-start',
+    backgroundColor: '#FFFFFF',
   },
+
   fileIconContainer: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: '#F0FDFF',
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: 'rgba(74, 198, 208, 0.15)',
     justifyContent: 'center',
     alignItems: 'center',
     marginRight: 12,
+    flexShrink: 0, // Prevent icon from shrinking
   },
+
   fileInfo: {
     flex: 1,
+    minWidth: 0, // Allow text to shrink and wrap properly
   },
+
   fileName: {
     fontSize: 14,
     fontWeight: '600',
     color: '#1E293B',
-    marginBottom: 2,
+    marginBottom: 4,
+    lineHeight: 18,
   },
+
   fileAction: {
     fontSize: 12,
     color: '#4AC6D0',
-    fontWeight: '500',
+    fontWeight: '600',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
   },
+
+  fileDownloadIcon: {
+    marginLeft: 8,
+    padding: 4,
+    flexShrink: 0,
+  },
+
+  // Optional: Add different file type icons
+  fileTypeIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 12,
+    flexShrink: 0,
+  },
+
+  // Different colors for different file types
+  fileTypePdf: {
+    backgroundColor: 'rgba(239, 68, 68, 0.15)',
+  },
+
+  fileTypeDoc: {
+    backgroundColor: 'rgba(59, 130, 246, 0.15)',
+  },
+
+  fileTypeDefault: {
+    backgroundColor: 'rgba(74, 198, 208, 0.15)',
+  },
+
+  // Enhanced image container styles for consistency
+  imageContainer: {
+    marginVertical: 4,
+    borderRadius: 16,
+    overflow: 'hidden',
+    elevation: 3,
+    shadowColor: '#000',
+    shadowOffset: {width: 0, height: 2},
+    shadowOpacity: 0.15,
+    shadowRadius: 4,
+    position: 'relative',
+    maxWidth: '100%', // Ensure consistency
+  },
+
+  sentImageContainer: {
+    alignSelf: 'flex-end',
+  },
+
+  receivedImageContainer: {
+    alignSelf: 'flex-start',
+  },
+
+  imageMessage: {
+    width: 200,
+    height: 200,
+    borderRadius: 16,
+  },
+  imageOverlay: {
+    position: 'absolute',
+    top: 8,
+    right: 8,
+    backgroundColor: 'rgba(0,0,0,0.3)',
+    borderRadius: 16,
+    padding: 6,
+  },
+  // fileContainer: {
+  //   flexDirection: 'row',
+  //   alignItems: 'center',
+  //   backgroundColor: '#FFFFFF',
+  //   padding: 12,
+  //   borderRadius: 16,
+  //   marginVertical: 4,
+  //   borderWidth: 1,
+  //   borderColor: '#E2E8F0',
+  //   elevation: 1,
+  // },
+  // sentFileContainer: {
+  //   alignSelf: 'flex-end',
+  //   backgroundColor: '#E0F7FA',
+  //   borderColor: '#4AC6D0',
+  // },
+  // receivedFileContainer: {
+  //   alignSelf: 'flex-start',
+  // },
+  // fileIconContainer: {
+  //   width: 40,
+  //   height: 40,
+  //   borderRadius: 20,
+  //   backgroundColor: '#F0FDFF',
+  //   justifyContent: 'center',
+  //   alignItems: 'center',
+  //   marginRight: 12,
+  // },
+  // fileInfo: {
+  //   flex: 1,
+  // },
+  // fileName: {
+  //   fontSize: 14,
+  //   fontWeight: '600',
+  //   color: '#1E293B',
+  //   marginBottom: 2,
+  // },
+  // fileAction: {
+  //   fontSize: 12,
+  //   color: '#4AC6D0',
+  //   fontWeight: '500',
+  // },
   timeStamp: {
     fontSize: 11,
     color: '#94A3B8',

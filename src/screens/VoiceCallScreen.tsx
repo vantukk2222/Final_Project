@@ -654,11 +654,11 @@ const VoiceCallScreen = ({route}) => {
 
           {/* Modal Footer */}
           <View style={styles.modalFooter}>
-            <TouchableOpacity
+            {/* <TouchableOpacity
               style={styles.modalCloseButton}
               onPress={() => setShowParticipantsModal(false)}>
               <Text style={styles.modalCloseText}>Close</Text>
-            </TouchableOpacity>
+            </TouchableOpacity> */}
           </View>
         </Animated.View>
       </View>

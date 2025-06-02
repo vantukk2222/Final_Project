@@ -1,4 +1,4 @@
-import React, {useEffect, useState} from 'react';
+import React, {useCallback, useEffect, useMemo, useState, useRef} from 'react';
 import {
   View,
   Text,
@@ -78,6 +78,12 @@ const AdminDashboardScreen = () => {
   const [touristsLoading, setTouristsLoading] = useState(false);
   const [touristsSearchQuery, setTouristsSearchQuery] = useState('');
 
+  // Memoize filter options để tránh re-create array
+  const guidesFilterOptions = useMemo(
+    () => ['all', 'pending', 'approved', 'suspended'],
+    [],
+  );
+
   // Statistics state
   const [statistics, setStatistics] = useState<Statistics>({
     totalUsers: 0,
@@ -91,15 +97,66 @@ const AdminDashboardScreen = () => {
   });
   const [statsLoading, setStatsLoading] = useState(false);
 
+  const loadStatisticsRef = useRef<() => Promise<void>>();
+  const loadTourGuidesRef = useRef<() => Promise<void>>();
+  const loadTouristsRef = useRef<() => Promise<void>>();
+  const guidesSearchRef = useRef((query: string) => {
+    setGuidesSearchQuery(query);
+  });
+
+  const touristsSearchRef = useRef((query: string) => {
+    setTouristsSearchQuery(query);
+  });
+
+  const guidesFilterRef = useRef(
+    (filter: 'all' | 'pending' | 'approved' | 'suspended') => {
+      setGuidesFilter(filter);
+    },
+  );
+
+  // Update refs to current functions
+  guidesSearchRef.current = (query: string) => {
+    setGuidesSearchQuery(query);
+  };
+
+  touristsSearchRef.current = (query: string) => {
+    setTouristsSearchQuery(query);
+  };
+
+  guidesFilterRef.current = (
+    filter: 'all' | 'pending' | 'approved' | 'suspended',
+  ) => {
+    setGuidesFilter(filter);
+  };
+
+  // Stable callback wrappers
+  const handleGuidesSearchChange = useCallback((query: string) => {
+    guidesSearchRef.current(query);
+  }, []);
+
+  const handleTouristsSearchChange = useCallback((query: string) => {
+    touristsSearchRef.current(query);
+  }, []);
+
+  const handleGuidesFilterChange = useCallback(
+    (filter: 'all' | 'pending' | 'approved' | 'suspended') => {
+      guidesFilterRef.current(filter);
+    },
+    [],
+  );
+
   useEffect(() => {
-    loadStatistics();
-    if (activeTab === 'guides') {
-      loadTourGuides();
-    } else if (activeTab === 'tourists') {
-      loadTourists();
+    if (loadStatisticsRef.current) {
+      loadStatisticsRef.current();
     }
-  }, [activeTab]);
-  const handleSignOut = async () => {
+    if (activeTab === 'guides' && loadTourGuidesRef.current) {
+      loadTourGuidesRef.current();
+    } else if (activeTab === 'tourists' && loadTouristsRef.current) {
+      loadTouristsRef.current();
+    }
+  }, [activeTab]); // ONLY depend on activeTab
+
+  const handleSignOut = useCallback(async () => {
     try {
       setStatsLoading(true);
       await signOut();
@@ -108,17 +165,17 @@ const AdminDashboardScreen = () => {
       console.error('Error signing out:', error);
       Alert.alert('Error', 'Failed to sign out. Please try again.');
     }
-  };
+  }, [signOut]);
 
-  const setActiveTab = (tab: TabType) => {
+  const setActiveTab = useCallback((tab: TabType) => {
     setTitleActiveTab(tab);
     setGuidesSearchQuery('');
     setTouristsSearchQuery('');
-  };
-  const loadStatistics = async () => {
+    setGuidesFilter('all');
+  }, []);
+  const loadStatistics = useCallback(async () => {
     setStatsLoading(true);
     try {
-      // Get all users
       const usersSnapshot = await firestore().collection('users').get();
       const allUsers = usersSnapshot.docs
         .filter(doc => doc.data().role !== 'admin')
@@ -127,21 +184,16 @@ const AdminDashboardScreen = () => {
           ...doc.data(),
         }));
 
-      // Get active chats
-      // const chatsSnapshot = await firestore()
-      //   .collection('chats')
-      //   .where('isActive', '==', true)
-      //   .get();
+      // Get all active users (both tourists and tour guides) to count active chats
       const chatsSnapshot = await firestore()
-        .collection('chats')
+        .collection('users')
         .where('userStatus.isOnline', '==', true)
+        .where('role', 'in', ['tourist', 'tour_guide'])
         .get();
 
-      // Calculate statistics
       const tourGuides = allUsers.filter(user => user.role === 'tour_guide');
       const tourists = allUsers.filter(user => user.role === 'tourist');
 
-      // Get users created this month
       const currentDate = new Date();
       const firstDayOfMonth = new Date(
         currentDate.getFullYear(),
@@ -171,226 +223,320 @@ const AdminDashboardScreen = () => {
       console.error('Error loading statistics:', error);
     }
     setStatsLoading(false);
-  };
+  }, []);
 
-  const loadTourGuides = async () => {
+  const loadTourGuides = useCallback(async () => {
     setGuidesLoading(true);
     try {
-      const snapshot = await firestore()
+      const unsubscribe = await firestore()
         .collection('users')
         .where('role', '==', 'tour_guide')
         .orderBy('createdAt', 'desc')
-        .get();
+        .onSnapshot(
+          snapshot => {
+            const guides: TourGuide[] = snapshot.docs.map(doc => ({
+              id: doc.id,
+              status: doc.data().status || 'pending',
+              ...doc.data(),
+            })) as TourGuide[];
 
-      const guides: TourGuide[] = snapshot.docs.map(doc => ({
-        id: doc.id,
-        status: doc.data().status || 'pending',
-        ...doc.data(),
-      })) as TourGuide[];
-
-      setTourGuides(guides);
+            setTourGuides(guides);
+            setGuidesLoading(false);
+          },
+          error => {
+            console.error('Tour guide snapshot error:', error);
+            Alert.alert('Error', 'Failed to load tour guides');
+            setGuidesLoading(false);
+          },
+        );
+      // Return unsubscribe function for cleanup
+      return () => unsubscribe();
     } catch (error) {
       console.error('Error loading tour guides:', error);
       Alert.alert('Error', 'Failed to load tour guides');
     }
     setGuidesLoading(false);
-  };
+  }, []);
 
-  const loadTourists = async () => {
+  const loadTourists = useCallback(async () => {
     setTouristsLoading(true);
     try {
-      const snapshot = await firestore()
+      const unsubscribe = firestore()
         .collection('users')
         .where('role', '==', 'tourist')
         .orderBy('createdAt', 'desc')
-        .get();
+        .onSnapshot(
+          snapshot => {
+            const touristList: Tourist[] = snapshot.docs.map(doc => ({
+              id: doc.id,
+              isActive: doc.data().isActive !== false,
+              ...doc.data(),
+            })) as Tourist[];
 
-      const touristList: Tourist[] = snapshot.docs.map(doc => ({
-        id: doc.id,
-        isActive: doc.data().isActive !== false,
-        ...doc.data(),
-      })) as Tourist[];
+            setTourists(touristList);
+            setTouristsLoading(false);
+          },
+          error => {
+            console.error('Tourist snapshot error:', error);
+            Alert.alert('Error', 'Failed to load tourists');
+            setTouristsLoading(false);
+          },
+        );
 
-      setTourists(touristList);
+      // Return unsubscribe function for cleanup
+      return () => unsubscribe();
     } catch (error) {
       console.error('Error loading tourists:', error);
       Alert.alert('Error', 'Failed to load tourists');
     }
     setTouristsLoading(false);
-  };
+  }, []);
 
-  const updateTourGuideStatus = async (guideId: string, newStatus: string) => {
-    try {
-      await firestore().collection('users').doc(guideId).update({
-        status: newStatus,
-        updatedAt: firestore.FieldValue.serverTimestamp(),
-      });
+  loadStatisticsRef.current = loadStatistics;
+  loadTourGuidesRef.current = loadTourGuides;
+  loadTouristsRef.current = loadTourists;
 
-      setTourGuides(prev =>
-        prev.map(guide =>
-          guide.id === guideId ? {...guide, status: newStatus as any} : guide,
-        ),
-      );
+  const updateTourGuideStatus = useCallback(
+    async (guideId: string, newStatus: string) => {
+      try {
+        await firestore().collection('users').doc(guideId).update({
+          status: newStatus,
+          updatedAt: firestore.FieldValue.serverTimestamp(),
+        });
 
-      Alert.alert('Success', `Tour guide status updated to ${newStatus}`);
-      loadStatistics();
-    } catch (error) {
-      console.error('Error updating status:', error);
-      Alert.alert('Error', 'Failed to update status');
-    }
-  };
+        setTourGuides(prev =>
+          prev.map(guide =>
+            guide.id === guideId ? {...guide, status: newStatus as any} : guide,
+          ),
+        );
 
-  const updateTouristStatus = async (touristId: string, isActive: boolean) => {
-    try {
-      await firestore().collection('users').doc(touristId).update({
-        isActive: isActive,
-        updatedAt: firestore.FieldValue.serverTimestamp(),
-      });
+        Alert.alert('Success', `Tour guide status updated to ${newStatus}`);
+        if (loadStatisticsRef.current) {
+          loadStatisticsRef.current();
+        }
+      } catch (error) {
+        console.error('Error updating status:', error);
+        Alert.alert('Error', 'Failed to update status');
+      }
+    },
+    [],
+  );
 
-      setTourists(prev =>
-        prev.map(tourist =>
-          tourist.id === touristId ? {...tourist, isActive} : tourist,
-        ),
-      );
+  const updateTouristStatus = useCallback(
+    async (touristId: string, isActive: boolean) => {
+      try {
+        await firestore().collection('users').doc(touristId).update({
+          isActive: isActive,
+          updatedAt: firestore.FieldValue.serverTimestamp(),
+        });
+
+        setTourists(prev =>
+          prev.map(tourist =>
+            tourist.id === touristId ? {...tourist, isActive} : tourist,
+          ),
+        );
+
+        Alert.alert(
+          'Success',
+          `Tourist account ${isActive ? 'activated' : 'deactivated'}`,
+        );
+      } catch (error) {
+        console.error('Error updating tourist status:', error);
+        Alert.alert('Error', 'Failed to update tourist status');
+      }
+    },
+    [],
+  );
+
+  const confirmStatusChange = useCallback(
+    (
+      userId: string,
+      newStatus: string,
+      userName: string,
+      isGuide: boolean = true,
+    ) => {
+      const actionText = isGuide
+        ? {
+            approved: 'approve',
+            rejected: 'reject',
+            suspended: 'suspend',
+            pending: 'set as pending',
+          }[newStatus]
+        : newStatus === 'true'
+        ? 'activate'
+        : 'deactivate';
 
       Alert.alert(
-        'Success',
-        `Tourist account ${isActive ? 'activated' : 'deactivated'}`,
-      );
-    } catch (error) {
-      console.error('Error updating tourist status:', error);
-      Alert.alert('Error', 'Failed to update tourist status');
-    }
-  };
-
-  const confirmStatusChange = (
-    userId: string,
-    newStatus: string,
-    userName: string,
-    isGuide: boolean = true,
-  ) => {
-    const actionText = isGuide
-      ? {
-          approved: 'approve',
-          rejected: 'reject',
-          suspended: 'suspend',
-          pending: 'set as pending',
-        }[newStatus]
-      : newStatus === 'true'
-      ? 'activate'
-      : 'deactivate';
-
-    Alert.alert(
-      'Confirm Action',
-      `Are you sure you want to ${actionText} ${userName || 'this user'}?`,
-      [
-        {text: 'Cancel', style: 'cancel'},
-        {
-          text: 'Confirm',
-          onPress: () => {
-            if (isGuide) {
-              updateTourGuideStatus(userId, newStatus);
-            } else {
-              updateTouristStatus(userId, newStatus === 'true');
-            }
+        'Confirm Action',
+        `Are you sure you want to ${actionText} ${userName || 'this user'}?`,
+        [
+          {text: 'Cancel', style: 'cancel'},
+          {
+            text: 'Confirm',
+            onPress: () => {
+              if (isGuide) {
+                updateTourGuideStatus(userId, newStatus);
+              } else {
+                updateTouristStatus(userId, newStatus === 'true');
+              }
+            },
+            style:
+              newStatus === 'suspended' || newStatus === 'false'
+                ? 'destructive'
+                : 'default',
           },
-          style:
-            newStatus === 'suspended' || newStatus === 'false'
-              ? 'destructive'
-              : 'default',
-        },
-      ],
-    );
-  };
+        ],
+      );
+    },
+    [updateTourGuideStatus, updateTouristStatus],
+  );
 
   // Filter functions
-  const filteredTourGuides = tourGuides.filter(guide => {
-    const matchesSearch =
-      guide.email.toLowerCase().includes(guidesSearchQuery.toLowerCase()) ||
-      (guide.name &&
-        guide.name.toLowerCase().includes(guidesSearchQuery.toLowerCase()));
-    const matchesFilter =
-      guidesFilter === 'all' || guide.status === guidesFilter;
-    return matchesSearch && matchesFilter;
-  });
+  const filteredTourGuides = useMemo(() => {
+    return tourGuides.filter(guide => {
+      const matchesSearch =
+        guide.email.toLowerCase().includes(guidesSearchQuery.toLowerCase()) ||
+        (guide.name &&
+          guide.name.toLowerCase().includes(guidesSearchQuery.toLowerCase()));
+      const matchesFilter =
+        guidesFilter === 'all' || guide.status === guidesFilter;
+      return matchesSearch && matchesFilter;
+    });
+  }, [tourGuides, guidesSearchQuery, guidesFilter]);
 
-  const filteredTourists = tourists.filter(tourist => {
-    const matchesSearch =
-      tourist.email.toLowerCase().includes(touristsSearchQuery.toLowerCase()) ||
-      (tourist.name &&
-        tourist.name.toLowerCase().includes(touristsSearchQuery.toLowerCase()));
-    return matchesSearch;
-  });
+  const filteredTourists = useMemo(() => {
+    return tourists.filter(tourist => {
+      const matchesSearch =
+        tourist.email
+          .toLowerCase()
+          .includes(touristsSearchQuery.toLowerCase()) ||
+        (tourist.name &&
+          tourist.name
+            .toLowerCase()
+            .includes(touristsSearchQuery.toLowerCase()));
+      return matchesSearch;
+    });
+  }, [tourists, touristsSearchQuery]);
 
   // Render header component
-  const renderHeader = () => (
-    <SearchAndFilter
-      searchQuery={
-        activeTab === 'guides' ? guidesSearchQuery : touristsSearchQuery
-      }
-      onSearchChange={
-        activeTab === 'guides' ? setGuidesSearchQuery : setTouristsSearchQuery
-      }
-      searchPlaceholder={
-        activeTab === 'guides' ? 'Search tour guides...' : 'Search tourists...'
-      }
-      filterOptions={
-        activeTab === 'guides'
-          ? ['all', 'pending', 'approved', 'suspended']
-          : undefined
-      }
-      activeFilter={activeTab === 'guides' ? guidesFilter : undefined}
-      onFilterChange={activeTab === 'guides' ? setGuidesFilter : undefined}
-    />
+  // const renderHeader = useCallback(
+  //   () => (
+  //     <SearchAndFilter
+  //       key={`search-${activeTab}`} // Force re-mount when tab changes
+  //       searchQuery={
+  //         activeTab === 'guides' ? guidesSearchQuery : touristsSearchQuery
+  //       }
+  //       onSearchChange={
+  //         activeTab === 'guides'
+  //           ? handleGuidesSearchChange
+  //           : handleTouristsSearchChange
+  //       }
+  //       searchPlaceholder={
+  //         activeTab === 'guides'
+  //           ? 'Search tour guides...'
+  //           : 'Search tourists...'
+  //       }
+  //       filterOptions={activeTab === 'guides' ? guidesFilterOptions : undefined}
+  //       activeFilter={activeTab === 'guides' ? guidesFilter : undefined}
+  //       onFilterChange={
+  //         activeTab === 'guides' ? handleGuidesFilterChange : undefined
+  //       }
+  //     />
+  //   ),
+  //   [
+  //     activeTab,
+  //     guidesSearchQuery,
+  //     touristsSearchQuery,
+  //     guidesFilter,
+  //     guidesFilterOptions,
+  //     handleGuidesSearchChange,
+  //     handleTouristsSearchChange,
+  //     handleGuidesFilterChange,
+  //   ],
+  // );
+  const renderTourGuide = useCallback(
+    ({item}: {item: TourGuide}) => (
+      <TourGuideCard item={item} onStatusChange={confirmStatusChange} />
+    ),
+    [confirmStatusChange],
   );
 
-  const renderTourGuide = ({item}: {item: TourGuide}) => (
-    <TourGuideCard item={item} onStatusChange={confirmStatusChange} />
+  const renderTourist = useCallback(
+    ({item}: {item: Tourist}) => (
+      <TouristCard item={item} onStatusChange={confirmStatusChange} />
+    ),
+    [confirmStatusChange],
   );
 
-  const renderTourist = ({item}: {item: Tourist}) => (
-    <TouristCard item={item} onStatusChange={confirmStatusChange} />
+  const renderEmptyComponent = useCallback(
+    () => (
+      <View style={styles.emptyContainer}>
+        <Icon
+          name={activeTab === 'guides' ? 'user-tie' : 'user-friends'}
+          size={48}
+          color="#ccc"
+        />
+        <Text style={styles.emptyText}>
+          No {activeTab === 'guides' ? 'tour guides' : 'tourists'} found
+        </Text>
+      </View>
+    ),
+    [activeTab],
   );
 
-  const renderEmptyComponent = () => (
-    <View style={styles.emptyContainer}>
-      <Icon
-        name={activeTab === 'guides' ? 'user-tie' : 'user-friends'}
-        size={48}
-        color="#ccc"
+  const renderLoadingComponent = useCallback(
+    () => (
+      <View style={styles.loadingContainer}>
+        <ActivityIndicator size="large" color="#5B72EF" />
+        <Text style={styles.loadingText}>
+          Loading {activeTab === 'guides' ? 'tour guides' : 'tourists'}...
+        </Text>
+      </View>
+    ),
+    [activeTab],
+  );
+  const searchAndFilterComponent = useMemo(
+    () => (
+      <SearchAndFilter
+        key={activeTab} // Simple key based on tab
+        searchQuery={
+          activeTab === 'guides' ? guidesSearchQuery : touristsSearchQuery
+        }
+        onSearchChange={
+          activeTab === 'guides'
+            ? handleGuidesSearchChange
+            : handleTouristsSearchChange
+        }
+        searchPlaceholder={
+          activeTab === 'guides'
+            ? 'Search tour guides...'
+            : 'Search tourists...'
+        }
+        filterOptions={activeTab === 'guides' ? guidesFilterOptions : undefined}
+        activeFilter={activeTab === 'guides' ? guidesFilter : undefined}
+        onFilterChange={
+          activeTab === 'guides' ? handleGuidesFilterChange : undefined
+        }
       />
-      <Text style={styles.emptyText}>
-        No {activeTab === 'guides' ? 'tour guides' : 'tourists'} found
-      </Text>
-    </View>
+    ),
+    [activeTab, guidesSearchQuery, touristsSearchQuery, guidesFilter],
   );
 
-  const renderLoadingComponent = () => (
-    <View style={styles.loadingContainer}>
-      <ActivityIndicator size="large" color="#5B72EF" />
-      <Text style={styles.loadingText}>
-        Loading {activeTab === 'guides' ? 'tour guides' : 'tourists'}...
-      </Text>
-    </View>
+  const renderHeader = useCallback(
+    () => searchAndFilterComponent,
+    [searchAndFilterComponent],
   );
 
   return (
     <SafeAreaView style={styles.container}>
-      <Loading isLoading={statsLoading} />
+      {/* <Loading isLoading={statsLoading} /> */}
 
       {/* Header */}
       <View style={styles.header}>
         <View style={styles.headerLeft}>
-          {/* <TouchableOpacity onPress={() => navigation.goBack()}>
-            <Icon name="chevron-left" size={24} color="#5B72EF" />
-          </TouchableOpacity> */}
           <Text style={styles.headerTitle}>Admin Dashboard</Text>
         </View>
-        <TouchableOpacity
-          onPress={() => {
-            handleSignOut();
-          }}
-          style={styles.logoutButton}>
+        <TouchableOpacity onPress={handleSignOut} style={styles.logoutButton}>
           <Icon name="sign-out-alt" size={20} color="#EF4444" />
         </TouchableOpacity>
       </View>
@@ -405,7 +551,7 @@ const AdminDashboardScreen = () => {
         <FlatList
           data={activeTab === 'guides' ? filteredTourGuides : filteredTourists}
           renderItem={activeTab === 'guides' ? renderTourGuide : renderTourist}
-          keyExtractor={item => item?.id}
+          keyExtractor={item => item?.id || Math.random().toString()}
           contentContainerStyle={styles.listContainer}
           refreshing={activeTab === 'guides' ? guidesLoading : touristsLoading}
           onRefresh={activeTab === 'guides' ? loadTourGuides : loadTourists}
@@ -413,16 +559,20 @@ const AdminDashboardScreen = () => {
           ListHeaderComponent={renderHeader}
           ListEmptyComponent={
             (activeTab === 'guides' ? guidesLoading : touristsLoading)
-              ? renderLoadingComponent()
-              : renderEmptyComponent()
+              ? renderLoadingComponent
+              : renderEmptyComponent
           }
+          removeClippedSubviews={true}
+          maxToRenderPerBatch={10}
+          updateCellsBatchingPeriod={50}
+          windowSize={21}
           stickyHeaderIndices={[0]} // Make search bar sticky
+          keyboardShouldPersistTaps="handled" // QUAN TRỌNG - giữ keyboard
         />
       )}
     </SafeAreaView>
   );
 };
-
 const styles = StyleSheet.create({
   container: {
     flex: 1,

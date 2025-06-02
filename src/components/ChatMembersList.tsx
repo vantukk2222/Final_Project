@@ -28,6 +28,8 @@ const ChatMembersList = ({route}: any) => {
   const [chatName, setChatName] = useState('');
   const [isEditingName, setIsEditingName] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [isGroup, setIsGroup] = useState(false); // Thêm state để track isGroup
+  const [otherUser, setOtherUser] = useState<any>(null); // Store thông tin user khác trong 1-1 chat
 
   const navigation = useNavigation<any>();
   const {user} = useAuth();
@@ -46,12 +48,13 @@ const ChatMembersList = ({route}: any) => {
   }, []);
 
   useEffect(() => {
-    console.log('ChatMembersList mounted with chatId:', chatId); // Debug log
+    console.log('ChatMembersList mounted with chatId:', chatId);
 
     if (!chatId) {
       console.error('No chatId provided');
       return;
     }
+
     const unsubscribeChat = firestore()
       .collection('chats')
       .doc(chatId)
@@ -60,34 +63,39 @@ const ChatMembersList = ({route}: any) => {
           setLoading(true);
           const chatData = chatDoc.data();
           if (!chatData || !chatData.members || chatData.members.length === 0) {
-            console.log('No chat data or members found'); // Thêm log để debug
+            console.log('No chat data or members found');
+            setLoading(false);
             return;
           }
 
+          // Set isGroup state
+          setIsGroup(chatData.isGroup || false);
           setChatName(chatData.name || 'Untitled Group');
           setRoles(chatData.roles || {});
 
           try {
-            console.log('Members array:', chatData.members); // Debug log
+            console.log('Members array:', chatData.members);
+            console.log('Is Group:', chatData.isGroup);
 
-            // Kiểm tra members array có hợp lệ không
             if (
               !Array.isArray(chatData.members) ||
               chatData.members.length === 0
             ) {
               console.log('Invalid members array');
+              setLoading(false);
               return;
             }
 
-            // Firestore 'in' query có giới hạn 10 items
+            // Fetch members data
+            let membersList: any[] = [];
+
             if (chatData.members.length > 10) {
-              // Chia thành nhiều batch nếu > 10 members
+              // Handle large groups
               const batches = [];
               for (let i = 0; i < chatData.members.length; i += 10) {
                 batches.push(chatData.members.slice(i, i + 10));
               }
 
-              const allMembers = [];
               for (const batch of batches) {
                 const batchSnapshot = await firestore()
                   .collection('users')
@@ -95,25 +103,32 @@ const ChatMembersList = ({route}: any) => {
                   .get();
 
                 batchSnapshot.forEach(doc => {
-                  allMembers.push({id: doc.id, ...doc.data()});
+                  membersList.push({id: doc.id, ...doc.data()});
                 });
               }
-              console.log('Fetched members in batches:', allMembers.length); // Debug log
-              setMembers(allMembers);
             } else {
               const membersSnapshot = await firestore()
                 .collection('users')
                 .where(firestore.FieldPath.documentId(), 'in', chatData.members)
                 .get();
 
-              const membersList: any[] = [];
               membersSnapshot.forEach(doc => {
                 membersList.push({id: doc.id, ...doc.data()});
               });
-
-              console.log('Fetched members:', membersList.length); // Debug log
-              setMembers(membersList);
             }
+
+            console.log('Fetched members:', membersList.length);
+            setMembers(membersList);
+
+            // Nếu là 1-1 chat, tìm user khác
+            if (!chatData.isGroup && membersList.length === 2) {
+              const otherMember = membersList.find(
+                member => member.id !== currentUserId,
+              );
+              setOtherUser(otherMember);
+              console.log('Other user in 1-1 chat:', otherMember);
+            }
+
             setLoading(false);
           } catch (error) {
             console.error('Error fetching members:', error);
@@ -126,12 +141,15 @@ const ChatMembersList = ({route}: any) => {
         },
       );
     return () => unsubscribeChat();
-  }, [chatId]);
-  useEffect(() => {
-    console.log('ChatMembersList re-rendered'); // Debug log
-  }, [members]);
-  // Handle remove member
+  }, [chatId, currentUserId]);
+
+  // Handle functions remain the same but check isGroup
   const handleRemoveMember = async (memberId: string) => {
+    if (!isGroup) {
+      Alert.alert('Error', 'Cannot remove members from a direct conversation.');
+      return;
+    }
+
     if (memberId === currentUserId) {
       Alert.alert('Error', 'You cannot remove yourself from the group.');
       return;
@@ -162,10 +180,6 @@ const ChatMembersList = ({route}: any) => {
               await firestore().collection('chats').doc(chatId).update({
                 roles: updatedRoles,
               });
-
-              if (memberId === currentUserId) {
-                navigation.goBack();
-              }
             } catch (error) {
               console.error('Error removing member:', error);
               Alert.alert('Error', 'Failed to remove member.');
@@ -176,8 +190,12 @@ const ChatMembersList = ({route}: any) => {
     );
   };
 
-  // Handle add member to chat
   const handleAddMember = async () => {
+    if (!isGroup) {
+      Alert.alert('Error', 'Cannot add members to a direct conversation.');
+      return;
+    }
+
     if (!newMemberEmail.trim()) {
       Alert.alert('Error', 'Please enter a valid email.');
       return;
@@ -217,15 +235,22 @@ const ChatMembersList = ({route}: any) => {
 
       setMembers(prevMembers => [...prevMembers, {id: userId, ...userData}]);
       setNewMemberEmail('');
-      Alert.alert('Success', `${userData.name} added to the group.`);
+      Alert.alert(
+        'Success',
+        `${userData.name || userData.email} added to the group.`,
+      );
     } catch (error) {
       console.error('Error adding member:', error);
       Alert.alert('Error', 'Failed to add member.');
     }
   };
 
-  // Handle edit group name
   const handleEditGroupName = async () => {
+    if (!isGroup) {
+      Alert.alert('Error', 'Cannot edit name of a direct conversation.');
+      return;
+    }
+
     if (isEditingName) {
       try {
         await firestore().collection('chats').doc(chatId).update({
@@ -256,12 +281,18 @@ const ChatMembersList = ({route}: any) => {
         },
       ]}>
       <TouchableOpacity
-        onPress={() => navigation.navigate('UserProfile', {userId: item.id})}
+        onPress={() => {
+          if (item.id !== currentUserId) {
+            navigation.navigate('ViewUserProfile', {userId: item.id});
+          }
+        }}
         style={styles.memberDetails}>
         <View style={styles.avatarContainer}>
           <AvatarStatus
-            avatarUrl={item.avatarUrl}
-            size={52}
+            avatarUrl={
+              item.avatar?.secure_url || item.avatar?.url || item.avatarUrl
+            }
+            size={isGroup ? 52 : 64} // Larger avatar for 1-1 chat
             status={item?.userStatus?.status || 'offline'}
             style={styles.avatar}
           />
@@ -273,8 +304,16 @@ const ChatMembersList = ({route}: any) => {
         </View>
 
         <View style={styles.memberInfo}>
-          <Text style={styles.memberName}>{item.name || item.email}</Text>
-          {roles[item.id] && (
+          <Text
+            style={[
+              styles.memberName,
+              !isGroup && styles.oneOnOneName, // Larger text for 1-1
+            ]}>
+            {item.name || item.email}
+          </Text>
+
+          {/* Role badge chỉ hiện trong group */}
+          {isGroup && roles[item.id] && (
             <View style={styles.roleBadge}>
               <Icon
                 name={
@@ -286,7 +325,21 @@ const ChatMembersList = ({route}: any) => {
               <Text style={styles.memberRole}>{roles[item.id]}</Text>
             </View>
           )}
-          <Text style={styles.memberEmail}>{item.email}</Text>
+
+          <Text style={[styles.memberEmail, !isGroup && styles.oneOnOneEmail]}>
+            {item.email}
+          </Text>
+
+          {/* Status text for 1-1 chat */}
+          {!isGroup && (
+            <Text style={styles.statusText}>
+              {item?.userStatus?.isOnline
+                ? 'Online'
+                : item?.userStatus?.lastSeen
+                ? `Last seen ${formatLastSeen(item.userStatus.lastSeen)}`
+                : 'Offline'}
+            </Text>
+          )}
         </View>
       </TouchableOpacity>
 
@@ -298,9 +351,10 @@ const ChatMembersList = ({route}: any) => {
           </View>
         )}
 
-        {/* Remove Button */}
-        {(roles[currentUserId] === 'owner' ||
-          roles[currentUserId] === 'admin') &&
+        {/* Remove Button - only for groups */}
+        {isGroup &&
+          (roles[currentUserId] === 'owner' ||
+            roles[currentUserId] === 'admin') &&
           item.id !== currentUserId && (
             <TouchableOpacity
               onPress={() => handleRemoveMember(item.id)}
@@ -312,9 +366,150 @@ const ChatMembersList = ({route}: any) => {
     </Animated.View>
   );
 
+  // Helper function for formatting last seen
+  const formatLastSeen = (lastSeen: any) => {
+    if (!lastSeen) {
+      return '';
+    }
+    const lastSeenDate = lastSeen.toDate
+      ? lastSeen.toDate()
+      : new Date(lastSeen);
+    const now = new Date();
+    const diffInMinutes = Math.floor(
+      (now.getTime() - lastSeenDate.getTime()) / (1000 * 60),
+    );
+
+    if (diffInMinutes < 1) {
+      return 'just now';
+    }
+    if (diffInMinutes < 60) {
+      return `${diffInMinutes}m ago`;
+    }
+    if (diffInMinutes < 1440) {
+      return `${Math.floor(diffInMinutes / 60)}h ago`;
+    }
+    return `${Math.floor(diffInMinutes / 1440)}d ago`;
+  };
+
+  // Render different UI based on isGroup
+  if (!isGroup) {
+    // 1-1 Chat UI
+    return (
+      <SafeAreaView style={styles.container}>
+        <Loading isLoading={loading} />
+
+        {/* Header for 1-1 chat */}
+        <LinearGradient colors={['#4AC6D0', '#3BB8C3']} style={styles.header}>
+          <View style={styles.headerContent}>
+            <TouchableOpacity
+              onPress={() => navigation.goBack()}
+              style={styles.backButton}>
+              <Icon name="arrow-back" size={24} color="#FFF" />
+            </TouchableOpacity>
+
+            <View style={styles.headerTitleContainer}>
+              <Text style={styles.headerTitle} numberOfLines={1}>
+                {otherUser?.name || 'Direct Chat'}
+              </Text>
+              <Text style={styles.headerSubtitle}>
+                {otherUser?.userStatus?.isOnline ? 'Online' : 'Offline'}
+              </Text>
+            </View>
+
+            <TouchableOpacity
+              onPress={() => {
+                if (otherUser) {
+                  navigation.navigate('ViewUserProfile', {
+                    userId: otherUser.id,
+                  });
+                }
+              }}
+              style={styles.editButton}>
+              <Icon name="person" size={20} color="#FFF" />
+            </TouchableOpacity>
+          </View>
+        </LinearGradient>
+
+        <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
+          {/* User Info Card for 1-1 */}
+          <View style={styles.oneOnOneCard}>
+            <LinearGradient
+              colors={['rgba(74, 198, 208, 0.1)', 'rgba(74, 198, 208, 0.05)']}
+              style={styles.infoCardGradient}>
+              {otherUser && (
+                <View style={styles.oneOnOneProfile}>
+                  <View style={styles.largeAvatarContainer}>
+                    <AvatarStatus
+                      avatarUrl={
+                        otherUser.avatar?.secure_url || otherUser.avatar?.url
+                      }
+                      size={100}
+                      status={otherUser?.userStatus?.status || 'offline'}
+                      style={styles.largeAvatar}
+                    />
+                  </View>
+
+                  <Text style={styles.oneOnOneUserName}>
+                    {otherUser.name || otherUser.email}
+                  </Text>
+                  <Text style={styles.oneOnOneUserEmail}>
+                    {otherUser.email}
+                  </Text>
+
+                  {otherUser.bio && (
+                    <Text style={styles.oneOnOneUserBio}>{otherUser.bio}</Text>
+                  )}
+
+                  <View style={styles.oneOnOneStatus}>
+                    <View
+                      style={[
+                        styles.statusDot,
+                        {
+                          backgroundColor: otherUser?.userStatus?.isOnline
+                            ? '#10B981'
+                            : '#6B7280',
+                        },
+                      ]}
+                    />
+                    <Text style={styles.oneOnOneStatusText}>
+                      {otherUser?.userStatus?.isOnline
+                        ? 'Online'
+                        : otherUser?.userStatus?.lastSeen
+                        ? `Last seen ${formatLastSeen(
+                            otherUser.userStatus.lastSeen,
+                          )}`
+                        : 'Offline'}
+                    </Text>
+                  </View>
+
+                  <TouchableOpacity
+                    style={styles.viewProfileButton}
+                    onPress={() =>
+                      navigation.navigate('ViewUserProfile', {
+                        userId: otherUser.id,
+                      })
+                    }>
+                    <LinearGradient
+                      colors={['#4AC6D0', '#3BB8C3']}
+                      style={styles.viewProfileGradient}>
+                      <Icon name="person" size={18} color="#FFF" />
+                      <Text style={styles.viewProfileText}>View Profile</Text>
+                    </LinearGradient>
+                  </TouchableOpacity>
+                </View>
+              )}
+            </LinearGradient>
+          </View>
+        </ScrollView>
+      </SafeAreaView>
+    );
+  }
+
+  // Group Chat UI (existing code)
   return (
     <SafeAreaView style={styles.container}>
       <Loading isLoading={loading} />
+
       {/* Header */}
       <LinearGradient colors={['#4AC6D0', '#3BB8C3']} style={styles.header}>
         <View style={styles.headerContent}>
@@ -427,9 +622,8 @@ const ChatMembersList = ({route}: any) => {
             keyExtractor={item => item.id}
             renderItem={renderMemberItem}
             scrollEnabled={false}
-            showsVerticalScrollIndicator={false} // Thêm dòng này
+            showsVerticalScrollIndicator={false}
             ItemSeparatorComponent={() => <View style={styles.separator} />}
-            // Thêm các props sau để debug
             removeClippedSubviews={false}
             initialNumToRender={10}
             maxToRenderPerBatch={10}
@@ -440,10 +634,6 @@ const ChatMembersList = ({route}: any) => {
                 <Text style={{color: '#64748B'}}>No members found</Text>
               </View>
             )}
-            onLayout={() => console.log('FlatList layout')}
-            onContentSizeChange={(width, height) =>
-              console.log('FlatList content size:', width, height)
-            }
           />
         </View>
       </ScrollView>
@@ -452,6 +642,7 @@ const ChatMembersList = ({route}: any) => {
 };
 
 const styles = StyleSheet.create({
+  // ... existing styles ...
   container: {
     backgroundColor: '#F8FAFC',
     flex: 1,
@@ -510,6 +701,112 @@ const styles = StyleSheet.create({
     flex: 1,
     paddingHorizontal: 16,
   },
+
+  // 1-1 Chat specific styles
+  oneOnOneCard: {
+    marginTop: 16,
+    marginBottom: 16,
+    borderRadius: 16,
+    overflow: 'hidden',
+    elevation: 3,
+    shadowColor: '#4AC6D0',
+    shadowOffset: {width: 0, height: 2},
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+  },
+  oneOnOneProfile: {
+    alignItems: 'center',
+    padding: 30,
+  },
+  largeAvatarContainer: {
+    marginBottom: 20,
+  },
+  largeAvatar: {
+    elevation: 8,
+    shadowColor: '#4AC6D0',
+    shadowOffset: {width: 0, height: 4},
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
+  },
+  oneOnOneUserName: {
+    fontSize: 24,
+    fontWeight: '700',
+    color: '#1E293B',
+    textAlign: 'center',
+    marginBottom: 4,
+  },
+  oneOnOneUserEmail: {
+    fontSize: 16,
+    color: '#64748B',
+    textAlign: 'center',
+    marginBottom: 12,
+  },
+  oneOnOneUserBio: {
+    fontSize: 16,
+    color: '#64748B',
+    textAlign: 'center',
+    lineHeight: 24,
+    marginBottom: 16,
+    paddingHorizontal: 20,
+  },
+  oneOnOneStatus: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(255, 255, 255, 0.7)',
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 20,
+    marginBottom: 20,
+  },
+  statusDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    marginRight: 8,
+  },
+  oneOnOneStatusText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#374151',
+  },
+  viewProfileButton: {
+    borderRadius: 12,
+    elevation: 3,
+    shadowColor: '#4AC6D0',
+    shadowOffset: {width: 0, height: 2},
+    shadowOpacity: 0.2,
+    shadowRadius: 4,
+  },
+  viewProfileGradient: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 24,
+    paddingVertical: 12,
+    borderRadius: 12,
+  },
+  viewProfileText: {
+    color: '#FFF',
+    fontWeight: '700',
+    fontSize: 16,
+    marginLeft: 8,
+  },
+
+  // Enhanced member item styles
+  oneOnOneName: {
+    fontSize: 18,
+  },
+  oneOnOneEmail: {
+    fontSize: 14,
+  },
+  statusText: {
+    fontSize: 12,
+    color: '#4AC6D0',
+    fontWeight: '600',
+    marginTop: 2,
+  },
+
+  // ... rest of existing styles ...
   infoCard: {
     marginTop: 16,
     marginBottom: 16,
@@ -673,8 +970,6 @@ const styles = StyleSheet.create({
     marginRight: 16,
   },
   avatar: {
-    width: 52,
-    height: 52,
     borderRadius: 26,
   },
   currentUserBadge: {
