@@ -27,6 +27,8 @@ import FileUpload from '../components/UploadFile';
 import RNFS from 'react-native-fs';
 import AvatarStatus from '../components/AvatarStatus';
 import LinearGradient from 'react-native-linear-gradient';
+import {useSocket} from '../contexts/SocketContext';
+
 const getFileTypeInfo = (fileName: string) => {
   const extension = fileName?.split('.').pop()?.toLowerCase();
 
@@ -76,6 +78,8 @@ const getFileTypeInfo = (fileName: string) => {
 
 const ChatScreen = ({route}: any) => {
   const {user} = useAuth();
+  const {emit} = useSocket(); // Add socket context
+
   const userId = user?.uid;
   const {chatId, toUserId, avatar} = route.params || {};
   const [name, setName] = useState(route.params?.name || '');
@@ -216,7 +220,6 @@ const ChatScreen = ({route}: any) => {
 
     fetchUserNames();
   }, [messages]);
-
   const handleSend = async () => {
     if (message.trim() === '') {
       return;
@@ -225,32 +228,63 @@ const ChatScreen = ({route}: any) => {
     const messageText = message.trim();
     setMessage(''); // Clear input immediately
 
-    await firestore()
-      .collection('chats')
-      .doc(chatId)
-      .collection('messages')
-      .add({
-        from: userId,
-        to: toUserId,
-        text: messageText,
-        timestamp: firestore.FieldValue.serverTimestamp(),
-      });
+    try {
+      // Add message to Firestore
+      await firestore()
+        .collection('chats')
+        .doc(chatId)
+        .collection('messages')
+        .add({
+          from: userId,
+          to: toUserId,
+          text: messageText,
+          timestamp: firestore.FieldValue.serverTimestamp(),
+        });
 
-    await firestore()
-      .collection('chats')
-      .doc(chatId)
-      .set(
-        {
-          lastMessage: messageText,
-          lastMessageTime: firestore.FieldValue.serverTimestamp(),
-          lastSenderName: user?.name || user?.email,
-          lastSender: userId,
-          messageType: 'text',
-        },
-        {merge: true},
-      );
+      // Update chat metadata
+      await firestore()
+        .collection('chats')
+        .doc(chatId)
+        .set(
+          {
+            lastMessage: messageText,
+            lastMessageTime: firestore.FieldValue.serverTimestamp(),
+            lastSenderName: user?.name || user?.email,
+            lastSender: userId,
+            messageType: 'text',
+          },
+          {merge: true},
+        );
+
+      // Get chat members for notification
+      const chatDoc = await firestore().collection('chats').doc(chatId).get();
+      if (chatDoc.exists) {
+        const chatData = chatDoc.data();
+        const allMemberIds = chatData?.members || [];
+
+        // Lọc ra những người nhận (không bao gồm người gửi)
+        const recipientIds = allMemberIds.filter(id => id !== userId);
+
+        console.log('📤 Emitting send_message event:', {
+          chatId,
+          senderId: userId,
+          message: messageText,
+          memberIds: recipientIds, // Chỉ gửi recipients, không bao gồm sender
+        });
+
+        // Emit socket event for push notifications
+        emit('send_message', {
+          chatId,
+          senderId: userId,
+          message: messageText,
+          memberIds: recipientIds, // Chỉ recipients
+        });
+      }
+    } catch (error) {
+      console.error('Error sending message:', error);
+      Alert.alert('Error', 'Failed to send message. Please try again.');
+    }
   };
-
   const handleFileDownload = async (fileURL: string, fileName: string) => {
     try {
       const downloadDest =
@@ -525,7 +559,7 @@ const ChatScreen = ({route}: any) => {
       <LinearGradient colors={['#4AC6D0', '#3BB8C3']} style={styles.header}>
         <View style={styles.headerLeft}>
           <TouchableOpacity
-            onPress={() => navigation.goBack()}
+            onPress={() => navigation.navigate('ChatList')}
             style={styles.backButton}>
             <Icon name="arrow-back" size={24} color="#fff" />
           </TouchableOpacity>

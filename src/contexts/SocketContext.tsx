@@ -13,6 +13,7 @@ import {AppState, AppStateStatus} from 'react-native';
 import firestore from '@react-native-firebase/firestore';
 
 const SOCKET_SERVER_URL = 'ws://backendfinalpro-ct.onrender.com';
+// const SOCKET_SERVER_URL = 'http://192.168.1.10:3001';
 
 interface SocketContextType {
   socket: Socket | null;

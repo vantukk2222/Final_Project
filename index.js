@@ -14,7 +14,10 @@ import {AppRegistry} from 'react-native';
 import {name as appName} from './app.json';
 // import App_mic_input_translated from './App_mic_input_translated';
 import App from './App';
+import TrackPlayer from 'react-native-track-player';
+import {trackPlayerEventHandler} from './src/services/trackPlayerService';
 // import { TranslateScreen } from './App_mic_input_translated';
 console.log('🔍 AppRegistry.registerComponent đang được gọi đúng cách');
 
 AppRegistry.registerComponent(appName, () => App);
+TrackPlayer.registerPlaybackService(() => trackPlayerEventHandler);

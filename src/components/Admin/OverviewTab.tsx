@@ -129,7 +129,7 @@ const OverviewTab: React.FC<OverviewTabProps> = ({
                 <Text style={[styles.activityNumber, {color: '#4AC6D0'}]}>
                   {statistics.activeChats}
                 </Text>
-                <Text style={styles.activityLabel}>Active Chats</Text>
+                <Text style={styles.activityLabel}>Online</Text>
                 <Text style={styles.activitySubtext}>
                   Users currently online
                 </Text>

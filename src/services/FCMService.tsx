@@ -21,6 +21,28 @@ class FCMService {
   getCurrentUserId(): string | null {
     return this.currentUserId;
   }
+  removeToken(uId: string) {
+    console.log('FCMService: Removing token for user', uId);
+    if (!uId) {
+      console.warn('FCMService: No user ID provided for token removal');
+      return;
+    }
+
+    // Remove FCM token from Firestore
+    firestore()
+      .collection('users')
+      .doc(uId)
+      .update({
+        fcmToken: firestore.FieldValue.delete(),
+        'currentSession.fcmToken': firestore.FieldValue.delete(),
+      })
+      .then(() => {
+        console.log('FCMService: Token removed successfully');
+      })
+      .catch(error => {
+        console.error('FCMService: Error removing token:', error);
+      });
+  }
 
   // Check if current session is active
   async isSessionActive(): Promise<boolean> {

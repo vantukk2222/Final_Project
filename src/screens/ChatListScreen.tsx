@@ -17,13 +17,90 @@ import {
 import firestore from '@react-native-firebase/firestore';
 import {useNavigation} from '@react-navigation/native';
 import {useAuth} from '../contexts/AuthContext';
-import AvatarButton from '../components/AvatarButton';
 import Icon from 'react-native-vector-icons/MaterialIcons';
 import Loading from './../components/Loading';
 import ChatOptionsModal from '../components/ChatOptionsModal';
 import LinearGradient from 'react-native-linear-gradient';
 
 const {width} = Dimensions.get('window');
+
+// Tab Navigation Component for ChatListScreen
+type ChatTabType = 'groups' | 'private';
+
+interface ChatTabNavigationProps {
+  activeTab: ChatTabType;
+  onTabChange: (tab: ChatTabType) => void;
+  groupCount: number;
+  privateCount: number;
+}
+
+const ChatTabNavigation: React.FC<ChatTabNavigationProps> = ({
+  activeTab,
+  onTabChange,
+  groupCount,
+  privateCount,
+}) => {
+  const tabs = [
+    {
+      key: 'groups',
+      label: 'Travel',
+      shortLabel: 'Travel',
+      icon: 'group',
+      count: groupCount,
+      color: '#4AC6D0',
+    },
+    {
+      key: 'private',
+      label: 'Chats',
+      shortLabel: 'Chats',
+      icon: 'chat',
+      count: privateCount,
+      color: '#10B981',
+    },
+  ] as const;
+
+  return (
+    <View style={styles.tabContainer}>
+      <View style={styles.tabsWrapper}>
+        {tabs.map(tab => (
+          <TouchableOpacity
+            key={tab.key}
+            style={styles.tabButtonContainer}
+            onPress={() => onTabChange(tab.key as ChatTabType)}
+            activeOpacity={0.8}>
+            {activeTab === tab.key ? (
+              <LinearGradient
+                colors={
+                  tab.key === 'groups'
+                    ? ['#4AC6D0', '#3BB8C3']
+                    : ['#10B981', '#059669']
+                }
+                style={[styles.tabButton, styles.tabButtonActive]}>
+                <View style={styles.tabContent}>
+                  <View style={styles.activeIconContainer}>
+                    <Icon name={tab.icon} size={18} color="#fff" />
+                  </View>
+                  <Text style={styles.tabButtonTextActive}>
+                    {tab.label} ({tab.count})
+                  </Text>
+                </View>
+              </LinearGradient>
+            ) : (
+              <View style={styles.tabButton}>
+                <View style={styles.tabContent}>
+                  <Icon name={tab.icon} size={16} color="#64748B" />
+                  <Text style={styles.tabButtonText}>
+                    {tab.shortLabel} ({tab.count})
+                  </Text>
+                </View>
+              </View>
+            )}
+          </TouchableOpacity>
+        ))}
+      </View>
+    </View>
+  );
+};
 
 export const formatMessageTime = (date: Date): string => {
   if (!date) {
@@ -51,11 +128,42 @@ export const formatMessageTime = (date: Date): string => {
     });
   }
 };
+
+// Helper function to sort chats with pinned ones first
+const sortChatsWithPinned = (chats: any[], currentUserId: string) => {
+  return chats.sort((a, b) => {
+    const aIsPinned = a.pinned?.includes(currentUserId);
+    const bIsPinned = b.pinned?.includes(currentUserId);
+
+    // If one is pinned and the other isn't, prioritize pinned
+    if (aIsPinned && !bIsPinned) {
+      return -1;
+    }
+    if (!aIsPinned && bIsPinned) {
+      return 1;
+    }
+
+    // If both are pinned or both are not pinned, sort by lastMessageTime
+    if (a.lastMessageTime && b.lastMessageTime) {
+      return b.lastMessageTime - a.lastMessageTime;
+    } else if (a.lastMessageTime) {
+      return -1;
+    } else if (b.lastMessageTime) {
+      return 1;
+    } else {
+      return b.createdAt && a.createdAt ? b.createdAt - a.createdAt : 0;
+    }
+  });
+};
+
 const ChatListScreen = () => {
   const navigation = useNavigation<any>();
   const {user, signOut, role} = useAuth();
   const [chats, setChats] = useState<any[]>([]);
-  const [filteredChats, setFilteredChats] = useState<any[]>([]);
+  const [groupChats, setGroupChats] = useState<any[]>([]);
+  const [privateChats, setPrivateChats] = useState<any[]>([]);
+  const [filteredGroupChats, setFilteredGroupChats] = useState<any[]>([]);
+  const [filteredPrivateChats, setFilteredPrivateChats] = useState<any[]>([]);
   const [inputEmails, setInputEmails] = useState('');
   const [avatarUrl, setAvatarUrl] = useState('');
   const [loading, setLoading] = useState(false);
@@ -66,6 +174,7 @@ const ChatListScreen = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [modalVisible, setModalVisible] = useState(false);
   const [selectedChat, setSelectedChat] = useState(null);
+  const [activeTab, setActiveTab] = useState<ChatTabType>('groups');
 
   // Animation values
   const fadeAnim = new Animated.Value(0);
@@ -86,9 +195,6 @@ const ChatListScreen = () => {
       }),
     ]).start();
   }, []);
-
-  // ... existing useEffect code for data loading ...
-  // ...existing code...
 
   useEffect(() => {
     if (!user?.uid) {
@@ -137,11 +243,14 @@ const ChatListScreen = () => {
                   ? data.createdAt.toDate()
                   : data.createdAt,
                 lastMessageTime: data.lastMessageTime?.toDate
-                  ? formatMessageTime(data.lastMessageTime.toDate())
-                  : '',
+                  ? data.lastMessageTime.toDate()
+                  : null,
                 updatedAt: data.updatedAt?.toDate
                   ? data.updatedAt.toDate()
                   : data.updatedAt,
+                // Keep pinned as array
+                pinned: data.pinned || [],
+                muted: data.muted || [],
               };
 
               chatData.push(processedData);
@@ -185,30 +294,36 @@ const ChatListScreen = () => {
                       userMap[id]?.name || userMap[id]?.email || id,
                   ),
                   avatar: otherMemberId ? userMap[otherMemberId]?.avatar : null,
+                  // Add formatted time string for display
+                  formattedTime: chat.lastMessageTime
+                    ? formatMessageTime(chat.lastMessageTime)
+                    : '',
                 };
               });
 
-              // Sort chats by lastMessageTime if available, otherwise put them at the end
-              const sortedChats = enrichedChats.sort((a, b) => {
-                if (a.lastMessageTime && b.lastMessageTime) {
-                  return b.lastMessageTime - a.lastMessageTime;
-                } else if (a.lastMessageTime) {
-                  return -1; // a has lastMessageTime but b doesn't, so a comes first
-                } else if (b.lastMessageTime) {
-                  return 1; // b has lastMessageTime but a doesn't, so b comes first
-                } else {
-                  // Neither has lastMessageTime, sort by createdAt if available
-                  return b.createdAt && a.createdAt
-                    ? b.createdAt - a.createdAt
-                    : 0;
-                }
-              });
+              // Separate group chats and private chats, then sort with pinned first
+              const groups = sortChatsWithPinned(
+                enrichedChats.filter(chat => chat.isGroup === true),
+                user.uid,
+              );
+              const privates = sortChatsWithPinned(
+                enrichedChats.filter(chat => chat.isGroup === false),
+                user.uid,
+              );
 
-              setChats(sortedChats);
-              setFilteredChats(sortedChats);
+              const allSorted = sortChatsWithPinned(enrichedChats, user.uid);
+
+              setChats(allSorted);
+              setGroupChats(groups);
+              setPrivateChats(privates);
+              setFilteredGroupChats(groups);
+              setFilteredPrivateChats(privates);
             } else {
               setChats([]);
-              setFilteredChats([]);
+              setGroupChats([]);
+              setPrivateChats([]);
+              setFilteredGroupChats([]);
+              setFilteredPrivateChats([]);
             }
           } catch (error) {
             console.error('Error loading chats:', error);
@@ -232,20 +347,31 @@ const ChatListScreen = () => {
     };
   }, [user?.uid]);
 
-  // ...existing code...
+  // Search functionality with pinned sorting
   useEffect(() => {
     if (!searchQuery.trim()) {
-      setFilteredChats(chats);
+      setFilteredGroupChats(groupChats);
+      setFilteredPrivateChats(privateChats);
     } else {
       const query = searchQuery.toLowerCase();
-      const result = chats.filter(
+
+      const filteredGroups = groupChats.filter(
         chat =>
           chat.name?.toLowerCase().includes(query) ||
           chat.memberEmails?.some(email => email.toLowerCase().includes(query)),
       );
-      setFilteredChats(result);
+
+      const filteredPrivate = privateChats.filter(
+        chat =>
+          chat.name?.toLowerCase().includes(query) ||
+          chat.memberEmails?.some(email => email.toLowerCase().includes(query)),
+      );
+
+      // Re-sort filtered results with pinned first
+      setFilteredGroupChats(sortChatsWithPinned(filteredGroups, user.uid));
+      setFilteredPrivateChats(sortChatsWithPinned(filteredPrivate, user.uid));
     }
-  }, [searchQuery, chats]);
+  }, [searchQuery, groupChats, privateChats, user.uid]);
 
   const handleCreateChat = async () => {
     setLoading(true);
@@ -256,7 +382,6 @@ const ChatListScreen = () => {
 
     if (emails.length === 0) {
       setLoading(false);
-
       Alert.alert('Error', 'Please enter at least one email.');
       return;
     }
@@ -292,28 +417,37 @@ const ChatListScreen = () => {
         return acc;
       }, {} as Record<string, string>);
 
-      if (role == 'tourist') {
+      if (role === 'tourist' && emails.length === 1) {
+        // Create private chat for tourists
         const chatId = [memberIds[0], memberIds[1]].sort().join('_');
         await firestore().collection('chats').doc(chatId).set(
           {
             isGroup: false,
             members: memberIds,
             roles,
+            pinned: [],
+            muted: [],
             createdAt: firestore.FieldValue.serverTimestamp(),
             createdBy: user?.uid,
           },
           {merge: true},
         );
       } else {
-        const chatRef = await firestore().collection('chats').add({
-          isGroup: true,
-          members: memberIds,
-          roles,
-          name: groupName,
-          createdAt: firestore.FieldValue.serverTimestamp(),
-          createdBy: user?.uid,
-        });
+        // Create group chat for tour guides or multiple members
+        await firestore()
+          .collection('chats')
+          .add({
+            isGroup: true,
+            members: memberIds,
+            roles,
+            name: groupName || 'Travel Group',
+            pinned: [],
+            muted: [],
+            createdAt: firestore.FieldValue.serverTimestamp(),
+            createdBy: user?.uid,
+          });
       }
+
       setGroupName('');
       setInputEmails('');
       setShowGroupModal(false);
@@ -336,57 +470,123 @@ const ChatListScreen = () => {
     setModalVisible(true);
   };
 
-  const deleteChat = id => {
+  const onPin = async (id: string) => {
     setModalVisible(false);
-    Alert.alert('Delete Chat', 'Are you sure you want to delete this chat?', [
-      {text: 'Cancel', style: 'cancel'},
-      {
-        text: 'Delete',
-        style: 'destructive',
-        onPress: () => console.log('Delete chat:', id),
-      },
-    ]);
+    try {
+      setLoading(true);
+      const chatRef = firestore().collection('chats').doc(id);
+      const chatDoc = await chatRef.get();
+      if (!chatDoc.exists) {
+        Alert.alert('Error', 'Chat not found.');
+        return;
+      }
+      const chatData = chatDoc.data();
+      const pinnedUsers = chatData.pinned || [];
+
+      if (pinnedUsers.includes(user?.uid)) {
+        // Unpin: remove user from pinned array
+        const updatedPinned = pinnedUsers.filter(uid => uid !== user?.uid);
+        await chatRef.update({pinned: updatedPinned});
+      } else {
+        // Pin: add user to pinned array
+        pinnedUsers.push(user?.uid);
+        await chatRef.update({pinned: pinnedUsers});
+      }
+    } catch (error) {
+      console.error('Error pinning/unpinning chat:', error);
+      Alert.alert('Error', 'Failed to update pin status. Please try again.');
+    } finally {
+      setLoading(false);
+    }
   };
 
-  const renderItem = ({item, index}) => {
-    const otherEmails = item.memberEmails?.filter(
-      (email, emailIndex) => item.members[emailIndex] !== user?.uid,
-    );
-    const chatName = item.isGroup
-      ? item.name || 'Group Chat'
-      : `${otherEmails?.join(', ')}`;
+  const onMute = async (id: string) => {
+    setModalVisible(false);
+    try {
+      setLoading(true);
+      const chatRef = firestore().collection('chats').doc(id);
+      const chatDoc = await chatRef.get();
+      if (!chatDoc.exists) {
+        Alert.alert('Error', 'Chat not found.');
+        return;
+      }
+      const chatData = chatDoc.data();
+      const mutedUsers = chatData.muted || [];
 
-    let firstLetter = '';
+      if (mutedUsers.includes(user?.uid)) {
+        // Unmute: remove user from muted array
+        const updatedMuted = mutedUsers.filter(uid => uid !== user?.uid);
+        await chatRef.update({muted: updatedMuted});
+      } else {
+        // Mute: add user to muted array
+        mutedUsers.push(user?.uid);
+        await chatRef.update({muted: mutedUsers});
+      }
+    } catch (error) {
+      console.error('Error muting/unmuting chat:', error);
+      Alert.alert('Error', 'Failed to update mute status. Please try again.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const deleteChat = async (id: string) => {
+    setModalVisible(false);
+    Alert.alert(
+      'Delete Chat',
+      'Are you sure you want to delete this chat? This action cannot be undone.',
+      [
+        {
+          text: 'Cancel',
+          style: 'cancel',
+        },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              setLoading(true);
+              await firestore().collection('chats').doc(id).delete();
+            } catch (error) {
+              console.error('Error deleting chat:', error);
+              Alert.alert('Error', 'Failed to delete chat. Please try again.');
+            } finally {
+              setLoading(false);
+            }
+          },
+        },
+      ],
+    );
+  };
+
+  const renderGroupItem = ({item, index}) => {
+    const chatName = item.name || 'Travel Group';
+    const memberCount = item.members?.length || 0;
+    const isPinned = item.pinned?.includes(user?.uid);
+    const isMuted = item.muted?.includes(user?.uid);
+
+    let lastMessagePreview = '';
     if (
       item.lastSenderName &&
-      (user?.email == item?.lastSenderName ||
-        user?.name == item?.lastSenderName)
+      (user?.email === item?.lastSenderName ||
+        user?.name === item?.lastSenderName)
     ) {
-      firstLetter = 'You: ' + item?.lastMessage;
+      lastMessagePreview = 'You: ' + (item?.lastMessage || '');
     } else if (item.lastSenderName) {
-      firstLetter = item?.lastSenderName + ': ' + item?.lastMessage;
+      lastMessagePreview =
+        item?.lastSenderName + ': ' + (item?.lastMessage || '');
     } else {
-      firstLetter = "Let's explore together!";
+      lastMessagePreview = 'Ready for adventure!';
     }
 
     return (
-      <Animated.View
-        style={[
-          styles.chatItemWrapper,
-          // {
-          //   opacity: fadeAnim,
-          //   transform: [
-          //     {
-          //       translateY: slideAnim.interpolate({
-          //         inputRange: [0, 50],
-          //         outputRange: [0, 50],
-          //       }),
-          //     },
-          //   ],
-          // },
-        ]}>
+      <Animated.View style={styles.chatItemWrapper}>
         <TouchableOpacity
-          style={styles.chatItem}
+          style={[
+            styles.chatItem,
+            styles.groupChatItem,
+            isPinned && styles.pinnedChatItem,
+          ]}
           onPress={() =>
             navigation.navigate('Chat', {
               chatId: item.id,
@@ -394,49 +594,71 @@ const ChatListScreen = () => {
               name: chatName,
               avatar: item.avatar,
               currentAvatar: avatarUrl,
+              isGroup: true,
             })
           }
           onLongPress={() => onLongPressItem(item)}
           delayLongPress={300}
           activeOpacity={0.7}>
+          {/* Pinned indicator */}
+          {isPinned && (
+            <View style={styles.pinnedIndicator}>
+              <Icon name="push-pin" size={16} color="#F59E0B" />
+            </View>
+          )}
+
           <View style={styles.chatAvatarContainer}>
-            {/* <AvatarButton
-              imageUrl={item.avatar}
-              size={60}
-              style={styles.chatAvatar}
-            /> */}
-            <Image
-              source={
-                item.avatar
-                  ? {uri: item.avatar}
-                  : require('../assets/default-avatar.png') // cần thêm ảnh mặc định
-              }
-              style={styles.chatAvatar}
-            />
-            {item.isGroup && (
-              <View style={styles.groupBadge}>
-                <Icon name="group" size={12} color="#4AC6D0" />
-              </View>
-            )}
+            <LinearGradient
+              colors={['#4AC6D0', '#3BB8C3']}
+              style={styles.groupAvatarGradient}>
+              <Icon name="group" size={28} color="#fff" />
+            </LinearGradient>
+            <View style={styles.memberCountBadge}>
+              <Text style={styles.memberCountText}>{memberCount}</Text>
+            </View>
           </View>
 
           <View style={styles.chatInfo}>
             <View style={styles.chatHeader}>
-              <Text style={styles.chatName} numberOfLines={1}>
-                {chatName}
-              </Text>
+              <View style={styles.chatTitleContainer}>
+                <Text style={styles.chatName} numberOfLines={1}>
+                  {chatName}
+                </Text>
+                {isPinned && (
+                  <Icon
+                    name="push-pin"
+                    size={14}
+                    color="#F59E0B"
+                    style={styles.pinnedIcon}
+                  />
+                )}
+              </View>
+              <View style={styles.chatMeta}>
+                {item.formattedTime && (
+                  <Text style={styles.timeText}>{item.formattedTime}</Text>
+                )}
+                <View style={styles.groupTypeBadge}>
+                  <Text style={styles.groupTypeBadgeText}>GROUP</Text>
+                </View>
+              </View>
             </View>
 
-            <Text style={styles.lastMessage} numberOfLines={2}>
-              {firstLetter}
-            </Text>
-            {item.unreadCount > 0 && (
-              <View style={styles.unreadBadge}>
-                <Text style={styles.unreadCount}>
-                  {item.unreadCount > 99 ? '99+' : item.unreadCount}
-                </Text>
-              </View>
-            )}
+            <View style={styles.messageContainer}>
+              <Text style={styles.lastMessage} numberOfLines={2}>
+                {isMuted && (
+                  <Icon name="notifications-off" size={14} color="#94A3B8" />
+                )}
+                {lastMessagePreview}
+              </Text>
+
+              {item.unreadCount > 0 && !isMuted && (
+                <View style={styles.unreadBadge}>
+                  <Text style={styles.unreadCount}>
+                    {item.unreadCount > 99 ? '99+' : item.unreadCount}
+                  </Text>
+                </View>
+              )}
+            </View>
           </View>
 
           <View style={styles.chatActions}>
@@ -447,7 +669,120 @@ const ChatListScreen = () => {
     );
   };
 
-  const renderEmptyList = () => (
+  const renderPrivateItem = ({item, index}) => {
+    const otherEmails = item.memberEmails?.filter(
+      (email, emailIndex) => item.members[emailIndex] !== user?.uid,
+    );
+    const chatName = otherEmails?.join(', ') || 'Private Chat';
+    const isPinned = item.pinned?.includes(user?.uid);
+    const isMuted = item.muted?.includes(user?.uid);
+
+    let lastMessagePreview = '';
+    if (
+      item.lastSenderName &&
+      (user?.email === item?.lastSenderName ||
+        user?.name === item?.lastSenderName)
+    ) {
+      lastMessagePreview = 'You: ' + (item?.lastMessage || '');
+    } else if (item.lastSenderName) {
+      lastMessagePreview =
+        item?.lastSenderName + ': ' + (item?.lastMessage || '');
+    } else {
+      lastMessagePreview = "Let's explore together!";
+    }
+
+    return (
+      <Animated.View style={styles.chatItemWrapper}>
+        <TouchableOpacity
+          style={[
+            styles.chatItem,
+            styles.privateChatItem,
+            isPinned && styles.pinnedChatItem,
+          ]}
+          onPress={() =>
+            navigation.navigate('Chat', {
+              chatId: item.id,
+              toUserId: item.members.find(id => id !== user?.uid),
+              name: chatName,
+              avatar: item.avatar,
+              currentAvatar: avatarUrl,
+              isGroup: false,
+            })
+          }
+          onLongPress={() => onLongPressItem(item)}
+          delayLongPress={300}
+          activeOpacity={0.7}>
+          {/* Pinned indicator */}
+          {isPinned && (
+            <View style={styles.pinnedIndicator}>
+              <Icon name="push-pin" size={16} color="#F59E0B" />
+            </View>
+          )}
+
+          <View style={styles.chatAvatarContainer}>
+            <Image
+              source={
+                item.avatar
+                  ? {uri: item.avatar}
+                  : require('../assets/default-avatar.png')
+              }
+              style={styles.chatAvatar}
+            />
+            <View style={styles.onlineIndicator} />
+          </View>
+
+          <View style={styles.chatInfo}>
+            <View style={styles.chatHeader}>
+              <View style={styles.chatTitleContainer}>
+                <Text style={styles.chatName} numberOfLines={1}>
+                  {chatName}
+                </Text>
+                {isPinned && (
+                  <Icon
+                    name="push-pin"
+                    size={14}
+                    color="#F59E0B"
+                    style={styles.pinnedIcon}
+                  />
+                )}
+              </View>
+              <View style={styles.chatMeta}>
+                {item.formattedTime && (
+                  <Text style={styles.timeText}>{item.formattedTime}</Text>
+                )}
+                <View style={styles.privateTypeBadge}>
+                  <Text style={styles.privateTypeBadgeText}>PRIVATE</Text>
+                </View>
+              </View>
+            </View>
+
+            <View style={styles.messageContainer}>
+              <Text style={styles.lastMessage} numberOfLines={2}>
+                {isMuted && (
+                  <Icon name="volume-off" size={14} color="#94A3B8" />
+                )}
+                {lastMessagePreview}
+              </Text>
+
+              {item.unreadCount > 0 && !isMuted && (
+                <View style={styles.unreadBadge}>
+                  <Text style={styles.unreadCount}>
+                    {item.unreadCount > 99 ? '99+' : item.unreadCount}
+                  </Text>
+                </View>
+              )}
+            </View>
+          </View>
+
+          <View style={styles.chatActions}>
+            <Icon name="chevron-right" size={20} color="#C1C7CD" />
+          </View>
+        </TouchableOpacity>
+      </Animated.View>
+    );
+  };
+
+  const renderEmptyList = (type: ChatTabType) => (
     <Animated.View
       style={[
         styles.emptyContainer,
@@ -460,11 +795,19 @@ const ChatListScreen = () => {
         colors={['rgba(74, 198, 208, 0.1)', 'rgba(74, 198, 208, 0.05)']}
         style={styles.emptyGradient}>
         <View style={styles.emptyIconContainer}>
-          <Icon name="forum" size={80} color="#4AC6D0" />
+          <Icon
+            name={type === 'groups' ? 'group' : 'chat'}
+            size={80}
+            color="#4AC6D0"
+          />
         </View>
-        <Text style={styles.emptyText}>No conversations yet</Text>
+        <Text style={styles.emptyText}>
+          {type === 'groups' ? 'No travel groups yet' : 'No private chats yet'}
+        </Text>
         <Text style={styles.emptySubText}>
-          Start your journey by creating a new chat
+          {type === 'groups'
+            ? 'Create a group to plan your travel adventures'
+            : 'Start a private conversation with fellow travelers'}
         </Text>
         {user.role === 'tour_guide' && (
           <TouchableOpacity
@@ -474,7 +817,9 @@ const ChatListScreen = () => {
               colors={['#4AC6D0', '#3BB8C3']}
               style={styles.startChatGradient}>
               <Icon name="add" size={20} color="#FFF" />
-              <Text style={styles.startChatText}>Start New Chat</Text>
+              <Text style={styles.startChatText}>
+                {type === 'groups' ? 'Create Group' : 'Start Chat'}
+              </Text>
             </LinearGradient>
           </TouchableOpacity>
         )}
@@ -485,42 +830,45 @@ const ChatListScreen = () => {
   const renderCreateModal = () => (
     <Modal visible={showGroupModal} transparent animationType="fade">
       <View style={styles.modalOverlay}>
-        <Animated.View
-          style={[
-            styles.modalContainer,
-            {
-              opacity: fadeAnim,
-              transform: [{scale: fadeAnim}],
-            },
-          ]}>
+        <Animated.View style={[styles.modalContainer]}>
           <LinearGradient
             colors={['#4AC6D0', '#3BB8C3']}
             style={styles.modalHeader}>
             <Icon name="add-circle" size={24} color="#FFF" />
-            <Text style={styles.modalHeaderText}>Create New Chat</Text>
+            <Text style={styles.modalHeaderText}>
+              {user.role === 'tour_guide'
+                ? 'Create Travel Group'
+                : 'Start New Chat'}
+            </Text>
           </LinearGradient>
 
           <View style={styles.modalContent}>
-            <View style={styles.inputWrapper}>
-              <Icon name="label" size={20} color="#4AC6D0" />
-              <TextInput
-                placeholder="Group name (optional)"
-                value={groupName}
-                onChangeText={setGroupName}
-                style={styles.inputField}
-                placeholderTextColor="#94A3B8"
-              />
-            </View>
+            {user.role === 'tour_guide' && (
+              <View style={styles.inputWrapper}>
+                <Icon name="label" size={20} color="#4AC6D0" />
+                <TextInput
+                  placeholder="Group name (optional)"
+                  value={groupName}
+                  onChangeText={setGroupName}
+                  style={styles.inputField}
+                  placeholderTextColor="#94A3B8"
+                />
+              </View>
+            )}
 
             <View style={styles.inputWrapper}>
               <Icon name="email" size={20} color="#4AC6D0" />
               <TextInput
-                placeholder="Enter email addresses (comma separated)"
+                placeholder={
+                  user.role === 'tour_guide'
+                    ? 'Enter email addresses (comma separated)'
+                    : 'Enter email address'
+                }
                 value={inputEmails}
                 onChangeText={setInputEmails}
                 style={styles.inputField}
                 placeholderTextColor="#94A3B8"
-                multiline
+                multiline={user.role === 'tour_guide'}
               />
             </View>
 
@@ -552,6 +900,14 @@ const ChatListScreen = () => {
     </Modal>
   );
 
+  const getCurrentData = () => {
+    return activeTab === 'groups' ? filteredGroupChats : filteredPrivateChats;
+  };
+
+  const getCurrentRenderItem = () => {
+    return activeTab === 'groups' ? renderGroupItem : renderPrivateItem;
+  };
+
   return (
     <SafeAreaView style={styles.container}>
       <StatusBar backgroundColor="#4AC6D0" barStyle="light-content" />
@@ -563,8 +919,8 @@ const ChatListScreen = () => {
             <View style={styles.headerLeft}>
               <Text style={styles.headerTitle}>Travel Chats</Text>
               <Text style={styles.headerSubtitle}>
-                {filteredChats.length} conversation
-                {filteredChats.length !== 1 ? 's' : ''}
+                {getCurrentData().length} conversation
+                {getCurrentData().length !== 1 ? 's' : ''}
               </Text>
             </View>
             <View style={styles.headerActions}>
@@ -576,15 +932,11 @@ const ChatListScreen = () => {
               <TouchableOpacity
                 style={styles.profileContainer}
                 onPress={() => navigation.navigate('UserProfile')}>
-                {/* <AvatarButton
-                  imageUrl={avatarUrl}
-                  style={styles.profileAvatar}
-                /> */}
                 <Image
                   source={
                     avatarUrl
                       ? {uri: avatarUrl}
-                      : require('../assets/default-avatar.png') // cần thêm ảnh mặc định
+                      : require('../assets/default-avatar.png')
                   }
                   style={styles.profileAvatar}
                 />
@@ -617,14 +969,22 @@ const ChatListScreen = () => {
         )}
       </LinearGradient>
 
+      {/* Chat Tab Navigation */}
+      <ChatTabNavigation
+        activeTab={activeTab}
+        onTabChange={setActiveTab}
+        groupCount={filteredGroupChats.length}
+        privateCount={filteredPrivateChats.length}
+      />
+
       {/* Chat List */}
       <View style={styles.chatListContainer}>
         <FlatList
-          data={filteredChats}
+          data={getCurrentData()}
           keyExtractor={item => item.id}
           contentContainerStyle={styles.listContent}
-          ListEmptyComponent={renderEmptyList}
-          renderItem={renderItem}
+          ListEmptyComponent={() => renderEmptyList(activeTab)}
+          renderItem={getCurrentRenderItem()}
           showsVerticalScrollIndicator={false}
           ItemSeparatorComponent={() => <View style={styles.separator} />}
         />
@@ -651,10 +1011,24 @@ const ChatListScreen = () => {
         visible={modalVisible}
         onClose={() => setModalVisible(false)}
         onDelete={() => deleteChat(selectedChat?.id)}
+        onPin={() => onPin(selectedChat?.id)}
+        onMute={() => onMute(selectedChat?.id)}
         onViewInfo={() => {
           setModalVisible(false);
-          navigation.navigate('ChatInfo', {chatId: selectedChat?.id});
+          navigation.navigate('ChatMembers', {
+            chatId: selectedChat?.id,
+            currentUserId: user?.uid,
+          });
         }}
+        chatName={selectedChat?.name || 'Chat'}
+        isGroup={selectedChat?.isGroup || false}
+        isPinned={selectedChat?.pinned?.includes(user?.uid)}
+        isMuted={selectedChat?.muted?.includes(user?.uid)}
+        canDelete={
+          selectedChat?.isGroup
+            ? selectedChat?.roles[user?.uid] === 'owner'
+            : true
+        }
       />
     </SafeAreaView>
   );
@@ -665,6 +1039,8 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#F8FAFC',
   },
+
+  // Header styles
   header: {
     paddingTop: 8,
     paddingBottom: 20,
@@ -753,6 +1129,79 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     backgroundColor: 'rgba(255, 255, 255, 0.15)',
   },
+
+  // Tab Navigation Styles
+  tabContainer: {
+    backgroundColor: '#F8FAFC',
+    paddingHorizontal: 16,
+    paddingTop: 16,
+    paddingBottom: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: '#E2E8F0',
+  },
+  tabsWrapper: {
+    flexDirection: 'row',
+    backgroundColor: '#fff',
+    borderRadius: 16,
+    padding: 4,
+    shadowColor: '#000',
+    shadowOffset: {width: 0, height: 2},
+    shadowOpacity: 0.05,
+    shadowRadius: 8,
+    elevation: 3,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+  },
+  tabButtonContainer: {
+    flex: 1,
+    marginHorizontal: 2,
+  },
+  tabButton: {
+    borderRadius: 12,
+    overflow: 'hidden',
+  },
+  tabButtonActive: {
+    shadowColor: '#4AC6D0',
+    shadowOffset: {width: 0, height: 4},
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
+    elevation: 4,
+  },
+  tabContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 12,
+    paddingHorizontal: 12,
+    minHeight: 48,
+  },
+  activeIconContainer: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 8,
+  },
+  tabButtonText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#64748B',
+    marginLeft: 6,
+    textAlign: 'center',
+  },
+  tabButtonTextActive: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#fff',
+    textAlign: 'center',
+    textShadowColor: 'rgba(0, 0, 0, 0.1)',
+    textShadowOffset: {width: 0, height: 1},
+    textShadowRadius: 2,
+  },
+
+  // Chat List
   chatListContainer: {
     flex: 1,
   },
@@ -771,10 +1220,36 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     elevation: 2,
-    shadowColor: '#4AC6D0',
+    shadowColor: '#000',
     shadowOffset: {width: 0, height: 2},
-    shadowOpacity: 0.1,
+    shadowOpacity: 0.05,
     shadowRadius: 4,
+    position: 'relative',
+  },
+  groupChatItem: {
+    borderLeftWidth: 4,
+    borderLeftColor: '#4AC6D0',
+  },
+  privateChatItem: {
+    borderLeftWidth: 4,
+    borderLeftColor: '#10B981',
+  },
+  pinnedChatItem: {
+    backgroundColor: '#FFFBEB',
+    borderWidth: 1,
+    borderColor: '#FEF3C7',
+    elevation: 4,
+    shadowColor: '#F59E0B',
+    shadowOpacity: 0.1,
+  },
+  pinnedIndicator: {
+    position: 'absolute',
+    top: 8,
+    right: 8,
+    backgroundColor: '#FEF3C7',
+    borderRadius: 12,
+    padding: 4,
+    zIndex: 1,
   },
   chatAvatarContainer: {
     position: 'relative',
@@ -784,25 +1259,39 @@ const styles = StyleSheet.create({
     width: 60,
     height: 60,
     borderRadius: 30,
-    marginRight: 30,
-    marginLeft: 15,
     shadowColor: '#4AC6D0',
     shadowOffset: {width: 0, height: 2},
     shadowOpacity: 0.15,
     shadowRadius: 4,
   },
-  groupBadge: {
+  groupAvatarGradient: {
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  memberCountBadge: {
     position: 'absolute',
     bottom: -2,
     right: -2,
-    backgroundColor: '#FFF',
-    borderRadius: 10,
-    padding: 4,
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    minWidth: 24,
+    height: 20,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 6,
     elevation: 2,
     shadowColor: '#4AC6D0',
     shadowOffset: {width: 0, height: 1},
     shadowOpacity: 0.2,
     shadowRadius: 2,
+  },
+  memberCountText: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: '#4AC6D0',
   },
   chatInfo: {
     flex: 1,
@@ -811,8 +1300,14 @@ const styles = StyleSheet.create({
   chatHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    marginBottom: 8,
+  },
+  chatTitleContainer: {
+    flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 4,
+    flex: 1,
+    marginRight: 8,
   },
   chatName: {
     fontSize: 16,
@@ -820,20 +1315,53 @@ const styles = StyleSheet.create({
     color: '#1E293B',
     flex: 1,
   },
-  messageTime: {
+  pinnedIcon: {
+    marginLeft: 6,
+    transform: [{rotate: '45deg'}],
+  },
+  chatMeta: {
+    alignItems: 'flex-end',
+    gap: 4,
+  },
+  timeText: {
     fontSize: 12,
-    color: '#64748B',
+    color: '#94A3B8',
     fontWeight: '500',
+  },
+  groupTypeBadge: {
+    backgroundColor: 'rgba(74, 198, 208, 0.1)',
+    borderRadius: 8,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+  },
+  groupTypeBadgeText: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: '#4AC6D0',
+  },
+  privateTypeBadge: {
+    backgroundColor: 'rgba(16, 185, 129, 0.1)',
+    borderRadius: 8,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+  },
+  privateTypeBadgeText: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: '#10B981',
+  },
+  messageContainer: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
   },
   lastMessage: {
     fontSize: 14,
     color: '#64748B',
     lineHeight: 20,
+    flex: 1,
   },
   unreadBadge: {
-    position: 'absolute',
-    top: 0,
-    right: -8,
     backgroundColor: '#4AC6D0',
     borderRadius: 10,
     minWidth: 20,
@@ -841,6 +1369,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     paddingHorizontal: 6,
+    marginLeft: 8,
   },
   unreadCount: {
     color: '#FFF',

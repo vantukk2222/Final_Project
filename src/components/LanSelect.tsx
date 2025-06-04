@@ -367,7 +367,7 @@ const LanguageModal = ({
         emit('start_call', {
           meetingId: chatId,
           fromUserId: user.uid,
-          memberIds: chatMembers,
+          memberIds: chatMembers.filter(uid => uid !== user.uid),
         });
       }
 

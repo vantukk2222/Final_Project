@@ -64,14 +64,68 @@ const VoiceCallScreen = ({route}) => {
   const micWaveAnim = useRef(new Animated.Value(0)).current;
   const modalFadeAnim = useRef(new Animated.Value(0)).current;
 
+  const playbackTimeoutRef = useRef(null);
   const recognizerRef = useRef(null);
   const initializedRef = useRef(false);
   const audioQueue = useRef([]);
   const isPlayingRef = useRef(false);
-
+  const currentText = useRef('');
   const channels = 1;
   const bitsPerChannel = 16;
   const sampleRate = 16000;
+
+  const wordBuffer = useRef('');
+  const lastSentText = useRef('');
+  const sentenceTimeoutRef = useRef(null);
+  const SENTENCE_DELAY = 2000; // 2 giây
+  const MIN_WORDS = 5; // Tối thiểu 5 từ
+
+  // ✅ DI CHUYỂN CÁC HELPER FUNCTIONS RA NGOÀI
+  const isCompleteSentence = useCallback(text => {
+    const trimmed = text.trim();
+    // Kiểm tra kết thúc bằng dấu câu hoặc có ít nhất 8 từ
+    const endsWithPunctuation = /[.!?;:]$/.test(trimmed);
+    const wordCount = trimmed.split(/\s+/).length;
+    const hasMinLength = trimmed.length >= 30;
+
+    return (
+      (endsWithPunctuation && wordCount >= 3) ||
+      (wordCount >= 8 && hasMinLength)
+    );
+  }, []);
+
+  const sendTranslation = useCallback(
+    (text, isFinal = false) => {
+      if (!text || text.trim().length < 10) {
+        return;
+      }
+
+      console.log(`${isFinal ? '🎯' : '📤'} Sending translation:`, text);
+
+      participants
+        .filter(m => m.uid !== user.uid)
+        .forEach(m => {
+          try {
+            const translated = recognizerRef.current?.lastTranslations?.get(
+              m.translateCode,
+            );
+            if (translated && translated.trim()) {
+              emit('send_translation', {
+                fromUserId: user.uid,
+                toUserId: m.uid,
+                text: translated,
+                lang: m.translateCode,
+                isFinal,
+                confidence: isFinal ? 'high' : 'medium',
+              });
+            }
+          } catch (error) {
+            console.error('Translation error:', error);
+          }
+        });
+    },
+    [participants, user.uid, emit],
+  );
 
   // Call duration timer
   useEffect(() => {
@@ -162,24 +216,74 @@ const VoiceCallScreen = ({route}) => {
   };
 
   // Setup socket event listeners
-  useEffect(() => {
-    const handleReceiveTranslation = async ({text, lang, isFinal}) => {
-      console.log('VoiceCall: Received translation:', text, lang, isFinal);
-      setText(text);
 
-      if (
-        isFinal &&
-        text.trim() !== '.' &&
-        text.trim().toLowerCase() !== 'comma.'
-      ) {
-        const filePath = await speakTranslation(text, key, region, lang);
-        if (filePath) {
-          audioQueue.current.push(filePath);
-          playNextAudio();
-        }
+  useEffect(() => {
+    const handleReceiveTranslation = async ({
+      text,
+      lang,
+      isFinal,
+      confidence,
+    }) => {
+      console.log('VoiceCall: Received translation:', {
+        text,
+        lang,
+        isFinal,
+        confidence,
+      });
+
+      // Update UI ngay lập tức
+      setText(text);
+      currentText.current = text;
+
+      // Clear previous timeout
+      if (playbackTimeoutRef.current) {
+        clearTimeout(playbackTimeoutRef.current);
+      }
+
+      if (isFinal) {
+        // Final translation - play immediately
+        console.log('🎯 Playing final translation');
+        await playTranslationAudio(text, lang);
+      } else {
+        // Intermediate translation - play sau delay dựa trên confidence
+        const delay = confidence === 'high' ? 1500 : 2500;
+
+        playbackTimeoutRef.current = setTimeout(async () => {
+          // Chỉ play nếu text vẫn giống (không bị thay thế bởi final)
+          if (
+            currentText.current === text &&
+            text.trim() !== '.' &&
+            text.trim().toLowerCase() !== 'comma.'
+          ) {
+            console.log(
+              `⏰ Playing intermediate translation (confidence: ${confidence})`,
+            );
+            await playTranslationAudio(text, lang);
+          }
+        }, delay);
       }
     };
 
+    const playTranslationAudio = async (text, lang) => {
+      try {
+        const result = await speakTranslation(text, key, region, lang);
+
+        if (result === 'trackplayer_played' || result === 'temp_played') {
+          console.log('✅ Audio played:', result);
+        } else if (
+          result &&
+          typeof result === 'string' &&
+          result.includes('/')
+        ) {
+          audioQueue.current.push(result);
+          playNextAudio();
+        }
+      } catch (error) {
+        console.error('❌ TTS error:', error);
+      }
+    };
+
+    // ... rest of socket listeners (unchanged)
     const handleUserJoined = data => {
       console.log('VoiceCall: User joined:', data);
     };
@@ -209,6 +313,11 @@ const VoiceCallScreen = ({route}) => {
     on('call_ended', handleCallEnded);
 
     return () => {
+      // Cleanup
+      if (playbackTimeoutRef.current) {
+        clearTimeout(playbackTimeoutRef.current);
+      }
+
       // Remove listeners on cleanup
       off('receive_translation', handleReceiveTranslation);
       off('user_joined', handleUserJoined);
@@ -216,7 +325,6 @@ const VoiceCallScreen = ({route}) => {
       off('call_ended', handleCallEnded);
     };
   }, [on, off]);
-
   // Fetch participants from Firestore
   useEffect(() => {
     const unsubscribe = firestore()
@@ -331,7 +439,7 @@ const VoiceCallScreen = ({route}) => {
       }
 
       setIsListening(true);
-
+      // Hàm kiểm tra câu hoàn chỉnh
       try {
         const pushStream = AudioInputStream.createPushStream();
 
@@ -380,41 +488,104 @@ const VoiceCallScreen = ({route}) => {
 
         recognizerRef.current = recognizer;
 
+        // IMPROVED: Smart recognizing với sentence detection
         recognizer.recognizing = (s, e) => {
-          console.log('Recognizing:', e.result.text);
-          setText(e.result.text);
+          const currentText = e.result.text.trim();
+          console.log('Recognizing:', currentText);
+          setText(currentText);
+
+          // Lưu translations để sử dụng sau
+          recognizerRef.current.lastTranslations = e.result.translations;
+
+          // Clear timeout cũ
+          if (sentenceTimeoutRef.current) {
+            clearTimeout(sentenceTimeoutRef.current);
+          }
+
+          // Kiểm tra nếu có câu hoàn chỉnh
+          if (
+            isCompleteSentence(currentText) &&
+            currentText !== lastSentText.current
+          ) {
+            console.log('✅ Complete sentence detected:', currentText);
+            sendTranslation(currentText, false);
+            lastSentText.current = currentText;
+          } else {
+            // Set timeout để gửi sau 2 giây nếu không có câu hoàn chỉnh
+            wordBuffer.current = currentText;
+
+            sentenceTimeoutRef.current = setTimeout(() => {
+              const bufferedText = wordBuffer.current.trim();
+              const words = bufferedText.split(/\s+/);
+
+              // Chỉ gửi nếu đủ từ và khác với lần trước
+              if (
+                words.length >= MIN_WORDS &&
+                bufferedText !== lastSentText.current &&
+                bufferedText.length >= 20
+              ) {
+                console.log(
+                  '⏰ Timeout - sending buffered text:',
+                  bufferedText,
+                );
+                sendTranslation(bufferedText, false);
+                lastSentText.current = bufferedText;
+              }
+            }, SENTENCE_DELAY);
+          }
         };
 
+        // IMPROVED: Recognized với cleanup
         recognizer.recognized = (s, e) => {
-          try {
-            participants
-              .filter(m => m.uid !== user.uid)
-              .forEach(m => {
-                try {
-                  const translated = e.result.translations.get(m.translateCode);
-                  if (translated) {
-                    emit('send_translation', {
-                      fromUserId: user.uid,
-                      toUserId: m.uid,
-                      text: translated,
-                      lang: m.translateCode,
-                      isFinal: true,
-                    });
-                  }
-                } catch (translationError) {
-                  console.error(
-                    'VoiceCall: Translation error for user:',
-                    m.uid,
-                    translationError,
-                  );
-                }
-              });
-          } catch (recognizedError) {
-            console.error(
-              'VoiceCall: Error in recognizer callback:',
-              recognizedError,
-            );
+          // Clear timeout
+          if (sentenceTimeoutRef.current) {
+            clearTimeout(sentenceTimeoutRef.current);
           }
+
+          const finalText = e.result.text.trim();
+          console.log('🎯 Final recognition:', finalText);
+
+          if (finalText && finalText.length > 0) {
+            try {
+              console.log(
+                'participants:',
+                participants.map(m => m.uid),
+              );
+
+              participants
+                .filter(m => m.uid !== user.uid)
+                .forEach(m => {
+                  try {
+                    console.log('Translating for:', m.uid, m.translateCode);
+                    const translated = e.result.translations.get(
+                      m.translateCode,
+                    );
+                    console.log('translated:', translated);
+                    if (translated && translated.trim()) {
+                      emit('send_translation', {
+                        fromUserId: user.uid,
+                        toUserId: m.uid,
+                        text: translated,
+                        lang: m.translateCode,
+                        isFinal: true,
+                        confidence: 'high',
+                      });
+                    }
+                  } catch (translationError) {
+                    console.error('Final translation error:', translationError);
+                  }
+                });
+            } catch (recognizedError) {
+              console.error(
+                'Error in final recognizer callback:',
+                recognizedError,
+              );
+            }
+          }
+
+          // Reset buffers
+          wordBuffer.current = '';
+          lastSentText.current = '';
         };
 
         recognizer.startContinuousRecognitionAsync();
@@ -441,10 +612,29 @@ const VoiceCallScreen = ({route}) => {
   };
 
   // Stop audio recognition
+  // const stopAudio = useCallback(() => {
+  //   console.log('VoiceCall: Stopping audio recognition');
+  //   setIsListening(false);
+  //   AudioRecord.stop();
+
+  //   if (recognizerRef.current) {
+  //     recognizerRef.current.stopContinuousRecognitionAsync();
+  //     recognizerRef.current.close();
+  //     recognizerRef.current = null;
+  //     initializedRef.current = false;
+  //   }
+  // }, []);
+  // Stop audio recognition
   const stopAudio = useCallback(() => {
     console.log('VoiceCall: Stopping audio recognition');
     setIsListening(false);
     AudioRecord.stop();
+
+    // ✅ Cleanup timeout khi stop
+    if (sentenceTimeoutRef.current) {
+      clearTimeout(sentenceTimeoutRef.current);
+      sentenceTimeoutRef.current = null;
+    }
 
     if (recognizerRef.current) {
       recognizerRef.current.stopContinuousRecognitionAsync();
@@ -452,6 +642,10 @@ const VoiceCallScreen = ({route}) => {
       recognizerRef.current = null;
       initializedRef.current = false;
     }
+
+    // Reset buffers
+    wordBuffer.current = '';
+    lastSentText.current = '';
   }, []);
 
   // Remove member from meeting

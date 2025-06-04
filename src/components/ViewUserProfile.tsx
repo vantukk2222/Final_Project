@@ -469,7 +469,6 @@ const ViewUserProfile: React.FC<ViewUserProfileProps> = ({
 
   const handleStartChat = async () => {
     try {
-      console.log('userData_id:', userData?.id);
       const chatId = [currentUser.uid, userData?.id].sort().join('_');
       await firestore()
         .collection('chats')
@@ -490,11 +489,18 @@ const ViewUserProfile: React.FC<ViewUserProfileProps> = ({
       if (onClose) {
         onClose();
       }
+      // close previous screen before navigating
+      navigation.popToTop();
+      // Navigate to Chat screen with chatId and user details
+
       navigation.navigate('Chat', {
-        chatId,
+        chatId: chatId,
         toUserId: userData?.id,
         name: userData?.name,
-        avatar: userData?.avatar?.secure_url || userData?.avatar?.url,
+        avatar: userData?.avatar?.secure_url || userData?.avatar?.url || '',
+        currentAvatar:
+          currentUser?.avatar?.secure_url || currentUser?.avatar?.url || '',
+        isGroup: false,
       });
     } catch (error) {
       console.error('Error starting chat:', error);
@@ -620,7 +626,9 @@ const ViewUserProfile: React.FC<ViewUserProfileProps> = ({
           style={styles.backButton}>
           <Icon name="arrow-back" size={24} color="#fff" />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>User Profile</Text>
+        <Text style={styles.headerTitle}>
+          {userData?.name || userData?.email}
+        </Text>
 
         {/* Admin Edit Button */}
         {isAdmin && (
@@ -684,7 +692,7 @@ const ViewUserProfile: React.FC<ViewUserProfileProps> = ({
                     </View>
                   </View>
 
-                  <Text style={styles.userName}>{userData.name}</Text>
+                  {/* <Text style={styles.userName}>{userData.name}</Text> */}
                   <Text style={styles.userEmail}>{userData.email}</Text>
 
                   {/* Status & Last Seen */}
