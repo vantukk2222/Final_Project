@@ -22,15 +22,19 @@ import {useForm, Controller} from 'react-hook-form';
 import {useNavigation} from '@react-navigation/native';
 import Icon from 'react-native-vector-icons/FontAwesome5';
 import LinearGradient from 'react-native-linear-gradient';
+import {useTranslation} from '../contexts/TranslationContext';
+import {LanguageButton} from '../components/LanguageButton';
 
 const {width, height} = Dimensions.get('window');
 
 const RegisterScreen = () => {
+  const {t} = useTranslation();
   const {
     control,
     handleSubmit,
     watch,
     formState: {errors},
+    reset,
   } = useForm();
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
@@ -66,6 +70,43 @@ const RegisterScreen = () => {
     ]).start();
   }, []);
 
+  // Get validation rules with translations
+  const getValidationRules = () => ({
+    name: {
+      required: t('auth.nameRequired'),
+      minLength: {
+        value: 2,
+        message: t('auth.nameMinLength'),
+      },
+    },
+    email: {
+      required: t('auth.emailRequired'),
+      pattern: {
+        value: /^[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}$/i,
+        message: t('auth.invalidEmailAddress'),
+      },
+    },
+    password: {
+      required: t('auth.passwordRequired'),
+      minLength: {
+        value: 6,
+        message: t('auth.passwordMinLength'),
+      },
+      pattern: {
+        value: /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)/,
+        message: t('auth.passwordComplexity'),
+      },
+    },
+    confirmPassword: {
+      required: t('auth.confirmPasswordRequired'),
+      validate: (value: string) =>
+        value === watchPassword || t('auth.passwordsDoNotMatch'),
+    },
+    role: {
+      required: t('auth.roleRequired'),
+    },
+  });
+
   const onRegister = async (data: any) => {
     setLoading(true);
     try {
@@ -73,6 +114,7 @@ const RegisterScreen = () => {
         data.email,
         data.password,
       );
+
       const user = userCredential.user;
 
       const userData = {
@@ -87,32 +129,34 @@ const RegisterScreen = () => {
       if (data.role === 'tour_guide') {
         userData.status = 'pending';
       }
+      reset();
+      setLoading(false);
 
       await firestore().collection('users').doc(user.uid).set(userData);
 
-      const successMessage =
-        data.role === 'tour_guide'
-          ? 'Account created successfully! Your tour guide account will be reviewed by admin.'
-          : 'Welcome to TourGuide Assist! Your account has been created successfully.';
+      // const successMessage =
+      //   data.role === 'tour_guide'
+      //     ? t('auth.tourGuideRegistrationSuccess')
+      //     : t('auth.touristRegistrationSuccess');
 
-      Alert.alert('Success', successMessage, [
-        {
-          text: 'Continue',
-          onPress: () => navigation.navigate('Login'),
-        },
-      ]);
+      // Alert.alert(t('common.success'), successMessage, [
+      //   {
+      //     text: t('common.continue'),
+      //     // onPress: () => navigation.navigate('Login'),
+      //   },
+      // ]);
     } catch (error: any) {
-      let errorMessage = 'Registration failed. Please try again.';
+      let errorMessage = t('auth.registrationFailed');
+
       if (error.code === 'auth/email-already-in-use') {
-        errorMessage =
-          'This email is already registered. Please use a different email.';
+        errorMessage = t('auth.emailAlreadyInUse');
       } else if (error.code === 'auth/weak-password') {
-        errorMessage =
-          'Password is too weak. Please choose a stronger password.';
+        errorMessage = t('auth.weakPassword');
       } else if (error.code === 'auth/invalid-email') {
-        errorMessage = 'Invalid email address. Please enter a valid email.';
+        errorMessage = t('auth.invalidEmailAddress');
       }
-      Alert.alert('Registration Failed', errorMessage);
+
+      Alert.alert(t('auth.registrationFailed'), errorMessage);
     } finally {
       setLoading(false);
     }
@@ -140,17 +184,20 @@ const RegisterScreen = () => {
                     opacity: fadeAnim,
                   },
                 ]}>
+                {/* Top Row with Back Button and Language Button */}
+                <View style={styles.headerTopRow}>
+                  <TouchableOpacity
+                    style={styles.backButton}
+                    onPress={() => navigation.goBack()}
+                    activeOpacity={0.8}>
+                    <Icon name="arrow-left" size={20} color="#fff" />
+                  </TouchableOpacity>
+                  <LanguageButton />
+                </View>
+
                 {/* Decorative Elements */}
                 <View style={styles.decorativeCircle1} />
                 <View style={styles.decorativeCircle2} />
-
-                {/* Back Button */}
-                <TouchableOpacity
-                  style={styles.backButton}
-                  onPress={() => navigation.goBack()}
-                  activeOpacity={0.8}>
-                  <Icon name="arrow-left" size={20} color="#fff" />
-                </TouchableOpacity>
 
                 {/* Header Content */}
                 <Animated.View
@@ -172,9 +219,11 @@ const RegisterScreen = () => {
                     <View style={styles.logoCircle}>
                       <Icon name="user-plus" size={40} color="#fff" solid />
                     </View>
-                    <Text style={styles.headerTitle}>Join Our Community</Text>
+                    <Text style={styles.headerTitle}>
+                      {t('auth.joinCommunity')}
+                    </Text>
                     <Text style={styles.headerSubtitle}>
-                      Create your account and start exploring
+                      {t('auth.createAccountDescription')}
                     </Text>
                   </View>
                 </Animated.View>
@@ -194,7 +243,7 @@ const RegisterScreen = () => {
               <View style={styles.formContainer}>
                 {/* Name Input */}
                 <View style={styles.inputWrapper}>
-                  <Text style={styles.inputLabel}>Full Name</Text>
+                  <Text style={styles.inputLabel}>{t('auth.fullName')}</Text>
                   <View
                     style={[
                       styles.inputContainer,
@@ -206,16 +255,10 @@ const RegisterScreen = () => {
                     <Controller
                       control={control}
                       name="name"
-                      rules={{
-                        required: 'Full name is required',
-                        minLength: {
-                          value: 2,
-                          message: 'Name must be at least 2 characters',
-                        },
-                      }}
+                      rules={getValidationRules().name}
                       render={({field: {onChange, value}}) => (
                         <TextInput
-                          placeholder="Enter your full name"
+                          placeholder={t('placeholders.enterName')}
                           placeholderTextColor="#94A3B8"
                           style={styles.input}
                           onChangeText={onChange}
@@ -242,7 +285,9 @@ const RegisterScreen = () => {
 
                 {/* Email Input */}
                 <View style={styles.inputWrapper}>
-                  <Text style={styles.inputLabel}>Email Address</Text>
+                  <Text style={styles.inputLabel}>
+                    {t('auth.emailAddress')}
+                  </Text>
                   <View
                     style={[
                       styles.inputContainer,
@@ -254,16 +299,10 @@ const RegisterScreen = () => {
                     <Controller
                       control={control}
                       name="email"
-                      rules={{
-                        required: 'Email is required',
-                        pattern: {
-                          value: /^[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}$/i,
-                          message: 'Invalid email address',
-                        },
-                      }}
+                      rules={getValidationRules().email}
                       render={({field: {onChange, value}}) => (
                         <TextInput
-                          placeholder="Enter your email"
+                          placeholder={t('placeholders.enterEmail')}
                           placeholderTextColor="#94A3B8"
                           style={styles.input}
                           onChangeText={onChange}
@@ -291,7 +330,7 @@ const RegisterScreen = () => {
 
                 {/* Password Input */}
                 <View style={styles.inputWrapper}>
-                  <Text style={styles.inputLabel}>Password</Text>
+                  <Text style={styles.inputLabel}>{t('auth.password')}</Text>
                   <View
                     style={[
                       styles.inputContainer,
@@ -303,21 +342,10 @@ const RegisterScreen = () => {
                     <Controller
                       control={control}
                       name="password"
-                      rules={{
-                        required: 'Password is required',
-                        minLength: {
-                          value: 6,
-                          message: 'Password must be at least 6 characters',
-                        },
-                        pattern: {
-                          value: /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)/,
-                          message:
-                            'Password must contain uppercase, lowercase and number',
-                        },
-                      }}
+                      rules={getValidationRules().password}
                       render={({field: {onChange, value}}) => (
                         <TextInput
-                          placeholder="Create a strong password"
+                          placeholder={t('placeholders.createPassword')}
                           placeholderTextColor="#94A3B8"
                           secureTextEntry={!showPassword}
                           style={styles.input}
@@ -353,7 +381,9 @@ const RegisterScreen = () => {
 
                 {/* Confirm Password Input */}
                 <View style={styles.inputWrapper}>
-                  <Text style={styles.inputLabel}>Confirm Password</Text>
+                  <Text style={styles.inputLabel}>
+                    {t('auth.confirmPassword')}
+                  </Text>
                   <View
                     style={[
                       styles.inputContainer,
@@ -365,14 +395,10 @@ const RegisterScreen = () => {
                     <Controller
                       control={control}
                       name="confirmPassword"
-                      rules={{
-                        required: 'Please confirm your password',
-                        validate: value =>
-                          value === watchPassword || 'Passwords do not match',
-                      }}
+                      rules={getValidationRules().confirmPassword}
                       render={({field: {onChange, value}}) => (
                         <TextInput
-                          placeholder="Confirm your password"
+                          placeholder={t('placeholders.confirmPassword')}
                           placeholderTextColor="#94A3B8"
                           secureTextEntry={!showConfirmPassword}
                           style={styles.input}
@@ -410,13 +436,18 @@ const RegisterScreen = () => {
 
                 {/* Role Selection */}
                 <View style={styles.inputWrapper}>
-                  <Text style={styles.inputLabel}>Choose Your Role</Text>
+                  <Text style={styles.inputLabel}>{t('auth.chooseRole')}</Text>
+                  <Text style={styles.roleSubtitle}>
+                    {t('auth.roleSubtitle')}
+                  </Text>
+
                   <Controller
                     control={control}
                     name="role"
-                    rules={{required: 'Please select your role'}}
+                    rules={getValidationRules().role}
                     render={({field: {onChange, value}}) => (
                       <View style={styles.roleContainer}>
+                        {/* Tourist Role */}
                         <TouchableOpacity
                           style={[
                             styles.roleCard,
@@ -430,7 +461,10 @@ const RegisterScreen = () => {
                                 ? ['#4AC6D0', '#3BB8C3']
                                 : ['#fff', '#fff']
                             }
-                            style={styles.roleCardGradient}>
+                            style={[
+                              styles.roleCardGradient,
+                              value === 'tourist' && {borderColor: '#4AC6D0'},
+                            ]}>
                             <View style={styles.roleIconContainer}>
                               <Icon
                                 name="hiking"
@@ -443,7 +477,7 @@ const RegisterScreen = () => {
                                 styles.roleTitle,
                                 value === 'tourist' && styles.roleTitleSelected,
                               ]}>
-                              Traveler
+                              {t('roles.traveler')}
                             </Text>
                             <Text
                               style={[
@@ -451,11 +485,12 @@ const RegisterScreen = () => {
                                 value === 'tourist' &&
                                   styles.roleDescriptionSelected,
                               ]}>
-                              Explore destinations with expert guides
+                              {t('roles.travelerDescription')}
                             </Text>
                           </LinearGradient>
                         </TouchableOpacity>
 
+                        {/* Tour Guide Role */}
                         <TouchableOpacity
                           style={[
                             styles.roleCard,
@@ -469,7 +504,12 @@ const RegisterScreen = () => {
                                 ? ['#10B981', '#059669']
                                 : ['#fff', '#fff']
                             }
-                            style={styles.roleCardGradient}>
+                            style={[
+                              styles.roleCardGradient,
+                              value === 'tour_guide' && {
+                                borderColor: '#10B981',
+                              },
+                            ]}>
                             <View style={styles.roleIconContainer}>
                               <Icon
                                 name="map-signs"
@@ -485,7 +525,7 @@ const RegisterScreen = () => {
                                 value === 'tour_guide' &&
                                   styles.roleTitleSelected,
                               ]}>
-                              Tour Guide
+                              {t('roles.tourGuide')}
                             </Text>
                             <Text
                               style={[
@@ -493,13 +533,13 @@ const RegisterScreen = () => {
                                 value === 'tour_guide' &&
                                   styles.roleDescriptionSelected,
                               ]}>
-                              Share your expertise with travelers
+                              {t('roles.tourGuideDescription')}
                             </Text>
                             {value === 'tour_guide' && (
                               <View style={styles.pendingBadge}>
                                 <Icon name="clock" size={12} color="#F59E0B" />
                                 <Text style={styles.pendingText}>
-                                  Requires Review
+                                  {t('roles.requiresReview')}
                                 </Text>
                               </View>
                             )}
@@ -542,13 +582,13 @@ const RegisterScreen = () => {
                       <View style={styles.loadingContainer}>
                         <ActivityIndicator color="#fff" size="small" />
                         <Text style={styles.loadingText}>
-                          Creating Account...
+                          {t('auth.creatingAccount')}
                         </Text>
                       </View>
                     ) : (
                       <View style={styles.buttonContent}>
                         <Text style={styles.registerButtonText}>
-                          Create Account
+                          {t('auth.createAccount')}
                         </Text>
                         <Icon name="arrow-right" size={16} color="#fff" />
                       </View>
@@ -558,19 +598,26 @@ const RegisterScreen = () => {
 
                 {/* Terms & Conditions */}
                 <Text style={styles.termsText}>
-                  By creating an account, you agree to our{' '}
-                  <Text style={styles.termsLink}>Terms of Service</Text> and{' '}
-                  <Text style={styles.termsLink}>Privacy Policy</Text>
+                  {t('auth.byCreatingAccount')}{' '}
+                  <Text style={styles.termsLink}>
+                    {t('auth.termsOfService')}
+                  </Text>{' '}
+                  {t('common.and')}{' '}
+                  <Text style={styles.termsLink}>
+                    {t('auth.privacyPolicy')}
+                  </Text>
                 </Text>
               </View>
 
               {/* Footer */}
               <View style={styles.footer}>
-                <Text style={styles.footerText}>Already have an account? </Text>
+                <Text style={styles.footerText}>
+                  {t('auth.alreadyHaveAccount')}{' '}
+                </Text>
                 <TouchableOpacity
                   onPress={() => navigation.navigate('Login')}
                   activeOpacity={0.7}>
-                  <Text style={styles.loginText}>Sign In</Text>
+                  <Text style={styles.loginText}>{t('auth.signIn')}</Text>
                 </TouchableOpacity>
               </View>
             </Animated.View>
@@ -605,6 +652,43 @@ const styles = StyleSheet.create({
     flex: 1,
     position: 'relative',
   },
+  headerTopRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    paddingTop: 20,
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    zIndex: 10,
+  },
+  backButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  languageButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 20,
+    gap: 6,
+  },
+  languageButtonFlag: {
+    fontSize: 16,
+  },
+  languageButtonText: {
+    color: '#FFFFFF',
+    fontSize: 12,
+    fontWeight: '600',
+  },
   decorativeCircle1: {
     position: 'absolute',
     top: -30,
@@ -622,18 +706,6 @@ const styles = StyleSheet.create({
     height: 80,
     borderRadius: 40,
     backgroundColor: 'rgba(255, 255, 255, 0.15)',
-  },
-  backButton: {
-    position: 'absolute',
-    top: 20,
-    left: 20,
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: 'rgba(255, 255, 255, 0.2)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    zIndex: 1,
   },
   headerContent: {
     flex: 1,
@@ -751,8 +823,15 @@ const styles = StyleSheet.create({
   },
 
   // Role Selection
+  roleSubtitle: {
+    fontSize: 14,
+    color: '#64748B',
+    marginLeft: 4,
+    marginTop: -4,
+  },
   roleContainer: {
     gap: 12,
+    marginTop: 8,
   },
   roleCard: {
     borderRadius: 16,
@@ -770,7 +849,8 @@ const styles = StyleSheet.create({
   roleCardGradient: {
     padding: 20,
     borderWidth: 2,
-    borderColor: 'transparent',
+    borderColor: '#E2E8F0',
+    borderRadius: 16,
   },
   roleIconContainer: {
     width: 48,

@@ -1,4 +1,4 @@
-import React, {useEffect, useState, useRef} from 'react';
+import React, {useEffect, useState, useRef, useTransition} from 'react';
 import {
   View,
   Text,
@@ -28,6 +28,7 @@ import RNFS from 'react-native-fs';
 import AvatarStatus from '../components/AvatarStatus';
 import LinearGradient from 'react-native-linear-gradient';
 import {useSocket} from '../contexts/SocketContext';
+import {useTranslation} from '../contexts/TranslationContext';
 
 const getFileTypeInfo = (fileName: string) => {
   const extension = fileName?.split('.').pop()?.toLowerCase();
@@ -91,7 +92,7 @@ const ChatScreen = ({route}: any) => {
   const [isTyping, setIsTyping] = useState(false);
   const flatListRef = useRef<FlatList>(null);
   const fadeAnim = useRef(new Animated.Value(0)).current;
-
+  const {t} = useTranslation();
   const navigation = useNavigation<any>();
 
   // Animated entrance
@@ -264,14 +265,6 @@ const ChatScreen = ({route}: any) => {
 
         // Lọc ra những người nhận (không bao gồm người gửi)
         const recipientIds = allMemberIds.filter(id => id !== userId);
-
-        console.log('📤 Emitting send_message event:', {
-          chatId,
-          senderId: userId,
-          message: messageText,
-          memberIds: recipientIds, // Chỉ gửi recipients, không bao gồm sender
-        });
-
         // Emit socket event for push notifications
         emit('send_message', {
           chatId,
@@ -631,7 +624,7 @@ const ChatScreen = ({route}: any) => {
               <TextInput
                 value={message}
                 onChangeText={setMessage}
-                placeholder="Type a message..."
+                placeholder={t('chatScreen.typeYourMessage')}
                 placeholderTextColor="#9CA3AF"
                 style={styles.input}
                 multiline

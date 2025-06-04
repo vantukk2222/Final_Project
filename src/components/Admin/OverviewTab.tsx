@@ -8,6 +8,7 @@ import {
 } from 'react-native';
 import Icon from 'react-native-vector-icons/FontAwesome5';
 import LinearGradient from 'react-native-linear-gradient';
+import {useTranslation} from '../../contexts/TranslationContext';
 
 interface Statistics {
   totalUsers: number;
@@ -29,6 +30,8 @@ const OverviewTab: React.FC<OverviewTabProps> = ({
   statistics,
   onNavigateToTab,
 }) => {
+  const {t} = useTranslation();
+
   return (
     <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
       {/* Main Statistics Cards */}
@@ -38,7 +41,9 @@ const OverviewTab: React.FC<OverviewTabProps> = ({
           style={styles.mainStatCard}>
           <Icon name="users" size={32} color="#fff" />
           <Text style={styles.mainStatNumber}>{statistics.totalUsers}</Text>
-          <Text style={styles.mainStatLabel}>Total Users</Text>
+          <Text style={styles.mainStatLabel}>
+            {t('admin.overview.totalUsers')}
+          </Text>
         </LinearGradient>
 
         <LinearGradient
@@ -48,7 +53,9 @@ const OverviewTab: React.FC<OverviewTabProps> = ({
           <Text style={styles.mainStatNumber}>
             {statistics.totalTourGuides}
           </Text>
-          <Text style={styles.mainStatLabel}>Tour Guides</Text>
+          <Text style={styles.mainStatLabel}>
+            {t('admin.overview.tourGuides')}
+          </Text>
         </LinearGradient>
 
         <LinearGradient
@@ -56,7 +63,9 @@ const OverviewTab: React.FC<OverviewTabProps> = ({
           style={styles.mainStatCard}>
           <Icon name="user-friends" size={32} color="#fff" />
           <Text style={styles.mainStatNumber}>{statistics.totalTourists}</Text>
-          <Text style={styles.mainStatLabel}>Tourists</Text>
+          <Text style={styles.mainStatLabel}>
+            {t('admin.overview.tourists')}
+          </Text>
         </LinearGradient>
       </View>
 
@@ -64,7 +73,9 @@ const OverviewTab: React.FC<OverviewTabProps> = ({
       <View style={styles.sectionContainer}>
         <View style={styles.sectionHeader}>
           <Icon name="user-shield" size={20} color="#4AC6D0" />
-          <Text style={styles.sectionTitle}>Tour Guide Status</Text>
+          <Text style={styles.sectionTitle}>
+            {t('admin.overview.tourGuideStatus')}
+          </Text>
         </View>
         <View style={styles.statsGrid}>
           <View style={[styles.statCard, styles.approvedCard]}>
@@ -78,7 +89,7 @@ const OverviewTab: React.FC<OverviewTabProps> = ({
             <Text style={[styles.statNumber, {color: '#10B981'}]}>
               {statistics.approvedGuides}
             </Text>
-            <Text style={styles.statLabel}>Approved</Text>
+            <Text style={styles.statLabel}>{t('admin.overview.approved')}</Text>
           </View>
 
           <View style={[styles.statCard, styles.pendingCard]}>
@@ -92,7 +103,7 @@ const OverviewTab: React.FC<OverviewTabProps> = ({
             <Text style={[styles.statNumber, {color: '#F59E0B'}]}>
               {statistics.pendingGuides}
             </Text>
-            <Text style={styles.statLabel}>Pending</Text>
+            <Text style={styles.statLabel}>{t('admin.overview.pending')}</Text>
           </View>
 
           <View style={[styles.statCard, styles.suspendedCard]}>
@@ -106,7 +117,9 @@ const OverviewTab: React.FC<OverviewTabProps> = ({
             <Text style={[styles.statNumber, {color: '#EF4444'}]}>
               {statistics.suspendedGuides}
             </Text>
-            <Text style={styles.statLabel}>Suspended</Text>
+            <Text style={styles.statLabel}>
+              {t('admin.overview.suspended')}
+            </Text>
           </View>
         </View>
       </View>
@@ -115,7 +128,9 @@ const OverviewTab: React.FC<OverviewTabProps> = ({
       <View style={styles.sectionContainer}>
         <View style={styles.sectionHeader}>
           <Icon name="chart-line" size={20} color="#4AC6D0" />
-          <Text style={styles.sectionTitle}>Platform Activity</Text>
+          <Text style={styles.sectionTitle}>
+            {t('admin.overview.platformActivity')}
+          </Text>
         </View>
         <View style={styles.activityStatsContainer}>
           <View style={[styles.activityStatCard, styles.onlineCard]}>
@@ -129,9 +144,11 @@ const OverviewTab: React.FC<OverviewTabProps> = ({
                 <Text style={[styles.activityNumber, {color: '#4AC6D0'}]}>
                   {statistics.activeChats}
                 </Text>
-                <Text style={styles.activityLabel}>Online</Text>
+                <Text style={styles.activityLabel}>
+                  {t('admin.overview.activeChats')}
+                </Text>
                 <Text style={styles.activitySubtext}>
-                  Users currently online
+                  {t('admin.overview.activeChatsDescription')}
                 </Text>
               </View>
             </LinearGradient>
@@ -148,9 +165,11 @@ const OverviewTab: React.FC<OverviewTabProps> = ({
                 <Text style={[styles.activityNumber, {color: '#8B5CF6'}]}>
                   {statistics.newUsersThisMonth}
                 </Text>
-                <Text style={styles.activityLabel}>New This Month</Text>
+                <Text style={styles.activityLabel}>
+                  {t('admin.overview.newThisMonth')}
+                </Text>
                 <Text style={styles.activitySubtext}>
-                  Recently joined users
+                  {t('admin.overview.newThisMonthDescription')}
                 </Text>
               </View>
             </LinearGradient>
@@ -162,7 +181,9 @@ const OverviewTab: React.FC<OverviewTabProps> = ({
       <View style={styles.sectionContainer}>
         <View style={styles.sectionHeader}>
           <Icon name="bolt" size={20} color="#4AC6D0" />
-          <Text style={styles.sectionTitle}>Quick Actions</Text>
+          <Text style={styles.sectionTitle}>
+            {t('admin.overview.quickActions')}
+          </Text>
         </View>
         <View style={styles.quickActionsContainer}>
           <TouchableOpacity
@@ -175,9 +196,11 @@ const OverviewTab: React.FC<OverviewTabProps> = ({
               <View style={styles.quickActionIconContainer}>
                 <Icon name="user-tie" size={24} color="#fff" />
               </View>
-              <Text style={styles.quickActionText}>Manage Tour Guides</Text>
+              <Text style={styles.quickActionText}>
+                {t('admin.overview.manageTourGuides')}
+              </Text>
               <Text style={styles.quickActionSubtext}>
-                View, approve, and manage guide accounts
+                {t('admin.overview.manageTourGuidesDescription')}
               </Text>
               <Icon
                 name="arrow-right"
@@ -197,9 +220,11 @@ const OverviewTab: React.FC<OverviewTabProps> = ({
               <View style={styles.quickActionIconContainer}>
                 <Icon name="user-friends" size={24} color="#fff" />
               </View>
-              <Text style={styles.quickActionText}>Manage Tourists</Text>
+              <Text style={styles.quickActionText}>
+                {t('admin.overview.manageTourists')}
+              </Text>
               <Text style={styles.quickActionSubtext}>
-                View and manage tourist accounts
+                {t('admin.overview.manageTouristsDescription')}
               </Text>
               <Icon
                 name="arrow-right"
@@ -343,6 +368,14 @@ const styles = StyleSheet.create({
     elevation: 3,
     borderWidth: 1,
     borderColor: '#E2E8F0',
+  },
+  newUsersCard: {
+    borderLeftWidth: 4,
+    borderLeftColor: '#8B5CF6',
+  },
+  onlineCard: {
+    borderLeftWidth: 4,
+    borderLeftColor: '#4AC6D0',
   },
   activityCardGradient: {
     flexDirection: 'row',

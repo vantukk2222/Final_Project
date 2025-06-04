@@ -20,8 +20,11 @@ import {useAuth} from '../contexts/AuthContext';
 import AvatarStatus from './AvatarStatus';
 import LinearGradient from 'react-native-linear-gradient';
 import Loading from './Loading';
+import {useTranslation} from '../contexts/TranslationContext';
 
 const ChatMembersList = ({route}: any) => {
+  const {t} = useTranslation();
+
   const [members, setMembers] = useState<any[]>([]);
   const [roles, setRoles] = useState<any>({});
   const [newMemberEmail, setNewMemberEmail] = useState('');
@@ -48,7 +51,7 @@ const ChatMembersList = ({route}: any) => {
   }, []);
 
   useEffect(() => {
-    console.log('ChatMembersList mounted with chatId:', chatId);
+    // console.log('ChatMembersList mounted with chatId:', chatId);
 
     if (!chatId) {
       console.error('No chatId provided');
@@ -74,8 +77,8 @@ const ChatMembersList = ({route}: any) => {
           setRoles(chatData.roles || {});
 
           try {
-            console.log('Members array:', chatData.members);
-            console.log('Is Group:', chatData.isGroup);
+            // console.log('Members array:', chatData.members);
+            // console.log('Is Group:', chatData.isGroup);
 
             if (
               !Array.isArray(chatData.members) ||
@@ -117,7 +120,7 @@ const ChatMembersList = ({route}: any) => {
               });
             }
 
-            console.log('Fetched members:', membersList.length);
+            // console.log('Fetched members:', membersList.length);
             setMembers(membersList);
 
             // Nếu là 1-1 chat, tìm user khác
@@ -126,7 +129,7 @@ const ChatMembersList = ({route}: any) => {
                 member => member.id !== currentUserId,
               );
               setOtherUser(otherMember);
-              console.log('Other user in 1-1 chat:', otherMember);
+              // console.log('Other user in 1-1 chat:', otherMember);
             }
 
             setLoading(false);
@@ -146,22 +149,25 @@ const ChatMembersList = ({route}: any) => {
   // Handle functions remain the same but check isGroup
   const handleRemoveMember = async (memberId: string) => {
     if (!isGroup) {
-      Alert.alert('Error', 'Cannot remove members from a direct conversation.');
+      Alert.alert(
+        t('common.error'),
+        t('chatMembers.cannotRemoveFromDirectChat'),
+      );
       return;
     }
 
     if (memberId === currentUserId) {
-      Alert.alert('Error', 'You cannot remove yourself from the group.');
+      Alert.alert(t('common.error'), t('chatMembers.cannotRemoveYourself'));
       return;
     }
 
     Alert.alert(
-      'Remove Member',
-      'Are you sure you want to remove this member from the chat?',
+      t('chatMembers.removeMember'),
+      t('chatMembers.removeMemberConfirmation'),
       [
-        {text: 'Cancel', style: 'cancel'},
+        {text: t('common.cancel'), style: 'cancel'},
         {
-          text: 'Remove',
+          text: t('common.remove'),
           style: 'destructive',
           onPress: async () => {
             try {
@@ -182,7 +188,10 @@ const ChatMembersList = ({route}: any) => {
               });
             } catch (error) {
               console.error('Error removing member:', error);
-              Alert.alert('Error', 'Failed to remove member.');
+              Alert.alert(
+                t('common.error'),
+                t('chatMembers.failedToRemoveMember'),
+              );
             }
           },
         },
@@ -192,12 +201,12 @@ const ChatMembersList = ({route}: any) => {
 
   const handleAddMember = async () => {
     if (!isGroup) {
-      Alert.alert('Error', 'Cannot add members to a direct conversation.');
+      Alert.alert(t('common.error'), t('chatMembers.cannotAddToDirectChat'));
       return;
     }
 
     if (!newMemberEmail.trim()) {
-      Alert.alert('Error', 'Please enter a valid email.');
+      Alert.alert(t('common.error'), t('chatMembers.enterValidEmail'));
       return;
     }
 
@@ -209,7 +218,7 @@ const ChatMembersList = ({route}: any) => {
         .get();
 
       if (userSnapshot.empty) {
-        Alert.alert('Error', 'User not found.');
+        Alert.alert(t('common.error'), t('chatMembers.userNotFound'));
         return;
       }
 
@@ -217,7 +226,7 @@ const ChatMembersList = ({route}: any) => {
       const userData = userSnapshot.docs[0].data();
 
       if (members.some(member => member.id === userId)) {
-        Alert.alert('Error', 'User is already a member of the group.');
+        Alert.alert(t('common.error'), t('chatMembers.userAlreadyMember'));
         return;
       }
 
@@ -236,18 +245,19 @@ const ChatMembersList = ({route}: any) => {
       setMembers(prevMembers => [...prevMembers, {id: userId, ...userData}]);
       setNewMemberEmail('');
       Alert.alert(
-        'Success',
-        `${userData.name || userData.email} added to the group.`,
+        t('common.success'),
+
+        userData.name || userData.emai + t('chatMembers.memberAddedToGroup'),
       );
     } catch (error) {
       console.error('Error adding member:', error);
-      Alert.alert('Error', 'Failed to add member.');
+      Alert.alert(t('common.error'), t('chatMembers.failedToAddMember'));
     }
   };
 
   const handleEditGroupName = async () => {
     if (!isGroup) {
-      Alert.alert('Error', 'Cannot edit name of a direct conversation.');
+      Alert.alert(t('common.error'), t('chatMembers.cannotEditDirectChatName'));
       return;
     }
 
@@ -258,11 +268,39 @@ const ChatMembersList = ({route}: any) => {
         });
       } catch (error) {
         console.error('Error updating group name:', error);
-        Alert.alert('Error', 'Failed to update group name.');
+        Alert.alert(
+          t('common.error'),
+          t('chatMembers.failedToUpdateGroupName'),
+        );
       }
     }
     setIsEditingName(!isEditingName);
   };
+  const formatLastSeen = (lastSeen: any) => {
+    if (!lastSeen) {
+      return '';
+    }
+    const lastSeenDate = lastSeen.toDate
+      ? lastSeen.toDate()
+      : new Date(lastSeen);
+    const now = new Date();
+    const diffInMinutes = Math.floor(
+      (now.getTime() - lastSeenDate.getTime()) / (1000 * 60),
+    );
+
+    if (diffInMinutes < 1) {
+      return t('chatMembers.justNow');
+    }
+    if (diffInMinutes < 60) {
+      return diffInMinutes + t('chatMembers.minutesAgo');
+    }
+    if (diffInMinutes < 1440) {
+      return Math.floor(diffInMinutes / 60) + t('chatMembers.hoursAgo');
+    }
+    return Math.floor(diffInMinutes / 1440) + t('chatMembers.daysAgo');
+  };
+
+  // Updated status formatting
 
   const renderMemberItem = ({item, index}) => (
     <Animated.View
@@ -292,7 +330,7 @@ const ChatMembersList = ({route}: any) => {
             avatarUrl={
               item.avatar?.secure_url || item.avatar?.url || item.avatarUrl
             }
-            size={isGroup ? 52 : 64} // Larger avatar for 1-1 chat
+            size={isGroup ? 52 : 64}
             status={item?.userStatus?.status || 'offline'}
             style={styles.avatar}
           />
@@ -304,11 +342,7 @@ const ChatMembersList = ({route}: any) => {
         </View>
 
         <View style={styles.memberInfo}>
-          <Text
-            style={[
-              styles.memberName,
-              !isGroup && styles.oneOnOneName, // Larger text for 1-1
-            ]}>
+          <Text style={[styles.memberName, !isGroup && styles.oneOnOneName]}>
             {item.name || item.email}
           </Text>
 
@@ -322,7 +356,9 @@ const ChatMembersList = ({route}: any) => {
                 size={14}
                 color="#4AC6D0"
               />
-              <Text style={styles.memberRole}>{roles[item.id]}</Text>
+              <Text style={styles.memberRole}>
+                {t(`chatMembers.roles.${roles[item.id]}`)}
+              </Text>
             </View>
           )}
 
@@ -334,10 +370,12 @@ const ChatMembersList = ({route}: any) => {
           {!isGroup && (
             <Text style={styles.statusText}>
               {item?.userStatus?.isOnline
-                ? 'Online'
+                ? t('chatMembers.online')
                 : item?.userStatus?.lastSeen
-                ? `Last seen ${formatLastSeen(item.userStatus.lastSeen)}`
-                : 'Offline'}
+                ? t('chatMembers.lastSeen') +
+                  ' ' +
+                  formatLastSeen(item.userStatus.lastSeen)
+                : t('chatMembers.offline')}
             </Text>
           )}
         </View>
@@ -347,7 +385,7 @@ const ChatMembersList = ({route}: any) => {
         {/* You Badge */}
         {item.id === currentUserId && (
           <View style={styles.youBadge}>
-            <Text style={styles.youBadgeText}>You</Text>
+            <Text style={styles.youBadgeText}>{t('chatMembers.you')}</Text>
           </View>
         )}
 
@@ -365,31 +403,6 @@ const ChatMembersList = ({route}: any) => {
       </View>
     </Animated.View>
   );
-
-  // Helper function for formatting last seen
-  const formatLastSeen = (lastSeen: any) => {
-    if (!lastSeen) {
-      return '';
-    }
-    const lastSeenDate = lastSeen.toDate
-      ? lastSeen.toDate()
-      : new Date(lastSeen);
-    const now = new Date();
-    const diffInMinutes = Math.floor(
-      (now.getTime() - lastSeenDate.getTime()) / (1000 * 60),
-    );
-
-    if (diffInMinutes < 1) {
-      return 'just now';
-    }
-    if (diffInMinutes < 60) {
-      return `${diffInMinutes}m ago`;
-    }
-    if (diffInMinutes < 1440) {
-      return `${Math.floor(diffInMinutes / 60)}h ago`;
-    }
-    return `${Math.floor(diffInMinutes / 1440)}d ago`;
-  };
 
   // Render different UI based on isGroup
   if (!isGroup) {
@@ -409,10 +422,12 @@ const ChatMembersList = ({route}: any) => {
 
             <View style={styles.headerTitleContainer}>
               <Text style={styles.headerTitle} numberOfLines={1}>
-                {otherUser?.name || 'Direct Chat'}
+                {otherUser?.name || t('chatMembers.directChat')}
               </Text>
               <Text style={styles.headerSubtitle}>
-                {otherUser?.userStatus?.isOnline ? 'Online' : 'Offline'}
+                {otherUser?.userStatus?.isOnline
+                  ? t('chatMembers.online')
+                  : t('chatMembers.offline')}
               </Text>
             </View>
 
@@ -473,12 +488,12 @@ const ChatMembersList = ({route}: any) => {
                     />
                     <Text style={styles.oneOnOneStatusText}>
                       {otherUser?.userStatus?.isOnline
-                        ? 'Online'
+                        ? t('chatMembers.online')
                         : otherUser?.userStatus?.lastSeen
-                        ? `Last seen ${formatLastSeen(
-                            otherUser.userStatus.lastSeen,
-                          )}`
-                        : 'Offline'}
+                        ? t('chatMembers.lastSeen') +
+                          ' ' +
+                          formatLastSeen(otherUser.userStatus.lastSeen)
+                        : t('chatMembers.offline')}
                     </Text>
                   </View>
 
@@ -493,7 +508,9 @@ const ChatMembersList = ({route}: any) => {
                       colors={['#4AC6D0', '#3BB8C3']}
                       style={styles.viewProfileGradient}>
                       <Icon name="person" size={18} color="#FFF" />
-                      <Text style={styles.viewProfileText}>View Profile</Text>
+                      <Text style={styles.viewProfileText}>
+                        {t('chatMembers.viewProfile')}
+                      </Text>
                     </LinearGradient>
                   </TouchableOpacity>
                 </View>
@@ -505,7 +522,7 @@ const ChatMembersList = ({route}: any) => {
     );
   }
 
-  // Group Chat UI (existing code)
+  // Group Chat UI (existing code with translations)
   return (
     <SafeAreaView style={styles.container}>
       <Loading isLoading={loading} />
@@ -534,7 +551,7 @@ const ChatMembersList = ({route}: any) => {
               </Text>
             )}
             <Text style={styles.headerSubtitle}>
-              {members.length} {members.length === 1 ? 'member' : 'members'}
+              {members.length + t('chatMembers.memberCount')}
             </Text>
           </View>
 
@@ -561,15 +578,19 @@ const ChatMembersList = ({route}: any) => {
                 <Icon name="group" size={24} color="#4AC6D0" />
               </View>
               <View style={styles.infoTextContainer}>
-                <Text style={styles.infoTitle}>Group Members</Text>
+                <Text style={styles.infoTitle}>
+                  {t('chatMembers.groupMembers')}
+                </Text>
                 <Text style={styles.infoSubtitle}>
-                  Manage group members and permissions
+                  {t('chatMembers.manageGroupMembers')}
                 </Text>
               </View>
               {roles[currentUserId] === 'owner' && (
                 <View style={styles.ownerBadge}>
                   <Icon name="admin-panel-settings" size={16} color="#4AC6D0" />
-                  <Text style={styles.ownerBadgeText}>Owner</Text>
+                  <Text style={styles.ownerBadgeText}>
+                    {t('chatMembers.roles.owner')}
+                  </Text>
                 </View>
               )}
             </View>
@@ -581,7 +602,9 @@ const ChatMembersList = ({route}: any) => {
           <View style={styles.addMemberCard}>
             <View style={styles.addMemberHeader}>
               <Icon name="person-add" size={20} color="#4AC6D0" />
-              <Text style={styles.addMemberTitle}>Add New Member</Text>
+              <Text style={styles.addMemberTitle}>
+                {t('chatMembers.addNewMember')}
+              </Text>
             </View>
             <View style={styles.addMemberForm}>
               <View style={styles.inputContainer}>
@@ -589,7 +612,7 @@ const ChatMembersList = ({route}: any) => {
                 <TextInput
                   value={newMemberEmail}
                   onChangeText={setNewMemberEmail}
-                  placeholder="Enter email address"
+                  placeholder={t('chatMembers.enterEmailAddress')}
                   style={styles.input}
                   placeholderTextColor="#94A3B8"
                   keyboardType="email-address"
@@ -603,7 +626,7 @@ const ChatMembersList = ({route}: any) => {
                   colors={['#4AC6D0', '#3BB8C3']}
                   style={styles.addButtonGradient}>
                   <Icon name="add" size={18} color="#FFF" />
-                  <Text style={styles.addButtonText}>Add</Text>
+                  <Text style={styles.addButtonText}>{t('common.add')}</Text>
                 </LinearGradient>
               </TouchableOpacity>
             </View>
@@ -614,7 +637,9 @@ const ChatMembersList = ({route}: any) => {
         <View style={styles.membersCard}>
           <View style={styles.membersHeader}>
             <Icon name="people" size={20} color="#4AC6D0" />
-            <Text style={styles.membersTitle}>All Members</Text>
+            <Text style={styles.membersTitle}>
+              {t('chatMembers.allMembers')}
+            </Text>
           </View>
 
           <FlatList
@@ -631,7 +656,9 @@ const ChatMembersList = ({route}: any) => {
             windowSize={21}
             ListEmptyComponent={() => (
               <View style={{padding: 20, alignItems: 'center'}}>
-                <Text style={{color: '#64748B'}}>No members found</Text>
+                <Text style={{color: '#64748B'}}>
+                  {t('chatMembers.noMembersFound')}
+                </Text>
               </View>
             )}
           />

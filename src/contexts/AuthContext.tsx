@@ -9,6 +9,7 @@ import auth from '@react-native-firebase/auth';
 import firestore from '@react-native-firebase/firestore';
 import {Alert} from 'react-native';
 import {fcmService} from '../services/FCMService';
+import {useTranslation} from './TranslationContext';
 
 type Role = 'tourist' | 'tour_guide' | 'admin';
 type UserStatus = 'pending' | 'approved' | 'rejected' | 'suspended';
@@ -44,13 +45,19 @@ interface AuthContextType {
   role: Role | null;
   loading: boolean;
   signIn: (email: string, password: string) => Promise<void>;
-  signUp: (email: string, password: string, role: Role) => Promise<void>;
+  signUp: (
+    email: string,
+    password: string,
+    role: Role,
+    name?: string,
+  ) => Promise<void>;
   signOut: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-export const AuthProvider = ({children}: {children: React.ReactNode}) => {
+const AuthProviderInternal = ({children}: {children: React.ReactNode}) => {
+  const {t} = useTranslation();
   const [user, setUser] = useState<User | null>(null);
   const [role, setRole] = useState<Role | null>(null);
   const [loading, setLoading] = useState(true);
@@ -65,9 +72,9 @@ export const AuthProvider = ({children}: {children: React.ReactNode}) => {
       return;
     } // Prevent multiple alerts during signout
 
-    Alert.alert('Account Issue', message, [
+    Alert.alert(t('auth.accountIssue'), message, [
       {
-        text: 'OK',
+        text: t('common.ok'),
         onPress: async () => {
           await signOut();
         },
@@ -80,7 +87,7 @@ export const AuthProvider = ({children}: {children: React.ReactNode}) => {
     userData: any,
   ): {canAccess: boolean; message?: string} => {
     if (!userData) {
-      return {canAccess: false, message: 'User data not found'};
+      return {canAccess: false, message: t('auth.userDataNotFound')};
     }
 
     // Check for tour guides
@@ -89,26 +96,24 @@ export const AuthProvider = ({children}: {children: React.ReactNode}) => {
         case 'pending':
           return {
             canAccess: false,
-            message: 'Your tour guide account is awaiting admin approval.',
+            message: t('auth.tourGuideAwaitingApproval'),
           };
         case 'rejected':
           return {
             canAccess: false,
-            message:
-              'Your tour guide application has been rejected. Please contact support.',
+            message: t('auth.tourGuideApplicationRejected'),
           };
         case 'suspended':
           return {
             canAccess: false,
-            message:
-              'Your tour guide account has been suspended. Please contact support.',
+            message: t('auth.tourGuideAccountSuspended'),
           };
         case 'approved':
           return {canAccess: true};
         default:
           return {
             canAccess: false,
-            message: 'Your tour guide account is awaiting admin approval.',
+            message: t('auth.tourGuideAwaitingApproval'),
           };
       }
     }
@@ -118,7 +123,7 @@ export const AuthProvider = ({children}: {children: React.ReactNode}) => {
       if (userData.isActive === false) {
         return {
           canAccess: false,
-          message: 'Your account has been deactivated. Please contact support.',
+          message: t('auth.accountDeactivated'),
         };
       }
       return {canAccess: true};
@@ -182,9 +187,10 @@ export const AuthProvider = ({children}: {children: React.ReactNode}) => {
                   if (!isSigningOutRef.current) {
                     setUser({
                       uid: authUser.uid,
-                      email: authUser.email || '',
                       ...newUserData,
-                    } as User);
+                      email: authUser.email || '',
+                      createdAt: new Date().toISOString(),
+                    });
                     setRole('tourist');
                     setLoading(false);
                   }
@@ -197,7 +203,7 @@ export const AuthProvider = ({children}: {children: React.ReactNode}) => {
                 if (!accessCheck.canAccess) {
                   await handleAccountStatusIssue(
                     userData,
-                    accessCheck.message || 'Access denied',
+                    accessCheck.message || t('auth.accessDenied'),
                   );
                   return;
                 }
@@ -269,7 +275,7 @@ export const AuthProvider = ({children}: {children: React.ReactNode}) => {
       unsubscribeAuth();
       cleanupDocListener();
     };
-  }, []);
+  }, [t]); // Add t as dependency
 
   const signIn = async (email: string, password: string) => {
     try {
@@ -279,11 +285,17 @@ export const AuthProvider = ({children}: {children: React.ReactNode}) => {
       // User data will be handled by the onAuthStateChanged listener
     } catch (error: any) {
       setLoading(false);
+      // Let the calling component handle the error with proper translation
       throw error;
     }
   };
 
-  const signUp = async (email: string, password: string, role: Role) => {
+  const signUp = async (
+    email: string,
+    password: string,
+    role: Role,
+    name?: string,
+  ) => {
     try {
       setLoading(true);
       isSigningOutRef.current = false; // Reset signout flag
@@ -295,7 +307,9 @@ export const AuthProvider = ({children}: {children: React.ReactNode}) => {
       const userData = {
         email,
         role,
+        name: name || '',
         createdAt: firestore.FieldValue.serverTimestamp(),
+        updatedAt: firestore.FieldValue.serverTimestamp(),
         isActive: true,
         // Set initial status for tour guides
         ...(role === 'tour_guide' && {status: 'pending'}),
@@ -306,14 +320,14 @@ export const AuthProvider = ({children}: {children: React.ReactNode}) => {
         .doc(userCredential.user.uid)
         .set(userData, {merge: true});
 
-      // For tour guides, show immediate feedback
+      // For tour guides, show immediate feedback and sign them out
       if (role === 'tour_guide') {
         Alert.alert(
-          'Account Created',
-          'Your tour guide account has been created and is awaiting admin approval. You will be notified once approved.',
+          t('auth.accountCreated'),
+          t('auth.tourGuideAccountCreatedMessage'),
           [
             {
-              text: 'OK',
+              text: t('common.ok'),
               onPress: async () => {
                 await signOut();
               },
@@ -321,8 +335,10 @@ export const AuthProvider = ({children}: {children: React.ReactNode}) => {
           ],
         );
       }
+      // For tourists, they remain logged in and the AuthContext will handle the flow
     } catch (error: any) {
       setLoading(false);
+      // Let the calling component handle the error with proper translation
       throw error;
     }
   };
@@ -393,6 +409,11 @@ export const AuthProvider = ({children}: {children: React.ReactNode}) => {
       {children}
     </AuthContext.Provider>
   );
+};
+
+// Main AuthProvider wrapper
+export const AuthProvider = ({children}: {children: React.ReactNode}) => {
+  return <AuthProviderInternal>{children}</AuthProviderInternal>;
 };
 
 export const useAuth = () => {

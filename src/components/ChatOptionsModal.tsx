@@ -11,6 +11,7 @@ import {
 } from 'react-native';
 import Icon from 'react-native-vector-icons/MaterialIcons';
 import LinearGradient from 'react-native-linear-gradient';
+import {useTranslation} from '../contexts/TranslationContext';
 
 const {width, height} = Dimensions.get('window');
 
@@ -41,6 +42,7 @@ const ChatOptionsModal: React.FC<ChatOptionsModalProps> = ({
   isGroup = false,
   canDelete = true,
 }) => {
+  const {t} = useTranslation();
   const fadeAnim = React.useRef(new Animated.Value(0)).current;
   const slideAnim = React.useRef(new Animated.Value(height)).current;
 
@@ -93,10 +95,10 @@ const ChatOptionsModal: React.FC<ChatOptionsModalProps> = ({
   const options = [
     {
       id: 'info',
-      title: isGroup ? 'Group Info' : 'Chat Info',
+      title: isGroup ? t('chatOptions.groupInfo') : t('chatOptions.chatInfo'),
       subtitle: isGroup
-        ? 'Members, settings and more'
-        : 'Contact details and settings',
+        ? t('chatOptions.groupInfoDescription')
+        : t('chatOptions.chatInfoDescription'),
       icon: 'info-outline',
       color: '#4AC6D0',
       backgroundColor: 'rgba(74, 198, 208, 0.1)',
@@ -105,13 +107,10 @@ const ChatOptionsModal: React.FC<ChatOptionsModalProps> = ({
     },
     {
       id: 'pin',
-      // title: 'Pin Chat',
-      title: isPinned ? 'Unpin Chat' : 'Pin Chat',
-
-      // subtitle: 'Keep this conversation at the top',
+      title: isPinned ? t('chatOptions.unpinChat') : t('chatOptions.pinChat'),
       subtitle: isPinned
-        ? 'Unpin this chat from the top'
-        : 'Pin this chat to the top',
+        ? t('chatOptions.unpinChatDescription')
+        : t('chatOptions.pinChatDescription'),
       icon: 'push-pin',
       color: '#10B981',
       backgroundColor: 'rgba(16, 185, 129, 0.1)',
@@ -120,38 +119,28 @@ const ChatOptionsModal: React.FC<ChatOptionsModalProps> = ({
     },
     {
       id: 'mute',
-      title: !isMuted ? 'Mute Notifications' : 'Turn on Notifications',
+      title: !isMuted
+        ? t('chatOptions.muteNotifications')
+        : t('chatOptions.turnOnNotifications'),
       subtitle: !isMuted
-        ? 'Turn off notifications for this chat'
-        : 'Enable notifications for this chat',
-      // icon: 'notifications-off',
+        ? t('chatOptions.muteNotificationsDescription')
+        : t('chatOptions.turnOnNotificationsDescription'),
       icon: !isMuted ? 'notifications-off' : 'notifications',
       color: '#F59E0B',
       backgroundColor: 'rgba(245, 158, 11, 0.1)',
       onPress: onMute,
       visible: true,
     },
-    // {
-    //   id: 'archive',
-    //   title: 'Archive Chat',
-    //   subtitle: 'Move to archived conversations',
-    //   icon: 'archive',
-    //   color: '#6B7280',
-    //   backgroundColor: 'rgba(107, 114, 128, 0.1)',
-    //   onPress: () => {
-    //     onClose();
-    //     // TODO: Implement archive functionality
-    //   },
-    // },
     {
       id: 'delete',
-      title: 'Delete Chat',
-      subtitle: 'Remove this conversation permanently',
+      title: t('chatOptions.deleteChat'),
+      subtitle: t('chatOptions.deleteChatDescription'),
       icon: 'delete',
       color: '#EF4444',
       backgroundColor: 'rgba(239, 68, 68, 0.1)',
       onPress: onDelete,
       visible: isGroup ? canDelete : true,
+      destructive: true,
     },
   ];
 
@@ -241,7 +230,9 @@ const ChatOptionsModal: React.FC<ChatOptionsModalProps> = ({
                     {chatName}
                   </Text>
                   <Text style={styles.chatSubtitle}>
-                    {isGroup ? 'Group conversation' : 'Private conversation'}
+                    {isGroup
+                      ? t('chatOptions.groupConversation')
+                      : t('chatOptions.privateConversation')}
                   </Text>
                 </View>
               </View>
@@ -258,7 +249,9 @@ const ChatOptionsModal: React.FC<ChatOptionsModalProps> = ({
 
           {/* Options List */}
           <View style={styles.optionsContainer}>
-            <Text style={styles.sectionTitle}>Quick Actions</Text>
+            <Text style={styles.sectionTitle}>
+              {t('chatOptions.quickActions')}
+            </Text>
 
             <View style={styles.optionsList}>
               {options.map(option => option.visible && renderOption(option))}

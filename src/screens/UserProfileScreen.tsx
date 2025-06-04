@@ -17,6 +17,7 @@ import {
 import firestore from '@react-native-firebase/firestore';
 import auth from '@react-native-firebase/auth';
 import {useAuth} from '../contexts/AuthContext';
+import {useTranslation} from '../contexts/TranslationContext';
 import {handleImageUpload} from '../utils/imageUpload';
 import Icon from 'react-native-vector-icons/MaterialIcons';
 import Loading from '../components/Loading';
@@ -27,6 +28,7 @@ const {width} = Dimensions.get('window');
 
 const UserProfileScreen = () => {
   const {user, signOut} = useAuth();
+  const {t} = useTranslation();
   const navigation = useNavigation();
   const userId = user?.uid;
 
@@ -75,7 +77,7 @@ const UserProfileScreen = () => {
       return;
     }
     if (!name.trim()) {
-      Alert.alert('Error', 'Name cannot be empty');
+      Alert.alert(t('common.error'), t('profile.nameCannotBeEmpty'));
       return;
     }
 
@@ -87,10 +89,10 @@ const UserProfileScreen = () => {
         avatar: avatarUrl,
         updatedAt: firestore.FieldValue.serverTimestamp(),
       });
-      Alert.alert('Success', 'Your profile has been updated!');
+      Alert.alert(t('common.success'), t('profile.profileUpdatedSuccessfully'));
     } catch (err) {
       console.error(err);
-      Alert.alert('Error', 'Failed to update profile');
+      Alert.alert(t('common.error'), t('profile.failedToUpdateProfile'));
     }
     setLoading(false);
   };
@@ -107,11 +109,14 @@ const UserProfileScreen = () => {
         await firestore().collection('users').doc(userId).update({
           avatar: url,
         });
-        Alert.alert('Success', 'Profile picture updated successfully');
+        Alert.alert(
+          t('common.success'),
+          t('profile.profilePictureUpdatedSuccessfully'),
+        );
       })
       .catch(error => {
         console.error('Image upload error:', error);
-        Alert.alert('Error', 'Failed to upload image');
+        Alert.alert(t('common.error'), t('profile.failedToUploadImage'));
       })
       .finally(() => {
         setUploading(false);
@@ -121,7 +126,7 @@ const UserProfileScreen = () => {
   const reauthenticateUser = async (password: string) => {
     const currentUser = auth().currentUser;
     if (!currentUser || !currentUser.email) {
-      throw new Error('No authenticated user found');
+      throw new Error(t('profile.noAuthenticatedUserFound'));
     }
 
     const credential = auth.EmailAuthProvider.credential(
@@ -134,25 +139,22 @@ const UserProfileScreen = () => {
 
   const handleChangePassword = async () => {
     if (!currentPassword || !newPassword || !confirmPassword) {
-      Alert.alert('Error', 'Please fill in all password fields');
+      Alert.alert(t('common.error'), t('profile.pleaseFillAllPasswordFields'));
       return;
     }
 
     if (newPassword !== confirmPassword) {
-      Alert.alert('Error', 'New passwords do not match');
+      Alert.alert(t('common.error'), t('profile.newPasswordsDoNotMatch'));
       return;
     }
 
     if (newPassword.length < 6) {
-      Alert.alert('Error', 'New password must be at least 6 characters');
+      Alert.alert(t('common.error'), t('profile.newPasswordMinLength'));
       return;
     }
 
     if (currentPassword === newPassword) {
-      Alert.alert(
-        'Error',
-        'New password must be different from current password',
-      );
+      Alert.alert(t('common.error'), t('profile.newPasswordMustBeDifferent'));
       return;
     }
 
@@ -170,31 +172,35 @@ const UserProfileScreen = () => {
           updatedAt: firestore.FieldValue.serverTimestamp(),
         });
 
-        Alert.alert('Success', 'Password changed successfully!', [
-          {
-            text: 'OK',
-            onPress: () => {
-              setShowPasswordModal(false);
-              setCurrentPassword('');
-              setNewPassword('');
-              setConfirmPassword('');
+        Alert.alert(
+          t('common.success'),
+          t('profile.passwordChangedSuccessfully'),
+          [
+            {
+              text: t('common.ok'),
+              onPress: () => {
+                setShowPasswordModal(false);
+                setCurrentPassword('');
+                setNewPassword('');
+                setConfirmPassword('');
+              },
             },
-          },
-        ]);
+          ],
+        );
       }
     } catch (error: any) {
       console.error('Password change error:', error);
 
-      let errorMessage = 'Failed to change password';
+      let errorMessage = t('profile.failedToChangePassword');
       if (error.code === 'auth/wrong-password') {
-        errorMessage = 'Current password is incorrect';
+        errorMessage = t('profile.currentPasswordIncorrect');
       } else if (error.code === 'auth/weak-password') {
-        errorMessage = 'New password is too weak';
+        errorMessage = t('profile.newPasswordTooWeak');
       } else if (error.code === 'auth/requires-recent-login') {
-        errorMessage = 'Please log out and log back in, then try again';
+        errorMessage = t('profile.pleaseLogoutAndLoginAgain');
       }
 
-      Alert.alert('Error', errorMessage);
+      Alert.alert(t('common.error'), errorMessage);
     } finally {
       setPasswordLoading(false);
     }
@@ -235,7 +241,7 @@ const UserProfileScreen = () => {
       <View style={styles.modalOverlay}>
         <View style={styles.modalContent}>
           <View style={styles.modalHeader}>
-            <Text style={styles.modalTitle}>Change Password</Text>
+            <Text style={styles.modalTitle}>{t('profile.changePassword')}</Text>
             <TouchableOpacity
               onPress={() => setShowPasswordModal(false)}
               style={styles.modalCloseButton}>
@@ -244,33 +250,37 @@ const UserProfileScreen = () => {
           </View>
 
           <View style={styles.inputGroup}>
-            <Text style={styles.modalLabel}>Current Password</Text>
+            <Text style={styles.modalLabel}>
+              {t('profile.currentPassword')}
+            </Text>
             {renderPasswordInput(
               currentPassword,
               setCurrentPassword,
-              'Enter current password',
+              t('profile.enterCurrentPassword'),
               showCurrentPassword,
               () => setShowCurrentPassword(!showCurrentPassword),
             )}
           </View>
 
           <View style={styles.inputGroup}>
-            <Text style={styles.modalLabel}>New Password</Text>
+            <Text style={styles.modalLabel}>{t('profile.newPassword')}</Text>
             {renderPasswordInput(
               newPassword,
               setNewPassword,
-              'Enter new password (min 6 characters)',
+              t('profile.enterNewPasswordMinChars'),
               showNewPassword,
               () => setShowNewPassword(!showNewPassword),
             )}
           </View>
 
           <View style={styles.inputGroup}>
-            <Text style={styles.modalLabel}>Confirm New Password</Text>
+            <Text style={styles.modalLabel}>
+              {t('profile.confirmNewPassword')}
+            </Text>
             {renderPasswordInput(
               confirmPassword,
               setConfirmPassword,
-              'Confirm new password',
+              t('profile.confirmNewPasswordPlaceholder'),
               showConfirmPassword,
               () => setShowConfirmPassword(!showConfirmPassword),
             )}
@@ -280,7 +290,7 @@ const UserProfileScreen = () => {
             <TouchableOpacity
               style={styles.modalCancelButton}
               onPress={() => setShowPasswordModal(false)}>
-              <Text style={styles.modalCancelText}>Cancel</Text>
+              <Text style={styles.modalCancelText}>{t('common.cancel')}</Text>
             </TouchableOpacity>
 
             <TouchableOpacity
@@ -293,7 +303,9 @@ const UserProfileScreen = () => {
               {passwordLoading ? (
                 <ActivityIndicator color="#fff" size="small" />
               ) : (
-                <Text style={styles.modalSaveText}>Update Password</Text>
+                <Text style={styles.modalSaveText}>
+                  {t('profile.updatePassword')}
+                </Text>
               )}
             </TouchableOpacity>
           </View>
@@ -321,7 +333,7 @@ const UserProfileScreen = () => {
           style={styles.backButton}>
           <Icon name="arrow-back" size={24} color="#fff" />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>Profile</Text>
+        <Text style={styles.headerTitle}>{t('profile.profile')}</Text>
         <View style={styles.settingsButton} />
       </LinearGradient>
 
@@ -353,14 +365,14 @@ const UserProfileScreen = () => {
               )}
             </LinearGradient>
           </TouchableOpacity>
-          <Text style={styles.avatarHint}>Tap to change photo</Text>
+          <Text style={styles.avatarHint}>{t('profile.tapToChangePhoto')}</Text>
         </View>
 
         {/* Form Section */}
         <View style={styles.formSection}>
           {/* Email Field (Read-only) */}
           <View style={styles.inputGroup}>
-            <Text style={styles.label}>Email Address</Text>
+            <Text style={styles.label}>{t('profile.emailAddress')}</Text>
             <View style={styles.readOnlyInput}>
               <Icon
                 name="email"
@@ -375,7 +387,7 @@ const UserProfileScreen = () => {
 
           {/* Name Field */}
           <View style={styles.inputGroup}>
-            <Text style={styles.label}>Full Name</Text>
+            <Text style={styles.label}>{t('profile.fullName')}</Text>
             <View style={styles.inputContainer}>
               <Icon
                 name="person"
@@ -387,7 +399,7 @@ const UserProfileScreen = () => {
                 style={styles.input}
                 value={name}
                 onChangeText={setName}
-                placeholder="Enter your full name"
+                placeholder={t('profile.enterYourFullName')}
                 placeholderTextColor="#9CA3AF"
               />
             </View>
@@ -395,7 +407,7 @@ const UserProfileScreen = () => {
 
           {/* Bio Field */}
           <View style={styles.inputGroup}>
-            <Text style={styles.label}>Bio</Text>
+            <Text style={styles.label}>{t('profile.bio')}</Text>
             <View style={styles.inputContainer}>
               <Icon
                 name="info"
@@ -407,7 +419,7 @@ const UserProfileScreen = () => {
                 style={[styles.input, styles.bioInput]}
                 value={bio}
                 onChangeText={setBio}
-                placeholder="Tell others about yourself..."
+                placeholder={t('profile.tellOthersAboutYourself')}
                 placeholderTextColor="#9CA3AF"
                 multiline
                 textAlignVertical="top"
@@ -425,9 +437,11 @@ const UserProfileScreen = () => {
                 <Icon name="lock" size={20} color="#4AC6D0" />
               </View>
               <View style={styles.actionContent}>
-                <Text style={styles.actionTitle}>Change Password</Text>
+                <Text style={styles.actionTitle}>
+                  {t('profile.changePassword')}
+                </Text>
                 <Text style={styles.actionSubtitle}>
-                  Update your account password
+                  {t('profile.updateYourAccountPassword')}
                 </Text>
               </View>
               <Icon name="chevron-right" size={20} color="#9CA3AF" />
@@ -436,7 +450,9 @@ const UserProfileScreen = () => {
             {/* Security Info */}
             <View style={styles.securityInfo}>
               <Icon name="security" size={16} color="#10B981" />
-              <Text style={styles.securityText}>Your account is secure</Text>
+              <Text style={styles.securityText}>
+                {t('profile.yourAccountIsSecure')}
+              </Text>
             </View>
           </View>
 
@@ -461,7 +477,9 @@ const UserProfileScreen = () => {
                       color="#fff"
                       style={styles.buttonIcon}
                     />
-                    <Text style={styles.saveButtonText}>Save Changes</Text>
+                    <Text style={styles.saveButtonText}>
+                      {t('profile.saveChanges')}
+                    </Text>
                   </>
                 )}
               </LinearGradient>
@@ -474,7 +492,7 @@ const UserProfileScreen = () => {
                 color="#EF4444"
                 style={styles.buttonIcon}
               />
-              <Text style={styles.logoutText}>Sign Out</Text>
+              <Text style={styles.logoutText}>{t('profile.signOut')}</Text>
             </TouchableOpacity>
           </View>
         </View>

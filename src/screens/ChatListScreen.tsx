@@ -21,6 +21,7 @@ import Icon from 'react-native-vector-icons/MaterialIcons';
 import Loading from './../components/Loading';
 import ChatOptionsModal from '../components/ChatOptionsModal';
 import LinearGradient from 'react-native-linear-gradient';
+import {useTranslation} from '../contexts/TranslationContext';
 
 const {width} = Dimensions.get('window');
 
@@ -40,19 +41,21 @@ const ChatTabNavigation: React.FC<ChatTabNavigationProps> = ({
   groupCount,
   privateCount,
 }) => {
+  const {t} = useTranslation();
+
   const tabs = [
     {
       key: 'groups',
-      label: 'Travel',
-      shortLabel: 'Travel',
+      label: t('chat.travel'),
+      shortLabel: t('chat.travel'),
       icon: 'group',
       count: groupCount,
       color: '#4AC6D0',
     },
     {
       key: 'private',
-      label: 'Chats',
-      shortLabel: 'Chats',
+      label: t('chat.chats'),
+      shortLabel: t('chat.chats'),
       icon: 'chat',
       count: privateCount,
       color: '#10B981',
@@ -175,6 +178,7 @@ const ChatListScreen = () => {
   const [modalVisible, setModalVisible] = useState(false);
   const [selectedChat, setSelectedChat] = useState(null);
   const [activeTab, setActiveTab] = useState<ChatTabType>('groups');
+  const {t} = useTranslation();
 
   // Animation values
   const fadeAnim = new Animated.Value(0);
@@ -382,7 +386,7 @@ const ChatListScreen = () => {
 
     if (emails.length === 0) {
       setLoading(false);
-      Alert.alert('Error', 'Please enter at least one email.');
+      Alert.alert(t('common.error'), t('chat.enterAtLeastOneEmail'));
       return;
     }
 
@@ -403,7 +407,10 @@ const ChatListScreen = () => {
         setGroupName('');
         setInputEmails('');
         setLoading(false);
-        Alert.alert('Error', `Emails not found: ${notFound.join(', ')}`);
+        Alert.alert(
+          t('common.error'),
+          `${t('chat.emailsNotFound')}: ${notFound.join(', ')}`,
+        );
         return;
       }
 
@@ -440,7 +447,7 @@ const ChatListScreen = () => {
             isGroup: true,
             members: memberIds,
             roles,
-            name: groupName || 'Travel Group',
+            name: groupName || t('chat.defaultGroupName'),
             pinned: [],
             muted: [],
             createdAt: firestore.FieldValue.serverTimestamp(),
@@ -457,7 +464,7 @@ const ChatListScreen = () => {
       setLoading(false);
       setGroupName('');
       setInputEmails('');
-      Alert.alert('Error', 'Failed to create chat. Check that emails exist.');
+      Alert.alert(t('common.error'), t('chat.failedToCreateChat'));
     } finally {
       setLoading(false);
       setGroupName('');
@@ -477,7 +484,7 @@ const ChatListScreen = () => {
       const chatRef = firestore().collection('chats').doc(id);
       const chatDoc = await chatRef.get();
       if (!chatDoc.exists) {
-        Alert.alert('Error', 'Chat not found.');
+        Alert.alert(t('common.error'), t('chat.chatNotFound'));
         return;
       }
       const chatData = chatDoc.data();
@@ -494,7 +501,7 @@ const ChatListScreen = () => {
       }
     } catch (error) {
       console.error('Error pinning/unpinning chat:', error);
-      Alert.alert('Error', 'Failed to update pin status. Please try again.');
+      Alert.alert(t('common.error'), t('chat.failedToUpdatePinStatus'));
     } finally {
       setLoading(false);
     }
@@ -507,7 +514,7 @@ const ChatListScreen = () => {
       const chatRef = firestore().collection('chats').doc(id);
       const chatDoc = await chatRef.get();
       if (!chatDoc.exists) {
-        Alert.alert('Error', 'Chat not found.');
+        Alert.alert(t('common.error'), t('chat.chatNotFound'));
         return;
       }
       const chatData = chatDoc.data();
@@ -520,11 +527,11 @@ const ChatListScreen = () => {
       } else {
         // Mute: add user to muted array
         mutedUsers.push(user?.uid);
-        await chatRef.update({muted: mutedUsers});
+        await chatRef.update({muted: updatedMuted});
       }
     } catch (error) {
       console.error('Error muting/unmuting chat:', error);
-      Alert.alert('Error', 'Failed to update mute status. Please try again.');
+      Alert.alert(t('common.error'), t('chat.failedToUpdateMuteStatus'));
     } finally {
       setLoading(false);
     }
@@ -532,35 +539,31 @@ const ChatListScreen = () => {
 
   const deleteChat = async (id: string) => {
     setModalVisible(false);
-    Alert.alert(
-      'Delete Chat',
-      'Are you sure you want to delete this chat? This action cannot be undone.',
-      [
-        {
-          text: 'Cancel',
-          style: 'cancel',
+    Alert.alert(t('chat.deleteChat'), t('chat.deleteChatConfirmation'), [
+      {
+        text: t('common.cancel'),
+        style: 'cancel',
+      },
+      {
+        text: t('common.delete'),
+        style: 'destructive',
+        onPress: async () => {
+          try {
+            setLoading(true);
+            await firestore().collection('chats').doc(id).delete();
+          } catch (error) {
+            console.error('Error deleting chat:', error);
+            Alert.alert(t('common.error'), t('chat.failedToDeleteChat'));
+          } finally {
+            setLoading(false);
+          }
         },
-        {
-          text: 'Delete',
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              setLoading(true);
-              await firestore().collection('chats').doc(id).delete();
-            } catch (error) {
-              console.error('Error deleting chat:', error);
-              Alert.alert('Error', 'Failed to delete chat. Please try again.');
-            } finally {
-              setLoading(false);
-            }
-          },
-        },
-      ],
-    );
+      },
+    ]);
   };
 
   const renderGroupItem = ({item, index}) => {
-    const chatName = item.name || 'Travel Group';
+    const chatName = item.name || t('chat.defaultGroupName');
     const memberCount = item.members?.length || 0;
     const isPinned = item.pinned?.includes(user?.uid);
     const isMuted = item.muted?.includes(user?.uid);
@@ -571,12 +574,12 @@ const ChatListScreen = () => {
       (user?.email === item?.lastSenderName ||
         user?.name === item?.lastSenderName)
     ) {
-      lastMessagePreview = 'You: ' + (item?.lastMessage || '');
+      lastMessagePreview = t('chat.you') + ': ' + (item?.lastMessage || '');
     } else if (item.lastSenderName) {
       lastMessagePreview =
         item?.lastSenderName + ': ' + (item?.lastMessage || '');
     } else {
-      lastMessagePreview = 'Ready for adventure!';
+      lastMessagePreview = t('chat.readyForAdventure');
     }
 
     return (
@@ -673,7 +676,7 @@ const ChatListScreen = () => {
     const otherEmails = item.memberEmails?.filter(
       (email, emailIndex) => item.members[emailIndex] !== user?.uid,
     );
-    const chatName = otherEmails?.join(', ') || 'Private Chat';
+    const chatName = otherEmails?.join(', ') || t('chat.privateChat');
     const isPinned = item.pinned?.includes(user?.uid);
     const isMuted = item.muted?.includes(user?.uid);
 
@@ -683,14 +686,13 @@ const ChatListScreen = () => {
       (user?.email === item?.lastSenderName ||
         user?.name === item?.lastSenderName)
     ) {
-      lastMessagePreview = 'You: ' + (item?.lastMessage || '');
+      lastMessagePreview = t('chat.you') + ': ' + (item?.lastMessage || '');
     } else if (item.lastSenderName) {
       lastMessagePreview =
         item?.lastSenderName + ': ' + (item?.lastMessage || '');
     } else {
-      lastMessagePreview = "Let's explore together!";
+      lastMessagePreview = t('chat.letsExploreTogether');
     }
-
     return (
       <Animated.View style={styles.chatItemWrapper}>
         <TouchableOpacity
@@ -802,12 +804,14 @@ const ChatListScreen = () => {
           />
         </View>
         <Text style={styles.emptyText}>
-          {type === 'groups' ? 'No travel groups yet' : 'No private chats yet'}
+          {type === 'groups'
+            ? t('chat.noTravelGroupsYet')
+            : t('chat.noPrivateChatsYet')}
         </Text>
         <Text style={styles.emptySubText}>
           {type === 'groups'
-            ? 'Create a group to plan your travel adventures'
-            : 'Start a private conversation with fellow travelers'}
+            ? t('chat.createGroupToPlant')
+            : t('chat.startPrivateConversation')}
         </Text>
         {user.role === 'tour_guide' && (
           <TouchableOpacity
@@ -818,7 +822,9 @@ const ChatListScreen = () => {
               style={styles.startChatGradient}>
               <Icon name="add" size={20} color="#FFF" />
               <Text style={styles.startChatText}>
-                {type === 'groups' ? 'Create Group' : 'Start Chat'}
+                {type === 'groups'
+                  ? t('chat.createGroup')
+                  : t('chat.startChat')}
               </Text>
             </LinearGradient>
           </TouchableOpacity>
@@ -837,8 +843,8 @@ const ChatListScreen = () => {
             <Icon name="add-circle" size={24} color="#FFF" />
             <Text style={styles.modalHeaderText}>
               {user.role === 'tour_guide'
-                ? 'Create Travel Group'
-                : 'Start New Chat'}
+                ? t('chat.createTravelGroup')
+                : t('chat.startNewChat')}
             </Text>
           </LinearGradient>
 
@@ -847,7 +853,7 @@ const ChatListScreen = () => {
               <View style={styles.inputWrapper}>
                 <Icon name="label" size={20} color="#4AC6D0" />
                 <TextInput
-                  placeholder="Group name (optional)"
+                  placeholder={t('chat.groupNameOptional')}
                   value={groupName}
                   onChangeText={setGroupName}
                   style={styles.inputField}
@@ -861,8 +867,8 @@ const ChatListScreen = () => {
               <TextInput
                 placeholder={
                   user.role === 'tour_guide'
-                    ? 'Enter email addresses (comma separated)'
-                    : 'Enter email address'
+                    ? t('chat.enterEmailsCommaSeparated')
+                    : t('chat.enterEmailAddress')
                 }
                 value={inputEmails}
                 onChangeText={setInputEmails}
@@ -880,7 +886,9 @@ const ChatListScreen = () => {
                   setGroupName('');
                   setInputEmails('');
                 }}>
-                <Text style={styles.cancelButtonText}>Cancel</Text>
+                <Text style={styles.cancelButtonText}>
+                  {t('common.cancel')}
+                </Text>
               </TouchableOpacity>
 
               <TouchableOpacity
@@ -890,7 +898,9 @@ const ChatListScreen = () => {
                   colors={['#4AC6D0', '#3BB8C3']}
                   style={styles.confirmButtonGradient}>
                   <Icon name="check" size={18} color="#FFF" />
-                  <Text style={styles.confirmButtonText}>Create</Text>
+                  <Text style={styles.confirmButtonText}>
+                    {t('common.create')}
+                  </Text>
                 </LinearGradient>
               </TouchableOpacity>
             </View>
@@ -917,10 +927,9 @@ const ChatListScreen = () => {
         {!searchVisible ? (
           <View style={styles.headerContent}>
             <View style={styles.headerLeft}>
-              <Text style={styles.headerTitle}>Travel Chats</Text>
+              <Text style={styles.headerTitle}>{t('chat.travelChats')}</Text>
               <Text style={styles.headerSubtitle}>
-                {getCurrentData().length} conversation
-                {getCurrentData().length !== 1 ? 's' : ''}
+                {getCurrentData().length} {t('chat.conversation').toUpperCase()}
               </Text>
             </View>
             <View style={styles.headerActions}>
@@ -950,7 +959,7 @@ const ChatListScreen = () => {
               <Icon name="search" size={20} color="rgba(255,255,255,0.7)" />
               <TextInput
                 style={styles.searchInput}
-                placeholder="Search conversations..."
+                placeholder={t('chat.searchConversations')}
                 placeholderTextColor="rgba(255,255,255,0.7)"
                 value={searchQuery}
                 onChangeText={setSearchQuery}
@@ -1020,7 +1029,7 @@ const ChatListScreen = () => {
             currentUserId: user?.uid,
           });
         }}
-        chatName={selectedChat?.name || 'Chat'}
+        chatName={selectedChat?.name || t('chat.chat')}
         isGroup={selectedChat?.isGroup || false}
         isPinned={selectedChat?.pinned?.includes(user?.uid)}
         isMuted={selectedChat?.muted?.includes(user?.uid)}
