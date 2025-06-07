@@ -14,6 +14,7 @@ import {
   PermissionsAndroid,
   StatusBar,
   Animated,
+  ActivityIndicator,
 } from 'react-native';
 import firestore from '@react-native-firebase/firestore';
 import {launchImageLibrary} from 'react-native-image-picker';
@@ -29,6 +30,7 @@ import AvatarStatus from '../components/AvatarStatus';
 import LinearGradient from 'react-native-linear-gradient';
 import {useSocket} from '../contexts/SocketContext';
 import {useTranslation} from '../contexts/TranslationContext';
+import {translationTextService as translationService} from '../services/translationText';
 
 const getFileTypeInfo = (fileName: string) => {
   const extension = fileName?.split('.').pop()?.toLowerCase();
@@ -92,8 +94,75 @@ const ChatScreen = ({route}: any) => {
   const [isTyping, setIsTyping] = useState(false);
   const flatListRef = useRef<FlatList>(null);
   const fadeAnim = useRef(new Animated.Value(0)).current;
-  const {t} = useTranslation();
+  const {t, currentLanguage: language} = useTranslation();
   const navigation = useNavigation<any>();
+
+  const [translatedMessages, setTranslatedMessages] = useState<{
+    [key: string]: string;
+  }>({});
+  const [translatingMessages, setTranslatingMessages] = useState<{
+    [key: string]: boolean;
+  }>({});
+  const [showOriginalMessages, setShowOriginalMessages] = useState<{
+    [key: string]: boolean;
+  }>({});
+
+  const handleTranslateMessage = async (
+    messageId: string,
+    messageText: string,
+  ) => {
+    try {
+      // If already translated and showing translated text, show original
+      if (translatedMessages[messageId] && !showOriginalMessages[messageId]) {
+        setShowOriginalMessages(prev => ({
+          ...prev,
+          [messageId]: true,
+        }));
+        return;
+      }
+
+      // If showing original, show translated again
+      if (showOriginalMessages[messageId]) {
+        setShowOriginalMessages(prev => ({
+          ...prev,
+          [messageId]: false,
+        }));
+        return;
+      }
+
+      // Start translation
+      setTranslatingMessages(prev => ({
+        ...prev,
+        [messageId]: true,
+      }));
+
+      const result = await translationService.translateText(
+        messageText,
+        language,
+      );
+
+      setTranslatedMessages(prev => ({
+        ...prev,
+        [messageId]: result.translatedText,
+      }));
+
+      setShowOriginalMessages(prev => ({
+        ...prev,
+        [messageId]: false,
+      }));
+    } catch (error) {
+      console.error('Translation error:', error);
+      Alert.alert(
+        t('chatScreen.translationError'),
+        error.message || t('chatScreen.translationFailed'),
+      );
+    } finally {
+      setTranslatingMessages(prev => ({
+        ...prev,
+        [messageId]: false,
+      }));
+    }
+  };
 
   // Animated entrance
   useEffect(() => {
@@ -421,6 +490,9 @@ const ChatScreen = ({route}: any) => {
     const isCurrentUser = item.from === userId;
     const messageAvatar = userAvatars[item.from] || '';
     const userName = userNames[item.from] || 'Unknown User';
+    const isTranslated = translatedMessages[item.id];
+    const isTranslating = translatingMessages[item.id];
+    const showOriginal = showOriginalMessages[item.id];
 
     return (
       <Animated.View
@@ -445,15 +517,62 @@ const ChatScreen = ({route}: any) => {
 
           {/* Text Message */}
           {item.text && (
-            <View
-              style={[
-                styles.messageBubble,
-                isCurrentUser ? styles.sentBubble : styles.receivedBubble,
-              ]}>
-              <Text
-                style={isCurrentUser ? styles.sentText : styles.receivedText}>
-                {item.text}
-              </Text>
+            <View style={styles.messageWrapper}>
+              <View
+                style={[
+                  styles.messageBubble,
+                  isCurrentUser ? styles.sentBubble : styles.receivedBubble,
+                ]}>
+                <Text
+                  style={isCurrentUser ? styles.sentText : styles.receivedText}>
+                  {isTranslated && !showOriginal
+                    ? translatedMessages[item.id]
+                    : item.text}
+                </Text>
+              </View>
+
+              {/* Translation Controls */}
+              <View style={styles.translationControls}>
+                <TouchableOpacity
+                  style={styles.translateButton}
+                  onPress={() => handleTranslateMessage(item.id, item.text)}
+                  disabled={isTranslating}>
+                  {isTranslating ? (
+                    <View style={styles.translatingContainer}>
+                      <ActivityIndicator size="small" color="#4AC6D0" />
+                      <Text style={styles.translatingText}>
+                        {t('chatScreen.translating')}
+                      </Text>
+                    </View>
+                  ) : (
+                    <View style={styles.translateButtonContent}>
+                      <Icon
+                        name="translate"
+                        size={14}
+                        color="#4AC6D0"
+                        style={styles.translateIcon}
+                      />
+                      <Text style={styles.translateButtonText}>
+                        {isTranslated && !showOriginal
+                          ? t('chatScreen.showOriginal')
+                          : isTranslated && showOriginal
+                          ? t('chatScreen.showTranslation')
+                          : t('chatScreen.translate')}
+                      </Text>
+                    </View>
+                  )}
+                </TouchableOpacity>
+
+                {/* Translation indicator */}
+                {isTranslated && !showOriginal && (
+                  <View style={styles.translationIndicator}>
+                    <Icon name="check" size={12} color="#10B981" />
+                    <Text style={styles.translationIndicatorText}>
+                      {t('chatScreen.translated')}
+                    </Text>
+                  </View>
+                )}
+              </View>
             </View>
           )}
 
@@ -796,6 +915,62 @@ const styles = StyleSheet.create({
     shadowOffset: {width: 0, height: 1},
     shadowOpacity: 0.1,
     shadowRadius: 2,
+  },
+  messageWrapper: {
+    width: '100%',
+  },
+  translationControls: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginTop: 6,
+    paddingHorizontal: 4,
+  },
+  translateButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 4,
+    paddingHorizontal: 8,
+    borderRadius: 12,
+    backgroundColor: 'rgba(74, 198, 208, 0.1)',
+    borderWidth: 1,
+    borderColor: 'rgba(74, 198, 208, 0.3)',
+  },
+  translateButtonContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  translateIcon: {
+    marginRight: 4,
+  },
+  translateButtonText: {
+    fontSize: 12,
+    color: '#4AC6D0',
+    fontWeight: '600',
+  },
+  translatingContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  translatingText: {
+    fontSize: 12,
+    color: '#4AC6D0',
+    marginLeft: 6,
+    fontStyle: 'italic',
+  },
+  translationIndicator: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(16, 185, 129, 0.1)',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 8,
+  },
+  translationIndicatorText: {
+    fontSize: 10,
+    color: '#10B981',
+    fontWeight: '600',
+    marginLeft: 4,
   },
   sentBubble: {
     backgroundColor: '#4AC6D0',

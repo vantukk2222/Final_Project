@@ -20,10 +20,12 @@ import {useForm, Controller} from 'react-hook-form';
 import {useNavigation} from '@react-navigation/native';
 import Icon from 'react-native-vector-icons/FontAwesome5';
 import LinearGradient from 'react-native-linear-gradient';
+import {useTranslation} from '../contexts/TranslationContext';
 
 const {width, height} = Dimensions.get('window');
 
 const LoginScreen = () => {
+  const {t} = useTranslation();
   const {
     control,
     handleSubmit,
@@ -62,15 +64,38 @@ const LoginScreen = () => {
   }, []);
 
   const onLogin = async (data: any) => {
+    // const email = 'tourguidene@gmail.com';
+    // const password = '111111';
     setLoading(true);
     try {
       await auth().signInWithEmailAndPassword(data.email, data.password);
+      // await auth().signInWithEmailAndPassword(email, password);
+      setLoading(false);
     } catch (error: any) {
-      Alert.alert('Login Failed', error.message);
+      // console.log('Login error:', error.message);
+      Alert.alert(t('auth.loginFailed'), t('auth.loginError'));
     } finally {
       setLoading(false);
     }
   };
+
+  // Custom validation messages based on current language
+  const getValidationRules = () => ({
+    email: {
+      required: t('auth.emailRequired'),
+      pattern: {
+        value: /^[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}$/i,
+        message: t('auth.invalidEmailAddress'),
+      },
+    },
+    password: {
+      required: t('auth.passwordRequired'),
+      minLength: {
+        value: 6,
+        message: t('auth.passwordMinLength'),
+      },
+    },
+  });
 
   return (
     <>
@@ -130,10 +155,8 @@ const LoginScreen = () => {
                         solid
                       />
                     </View>
-                    <Text style={styles.appTitle}>TourGuide Assist</Text>
-                    <Text style={styles.appSubtitle}>
-                      Your travel companion awaits
-                    </Text>
+                    <Text style={styles.appTitle}>{t('app.name')}</Text>
+                    <Text style={styles.appSubtitle}>{t('app.subtitle')}</Text>
                   </View>
                 </View>
               </Animated.View>
@@ -151,9 +174,9 @@ const LoginScreen = () => {
             ]}>
             {/* Welcome Section */}
             <View style={styles.welcomeSection}>
-              <Text style={styles.welcomeTitle}>Welcome Back!</Text>
+              <Text style={styles.welcomeTitle}>{t('auth.welcomeBack')}</Text>
               <Text style={styles.welcomeSubtitle}>
-                Sign in to continue your journey
+                {t('auth.signInToContinue')}
               </Text>
             </View>
 
@@ -161,7 +184,7 @@ const LoginScreen = () => {
             <View style={styles.formContainer}>
               {/* Email Input */}
               <View style={styles.inputWrapper}>
-                <Text style={styles.inputLabel}>Email Address</Text>
+                <Text style={styles.inputLabel}>{t('auth.emailAddress')}</Text>
                 <View
                   style={[
                     styles.inputContainer,
@@ -173,16 +196,10 @@ const LoginScreen = () => {
                   <Controller
                     control={control}
                     name="email"
-                    rules={{
-                      required: 'Email is required',
-                      pattern: {
-                        value: /^[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}$/i,
-                        message: 'Invalid email address',
-                      },
-                    }}
+                    rules={getValidationRules().email}
                     render={({field: {onChange, value}}) => (
                       <TextInput
-                        placeholder="Enter your email"
+                        placeholder={t('placeholders.enterEmail')}
                         placeholderTextColor="#94A3B8"
                         style={styles.input}
                         onChangeText={onChange}
@@ -204,7 +221,7 @@ const LoginScreen = () => {
 
               {/* Password Input */}
               <View style={styles.inputWrapper}>
-                <Text style={styles.inputLabel}>Password</Text>
+                <Text style={styles.inputLabel}>{t('auth.password')}</Text>
                 <View
                   style={[
                     styles.inputContainer,
@@ -215,17 +232,12 @@ const LoginScreen = () => {
                   </View>
                   <Controller
                     control={control}
+                    // value="111111"
                     name="password"
-                    rules={{
-                      required: 'Password is required',
-                      minLength: {
-                        value: 6,
-                        message: 'Password must be at least 6 characters',
-                      },
-                    }}
+                    rules={getValidationRules().password}
                     render={({field: {onChange, value}}) => (
                       <TextInput
-                        placeholder="Enter your password"
+                        placeholder={t('placeholders.enterPassword')}
                         placeholderTextColor="#94A3B8"
                         secureTextEntry={!showPassword}
                         style={styles.input}
@@ -262,7 +274,7 @@ const LoginScreen = () => {
                 onPress={() => navigation.navigate('ForgotPassword')}
                 activeOpacity={0.7}>
                 <Text style={styles.forgotPasswordText}>
-                  Forgot your password?
+                  {t('auth.forgotYourPassword')}
                 </Text>
               </TouchableOpacity>
 
@@ -285,11 +297,15 @@ const LoginScreen = () => {
                   {loading ? (
                     <View style={styles.loadingContainer}>
                       <ActivityIndicator color="#fff" size="small" />
-                      <Text style={styles.loadingText}>Signing In...</Text>
+                      <Text style={styles.loadingText}>
+                        {t('auth.signingIn')}
+                      </Text>
                     </View>
                   ) : (
                     <View style={styles.buttonContent}>
-                      <Text style={styles.loginButtonText}>Sign In</Text>
+                      <Text style={styles.loginButtonText}>
+                        {t('auth.signIn')}
+                      </Text>
                       <Icon name="arrow-right" size={16} color="#fff" />
                     </View>
                   )}
@@ -299,7 +315,7 @@ const LoginScreen = () => {
               {/* Divider */}
               <View style={styles.dividerContainer}>
                 <View style={styles.dividerLine} />
-                <Text style={styles.dividerText}>or</Text>
+                <Text style={styles.dividerText}>{t('common.or')}</Text>
                 <View style={styles.dividerLine} />
               </View>
 
@@ -309,25 +325,33 @@ const LoginScreen = () => {
                   style={styles.socialButton}
                   activeOpacity={0.8}>
                   <Icon name="google" size={20} color="#DB4437" />
-                  <Text style={styles.socialButtonText}>Google</Text>
+                  <Text style={styles.socialButtonText}>
+                    {t('social.google')}
+                  </Text>
                 </TouchableOpacity>
 
                 <TouchableOpacity
                   style={styles.socialButton}
                   activeOpacity={0.8}>
                   <Icon name="facebook-f" size={20} color="#4267B2" />
-                  <Text style={styles.socialButtonText}>Facebook</Text>
+                  <Text style={styles.socialButtonText}>
+                    {t('social.facebook')}
+                  </Text>
                 </TouchableOpacity>
               </View> */}
             </View>
 
             {/* Footer */}
             <View style={styles.footer}>
-              <Text style={styles.footerText}>Don't have an account? </Text>
+              <Text style={styles.footerText}>
+                {t('auth.dontHaveAccount')}{' '}
+              </Text>
               <TouchableOpacity
                 onPress={() => navigation.navigate('Register')}
                 activeOpacity={0.7}>
-                <Text style={styles.registerText}>Create Account</Text>
+                <Text style={styles.registerText}>
+                  {t('auth.createAccount')}
+                </Text>
               </TouchableOpacity>
             </View>
           </Animated.View>
@@ -589,7 +613,7 @@ const styles = StyleSheet.create({
   dividerContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    // marginVertical: 24,
+    marginVertical: 2,
   },
   dividerLine: {
     flex: 1,
@@ -639,7 +663,6 @@ const styles = StyleSheet.create({
     marginBottom: 24,
   },
   footerText: {
-    flexWrap: 'wrap',
     color: '#64748B',
     fontSize: 16,
   },

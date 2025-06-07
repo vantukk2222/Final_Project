@@ -23,7 +23,7 @@ import {useNavigation} from '@react-navigation/native';
 import Icon from 'react-native-vector-icons/FontAwesome5';
 import LinearGradient from 'react-native-linear-gradient';
 import {useTranslation} from '../contexts/TranslationContext';
-import {LanguageButton} from '../components/LanguageButton';
+// import {LanguageButton} from '../components/LanguageButton';
 
 const {width, height} = Dimensions.get('window');
 
@@ -192,7 +192,7 @@ const RegisterScreen = () => {
                     activeOpacity={0.8}>
                     <Icon name="arrow-left" size={20} color="#fff" />
                   </TouchableOpacity>
-                  <LanguageButton />
+                  {/* <LanguageButton /> */}
                 </View>
 
                 {/* Decorative Elements */}

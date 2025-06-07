@@ -21,6 +21,7 @@ import TourGuideCard from '../components/Admin/TourGuideCard';
 import TouristCard from '../components/Admin/TouristCard';
 import SearchAndFilter from '../components/Admin/SearchAndFilter';
 import TabNavigation from '../components/Admin/TabNavigation';
+import {useTranslation} from '../contexts/TranslationContext';
 
 interface TourGuide {
   id: string;
@@ -61,6 +62,7 @@ type TabType = 'overview' | 'guides' | 'tourists';
 const AdminDashboardScreen = () => {
   const {user, signOut} = useAuth();
   const navigation = useNavigation();
+  const {t} = useTranslation();
 
   // Tab state
   const [activeTab, setTitleActiveTab] = useState<TabType>('overview');
@@ -163,9 +165,9 @@ const AdminDashboardScreen = () => {
       setStatsLoading(false);
     } catch (error) {
       console.error('Error signing out:', error);
-      Alert.alert('Error', 'Failed to sign out. Please try again.');
+      Alert.alert(t('common.error'), t('admin.dashboard.failedToSignOut'));
     }
-  }, [signOut]);
+  }, [signOut, t]);
 
   const setActiveTab = useCallback((tab: TabType) => {
     setTitleActiveTab(tab);
@@ -221,6 +223,12 @@ const AdminDashboardScreen = () => {
       });
     } catch (error) {
       console.error('Error loading statistics:', error);
+      Alert.alert(
+        t('common.error'),
+        t('admin.dashboard.failedToLoadStatistics'),
+      );
+
+      setStatsLoading(false);
     }
     setStatsLoading(false);
   }, []);
@@ -245,7 +253,10 @@ const AdminDashboardScreen = () => {
           },
           error => {
             console.error('Tour guide snapshot error:', error);
-            Alert.alert('Error', 'Failed to load tour guides');
+            Alert.alert(
+              t('common.error'),
+              t('admin.dashboard.failedToLoadTourGuides'),
+            );
             setGuidesLoading(false);
           },
         );
@@ -253,7 +264,11 @@ const AdminDashboardScreen = () => {
       return () => unsubscribe();
     } catch (error) {
       console.error('Error loading tour guides:', error);
-      Alert.alert('Error', 'Failed to load tour guides');
+      Alert.alert(
+        t('common.error'),
+        t('admin.dashboard.failedToLoadTourGuides'),
+      );
+      setGuidesLoading(false);
     }
     setGuidesLoading(false);
   }, []);
@@ -278,7 +293,10 @@ const AdminDashboardScreen = () => {
           },
           error => {
             console.error('Tourist snapshot error:', error);
-            Alert.alert('Error', 'Failed to load tourists');
+            Alert.alert(
+              t('common.error'),
+              t('admin.dashboard.failedToLoadTourists'),
+            );
             setTouristsLoading(false);
           },
         );
@@ -287,7 +305,8 @@ const AdminDashboardScreen = () => {
       return () => unsubscribe();
     } catch (error) {
       console.error('Error loading tourists:', error);
-      Alert.alert('Error', 'Failed to load tourists');
+      setTouristsLoading(false);
+      Alert.alert(t('common.error'), t('admin.dashboard.failedToLoadTourists'));
     }
     setTouristsLoading(false);
   }, []);
@@ -310,13 +329,18 @@ const AdminDashboardScreen = () => {
           ),
         );
 
-        Alert.alert('Success', `Tour guide status updated to ${newStatus}`);
+        t('admin.dashboard.tourGuideStatusUpdated', {
+          status: t(`admin.dashboard.status.${newStatus}`),
+        });
         if (loadStatisticsRef.current) {
           loadStatisticsRef.current();
         }
       } catch (error) {
         console.error('Error updating status:', error);
-        Alert.alert('Error', 'Failed to update status');
+        Alert.alert(
+          t('common.error'),
+          t('admin.dashboard.failedToUpdateStatus'),
+        );
       }
     },
     [],
@@ -337,12 +361,17 @@ const AdminDashboardScreen = () => {
         );
 
         Alert.alert(
-          'Success',
-          `Tourist account ${isActive ? 'activated' : 'deactivated'}`,
+          t('common.success'),
+          isActive
+            ? t('admin.dashboard.touristAccountActivated')
+            : t('admin.dashboard.touristAccountDeactivated'),
         );
       } catch (error) {
         console.error('Error updating tourist status:', error);
-        Alert.alert('Error', 'Failed to update tourist status');
+        Alert.alert(
+          t('common.error'),
+          t('admin.dashboard.failedToUpdateTouristStatus'),
+        );
       }
     },
     [],
@@ -355,24 +384,39 @@ const AdminDashboardScreen = () => {
       userName: string,
       isGuide: boolean = true,
     ) => {
-      const actionText = isGuide
-        ? {
-            approved: 'approve',
-            rejected: 'reject',
-            suspended: 'suspend',
-            pending: 'set as pending',
-          }[newStatus]
-        : newStatus === 'true'
-        ? 'activate'
-        : 'deactivate';
+      let actionText: string;
 
+      if (isGuide) {
+        const statusActions = {
+          approved: t('admin.dashboard.actions.approve'),
+          rejected: t('admin.dashboard.actions.reject'),
+          suspended: t('admin.dashboard.actions.suspend'),
+          pending: t('admin.dashboard.actions.setPending'),
+        };
+        actionText = statusActions[newStatus as keyof typeof statusActions];
+      } else {
+        actionText =
+          newStatus === 'true'
+            ? t('admin.dashboard.actions.activate')
+            : t('admin.dashboard.actions.deactivate');
+      }
+      actionText = actionText.toLowerCase();
+      console.log('Action Text:', actionText);
       Alert.alert(
-        'Confirm Action',
-        `Are you sure you want to ${actionText} ${userName || 'this user'}?`,
+        t('admin.dashboard.confirmAction'),
+        actionText === 'approve'
+          ? t('admin.dashboard.approveActionMessage')
+          : actionText === 'reject'
+          ? t('admin.dashboard.rejectActionMessage')
+          : actionText === 'suspend'
+          ? t('admin.dashboard.suspendActionMessage')
+          : actionText === 'reactivate'
+          ? t('admin.dashboard.reactivateActionMessage')
+          : t('admin.dashboard.deactivateActionMessage'),
         [
-          {text: 'Cancel', style: 'cancel'},
+          {text: t('common.cancel'), style: 'cancel'},
           {
-            text: 'Confirm',
+            text: t('common.confirm'),
             onPress: () => {
               if (isGuide) {
                 updateTourGuideStatus(userId, newStatus);
@@ -388,7 +432,7 @@ const AdminDashboardScreen = () => {
         ],
       );
     },
-    [updateTourGuideStatus, updateTouristStatus],
+    [updateTourGuideStatus, updateTouristStatus, t],
   );
 
   // Filter functions
@@ -477,11 +521,13 @@ const AdminDashboardScreen = () => {
           color="#ccc"
         />
         <Text style={styles.emptyText}>
-          No {activeTab === 'guides' ? 'tour guides' : 'tourists'} found
+          {activeTab === 'guides'
+            ? t('admin.dashboard.noTourGuidesFound')
+            : t('admin.dashboard.noTouristsFound')}
         </Text>
       </View>
     ),
-    [activeTab],
+    [activeTab, t],
   );
 
   const renderLoadingComponent = useCallback(
@@ -489,16 +535,19 @@ const AdminDashboardScreen = () => {
       <View style={styles.loadingContainer}>
         <ActivityIndicator size="large" color="#5B72EF" />
         <Text style={styles.loadingText}>
-          Loading {activeTab === 'guides' ? 'tour guides' : 'tourists'}...
+          {activeTab === 'guides'
+            ? t('admin.dashboard.loadingTourGuides')
+            : t('admin.dashboard.loadingTourists')}
         </Text>
       </View>
     ),
-    [activeTab],
+    [activeTab, t],
   );
+
   const searchAndFilterComponent = useMemo(
     () => (
       <SearchAndFilter
-        key={activeTab} // Simple key based on tab
+        key={activeTab}
         searchQuery={
           activeTab === 'guides' ? guidesSearchQuery : touristsSearchQuery
         }
@@ -509,8 +558,8 @@ const AdminDashboardScreen = () => {
         }
         searchPlaceholder={
           activeTab === 'guides'
-            ? 'Search tour guides...'
-            : 'Search tourists...'
+            ? t('admin.dashboard.searchTourGuides')
+            : t('admin.dashboard.searchTourists')
         }
         filterOptions={activeTab === 'guides' ? guidesFilterOptions : undefined}
         activeFilter={activeTab === 'guides' ? guidesFilter : undefined}
@@ -519,7 +568,7 @@ const AdminDashboardScreen = () => {
         }
       />
     ),
-    [activeTab, guidesSearchQuery, touristsSearchQuery, guidesFilter],
+    [activeTab, guidesSearchQuery, touristsSearchQuery, guidesFilter, t],
   );
 
   const renderHeader = useCallback(
@@ -529,12 +578,10 @@ const AdminDashboardScreen = () => {
 
   return (
     <SafeAreaView style={styles.container}>
-      {/* <Loading isLoading={statsLoading} /> */}
-
       {/* Header */}
       <View style={styles.header}>
         <View style={styles.headerLeft}>
-          <Text style={styles.headerTitle}>Admin Dashboard</Text>
+          <Text style={styles.headerTitle}>{t('admin.dashboard.title')}</Text>
         </View>
         <TouchableOpacity onPress={handleSignOut} style={styles.logoutButton}>
           <Icon name="sign-out-alt" size={20} color="#EF4444" />
@@ -566,8 +613,8 @@ const AdminDashboardScreen = () => {
           maxToRenderPerBatch={10}
           updateCellsBatchingPeriod={50}
           windowSize={21}
-          stickyHeaderIndices={[0]} // Make search bar sticky
-          keyboardShouldPersistTaps="handled" // QUAN TRỌNG - giữ keyboard
+          stickyHeaderIndices={[0]}
+          keyboardShouldPersistTaps="handled"
         />
       )}
     </SafeAreaView>

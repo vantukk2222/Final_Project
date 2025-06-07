@@ -48,7 +48,7 @@
     "confirmPassword": "Confirm Password",
     "forgotPassword": "Forgot Password?",
     "forgotYourPassword": "Forgot your password?",
-    "loginError": "Login failed. Please check your credentials.",
+    "loginError": "Login failed. Please check your email or password.",
     "loginFailed": "Login Failed",
     "registerSuccess": "Registration successful!",
     "name": "Full Name",
@@ -293,6 +293,7 @@
     "noMessagesYet": "No messages yet",
     "sendMessage": "Send Message",
     "typeYourMessage": "Type a message...",
+    
     "send": "Send",
     "messageSent": "Message sent",
     "messageFailed": "Message failed to send",
@@ -301,7 +302,14 @@
     "deleteMessage": "Delete Message",
     "deleteMessageConfirmation": "Are you sure you want to delete this message?",
     "messageDeleted": "Message deleted",
-    "messageNotFound": "Message not found"
+    "messageNotFound": "Message not found",
+    "translate": "Translate",
+    "showOriginal": "Original",
+    "showTranslation": "Translated",
+    "translating": "Translating...",
+    "translated": "Translated",
+    "translationError": "Translation Error",
+    "translationFailed": "Failed to translate message. Please try again."
   },
   
   "chatMembers": {
@@ -404,7 +412,23 @@
     "failedToChangePassword": "Failed to change password",
     "currentPasswordIncorrect": "Current password is incorrect",
     "newPasswordTooWeak": "New password is too weak",
-    "pleaseLogoutAndLoginAgain": "Please log out and log back in, then try again"
+    "pleaseLogoutAndLoginAgain": "Please log out and log back in, then try again",
+    
+    "language": "Language",
+    "changeAppLanguage": "Change app language"
+  },
+  
+  "languageModal": {
+    "selectLanguage": "Select Language",
+    "choosePreferredLanguage": "Choose your preferred language",
+    "current": "Current",
+    "applyLanguage": "Apply change",
+    "updating": "Updating...",
+    "languageChanged": "Language Changed",
+    "restartRequired": "The app needs to restart to apply the new language. Do you want to restart now?",
+    "restartNow": "Restart Now",
+    "failedToUpdateLanguage": "Failed to update language preference",
+    "restartNote": "App will restart automatically to apply the new language"
   },
   
   "viewUserProfile": {

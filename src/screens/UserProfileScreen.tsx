@@ -23,6 +23,7 @@ import Icon from 'react-native-vector-icons/MaterialIcons';
 import Loading from '../components/Loading';
 import {useNavigation} from '@react-navigation/native';
 import LinearGradient from 'react-native-linear-gradient';
+import LanguageSelectionModal from '../components/SystemLan';
 
 const {width} = Dimensions.get('window');
 
@@ -48,6 +49,7 @@ const UserProfileScreen = () => {
   const [showCurrentPassword, setShowCurrentPassword] = useState(false);
   const [showNewPassword, setShowNewPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+  const [showLanguageModal, setShowLanguageModal] = useState(false);
 
   useEffect(() => {
     if (!userId) {
@@ -429,6 +431,20 @@ const UserProfileScreen = () => {
 
           {/* Actions Section */}
           <View style={styles.actionsSection}>
+            <TouchableOpacity
+              style={styles.actionButton}
+              onPress={() => setShowLanguageModal(true)}>
+              <View style={styles.actionIconContainer}>
+                <Icon name="language" size={20} color="#4AC6D0" />
+              </View>
+              <View style={styles.actionContent}>
+                <Text style={styles.actionTitle}>{t('profile.language')}</Text>
+                <Text style={styles.actionSubtitle}>
+                  {t('profile.changeAppLanguage')}
+                </Text>
+              </View>
+              <Icon name="chevron-right" size={20} color="#9CA3AF" />
+            </TouchableOpacity>
             {/* Change Password Button */}
             <TouchableOpacity
               style={styles.actionButton}
@@ -499,6 +515,10 @@ const UserProfileScreen = () => {
       </ScrollView>
 
       {renderPasswordModal()}
+      <LanguageSelectionModal
+        visible={showLanguageModal}
+        onClose={() => setShowLanguageModal(false)}
+      />
     </SafeAreaView>
   );
 };
@@ -539,17 +559,17 @@ const styles = StyleSheet.create({
   },
   avatarSection: {
     alignItems: 'center',
-    paddingVertical: 30,
+    paddingVertical: 15,
     backgroundColor: '#fff',
-    marginBottom: 20,
+    marginBottom: 10,
   },
   avatarContainer: {
     position: 'relative',
     marginBottom: 8,
   },
   avatar: {
-    width: 120,
-    height: 120,
+    width: 80,
+    height: 80,
     borderRadius: 60,
     backgroundColor: '#E5E7EB',
     borderWidth: 4,
