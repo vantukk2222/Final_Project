@@ -1,4 +1,11 @@
-import React, {useEffect, useState, useRef, useTransition} from 'react';
+import React, {
+  useEffect,
+  useState,
+  useRef,
+  useCallback,
+  useMemo,
+  memo,
+} from 'react';
 import {
   View,
   Text,
@@ -11,10 +18,10 @@ import {
   SafeAreaView,
   KeyboardAvoidingView,
   Platform,
-  PermissionsAndroid,
   StatusBar,
   Animated,
   ActivityIndicator,
+  Dimensions,
 } from 'react-native';
 import firestore from '@react-native-firebase/firestore';
 import {launchImageLibrary} from 'react-native-image-picker';
@@ -32,286 +39,597 @@ import {useSocket} from '../contexts/SocketContext';
 import {useTranslation} from '../contexts/TranslationContext';
 import {translationTextService as translationService} from '../services/translationText';
 
-const getFileTypeInfo = (fileName: string) => {
-  const extension = fileName?.split('.').pop()?.toLowerCase();
+// Types
+interface Message {
+  id: string;
+  from: string;
+  to: string;
+  text?: string;
+  imageUrl?: string;
+  fileURL?: string;
+  fileName?: string;
+  timestamp?: any;
+  type?: 'message' | 'date';
+  date?: string;
+}
 
-  switch (extension) {
-    case 'pdf':
-      return {
-        icon: 'picture-as-pdf',
-        color: '#EF4444',
-        bgColor: 'rgba(239, 68, 68, 0.15)',
-      };
-    case 'doc':
-    case 'docx':
-      return {
-        icon: 'description',
-        color: '#3B82F6',
-        bgColor: 'rgba(59, 130, 246, 0.15)',
-      };
-    case 'xls':
-    case 'xlsx':
-      return {
-        icon: 'grid-on',
-        color: '#10B981',
-        bgColor: 'rgba(16, 185, 129, 0.15)',
-      };
-    case 'ppt':
-    case 'pptx':
-      return {
-        icon: 'slideshow',
-        color: '#F59E0B',
-        bgColor: 'rgba(245, 158, 11, 0.15)',
-      };
-    case 'zip':
-    case 'rar':
-      return {
-        icon: 'archive',
-        color: '#8B5CF6',
-        bgColor: 'rgba(139, 92, 246, 0.15)',
-      };
-    default:
-      return {
-        icon: 'attach-file',
-        color: '#4AC6D0',
-        bgColor: 'rgba(74, 198, 208, 0.15)',
-      };
-  }
+interface TranslationState {
+  [messageId: string]: {
+    translatedText: string;
+    isTranslating: boolean;
+    showOriginal: boolean;
+  };
+}
+
+interface UserData {
+  [userId: string]: {
+    name: string;
+    avatar: string;
+  };
+}
+
+// Constants
+const {width} = Dimensions.get('window');
+const CLOUD_CONFIG = {
+  name: 'djlhfgzbw',
+  uploadPreset: 'chatapp',
 };
 
-const ChatScreen = ({route}: any) => {
-  const {user} = useAuth();
-  const {emit} = useSocket(); // Add socket context
+const FILE_TYPE_MAP = Object.freeze({
+  pdf: {
+    icon: 'picture-as-pdf',
+    color: '#EF4444',
+    bgColor: 'rgba(239, 68, 68, 0.15)',
+  },
+  doc: {
+    icon: 'description',
+    color: '#3B82F6',
+    bgColor: 'rgba(59, 130, 246, 0.15)',
+  },
+  docx: {
+    icon: 'description',
+    color: '#3B82F6',
+    bgColor: 'rgba(59, 130, 246, 0.15)',
+  },
+  xls: {icon: 'grid-on', color: '#10B981', bgColor: 'rgba(16, 185, 129, 0.15)'},
+  xlsx: {
+    icon: 'grid-on',
+    color: '#10B981',
+    bgColor: 'rgba(16, 185, 129, 0.15)',
+  },
+  ppt: {
+    icon: 'slideshow',
+    color: '#F59E0B',
+    bgColor: 'rgba(245, 158, 11, 0.15)',
+  },
+  pptx: {
+    icon: 'slideshow',
+    color: '#F59E0B',
+    bgColor: 'rgba(245, 158, 11, 0.15)',
+  },
+  zip: {icon: 'archive', color: '#8B5CF6', bgColor: 'rgba(139, 92, 246, 0.15)'},
+  rar: {icon: 'archive', color: '#8B5CF6', bgColor: 'rgba(139, 92, 246, 0.15)'},
+});
 
-  const userId = user?.uid;
-  const {chatId, toUserId, avatar} = route.params || {};
-  const [name, setName] = useState(route.params?.name || '');
-  const [message, setMessage] = useState('');
-  const [messages, setMessages] = useState<any[]>([]);
-  const [selectedImage, setSelectedImage] = useState<string | null>(null);
-  const [userAvatars, setUserAvatars] = useState<any>({});
-  const [userNames, setUserNames] = useState<any>({});
-  const [isTyping, setIsTyping] = useState(false);
-  const flatListRef = useRef<FlatList>(null);
-  const fadeAnim = useRef(new Animated.Value(0)).current;
+// Utility functions - memoized
+const getFileTypeInfo = (fileName: string) => {
+  const extension = fileName?.split('.').pop()?.toLowerCase();
+  return (
+    FILE_TYPE_MAP[extension as keyof typeof FILE_TYPE_MAP] || {
+      icon: 'attach-file',
+      color: '#4AC6D0',
+      bgColor: 'rgba(74, 198, 208, 0.15)',
+    }
+  );
+};
+
+const formatDisplayDate = (dateStr: string) => {
+  console.log('dateStr:', dateStr);
+  const today = moment().startOf('day');
+  const target = moment(dateStr);
+
+  if (target.isSame(today, 'day')) {
+    return 'Today';
+  }
+  if (target.isSame(today.clone().subtract(1, 'day'), 'day')) {
+    return 'Yesterday';
+  }
+  if (target.isAfter(today.clone().subtract(6, 'days'))) {
+    return target.format('dddd');
+  }
+  return target.format('MMM D, YYYY');
+};
+
+// Memoized Components
+const DateSeparator = memo(
+  ({date}: {date: string}) => (
+    console.log('Rendering DateSeparator:', date),
+    (
+      <View style={styles.dateSeparator}>
+        <View style={styles.dateLine} />
+        <Text style={styles.dateText}>{formatDisplayDate(date)}</Text>
+        <View style={styles.dateLine} />
+      </View>
+    )
+  ),
+);
+
+const TranslationControls = memo(
+  ({
+    messageId,
+    messageText,
+    isTranslated,
+    isTranslating,
+    showOriginal,
+    onTranslate,
+    t,
+  }: {
+    messageId: string;
+    messageText: string;
+    isTranslated: boolean;
+    isTranslating: boolean;
+    showOriginal: boolean;
+    onTranslate: (id: string, text: string) => void;
+    t: (key: string) => string;
+  }) => {
+    const handlePress = useCallback(() => {
+      onTranslate(messageId, messageText);
+    }, [messageId, messageText, onTranslate]);
+
+    const buttonText = useMemo(() => {
+      if (isTranslated && !showOriginal) {
+        return t('chatScreen.showOriginal');
+      }
+      if (isTranslated && showOriginal) {
+        return t('chatScreen.showTranslation');
+      }
+      return t('chatScreen.translate');
+    }, [isTranslated, showOriginal, t]);
+
+    return (
+      <View style={styles.translationControls}>
+        <TouchableOpacity
+          style={styles.translateButton}
+          onPress={handlePress}
+          disabled={isTranslating}>
+          {isTranslating ? (
+            <View style={styles.translatingContainer}>
+              <ActivityIndicator size="small" color="#4AC6D0" />
+              <Text style={styles.translatingText}>
+                {t('chatScreen.translating')}
+              </Text>
+            </View>
+          ) : (
+            <View style={styles.translateButtonContent}>
+              <Icon
+                name="translate"
+                size={14}
+                color="#4AC6D0"
+                style={styles.translateIcon}
+              />
+              <Text style={styles.translateButtonText}>{buttonText}</Text>
+            </View>
+          )}
+        </TouchableOpacity>
+
+        {isTranslated && !showOriginal && (
+          <View style={styles.translationIndicator}>
+            <Icon name="check" size={12} color="#10B981" />
+            <Text style={styles.translationIndicatorText}>
+              {t('chatScreen.translated')}
+            </Text>
+          </View>
+        )}
+      </View>
+    );
+  },
+);
+
+const MessageBubble = memo(
+  ({
+    message,
+    isCurrentUser,
+    userName,
+    messageAvatar,
+    translationState,
+    onTranslate,
+    onImagePress,
+    onFileDownload,
+    t,
+  }: {
+    message: Message;
+    isCurrentUser: boolean;
+    userName: string;
+    messageAvatar: string;
+    translationState: TranslationState[string];
+    onTranslate: (id: string, text: string) => void;
+    onImagePress: (url: string) => void;
+    onFileDownload: (url: string, fileName: string) => void;
+    t: (key: string) => string;
+  }) => {
+    const handleImagePress = useCallback(() => {
+      if (message.imageUrl) {
+        onImagePress(message.imageUrl);
+      }
+    }, [message.imageUrl, onImagePress]);
+
+    const handleFilePress = useCallback(() => {
+      if (message.fileURL && message.fileName) {
+        onFileDownload(message.fileURL, message.fileName);
+      }
+    }, [message.fileURL, message.fileName, onFileDownload]);
+
+    const displayText = useMemo(() => {
+      if (!message.text) {
+        return '';
+      }
+      if (translationState?.translatedText && !translationState.showOriginal) {
+        return translationState.translatedText;
+      }
+      return message.text;
+    }, [message.text, translationState]);
+
+    const fileInfo = useMemo(() => {
+      return message.fileName ? getFileTypeInfo(message.fileName) : null;
+    }, [message.fileName]);
+
+    return (
+      <Animated.View
+        style={[
+          styles.messageContainer,
+          isCurrentUser ? styles.sentContainer : styles.receivedContainer,
+        ]}>
+        {!isCurrentUser && (
+          <AvatarStatus
+            avatarUrl={messageAvatar}
+            size={36}
+            style={styles.messageAvatar}
+          />
+        )}
+
+        <View style={styles.messageContentContainer}>
+          {!isCurrentUser && (
+            <Text style={styles.messageSenderName}>{userName}</Text>
+          )}
+
+          {/* Text Message */}
+          {message.text && (
+            <View style={styles.messageWrapper}>
+              <View
+                style={[
+                  styles.messageBubble,
+                  isCurrentUser ? styles.sentBubble : styles.receivedBubble,
+                ]}>
+                <Text
+                  style={isCurrentUser ? styles.sentText : styles.receivedText}>
+                  {displayText}
+                </Text>
+              </View>
+
+              <TranslationControls
+                messageId={message.id}
+                messageText={message.text}
+                isTranslated={!!translationState?.translatedText}
+                isTranslating={translationState?.isTranslating || false}
+                showOriginal={translationState?.showOriginal || false}
+                onTranslate={onTranslate}
+                t={t}
+              />
+            </View>
+          )}
+
+          {/* Image Message */}
+          {message.imageUrl && (
+            <TouchableOpacity
+              onPress={handleImagePress}
+              style={[
+                styles.imageContainer,
+                isCurrentUser
+                  ? styles.sentImageContainer
+                  : styles.receivedImageContainer,
+              ]}>
+              <Image
+                source={{uri: message.imageUrl}}
+                style={styles.imageMessage}
+                resizeMode="cover"
+              />
+              <View style={styles.imageOverlay}>
+                <Icon name="zoom-in" size={24} color="rgba(255,255,255,0.8)" />
+              </View>
+            </TouchableOpacity>
+          )}
+
+          {/* File Message */}
+          {message.fileURL && fileInfo && (
+            <TouchableOpacity
+              onPress={handleFilePress}
+              style={[
+                styles.fileContainer,
+                isCurrentUser
+                  ? styles.sentFileContainer
+                  : styles.receivedFileContainer,
+              ]}
+              activeOpacity={0.7}>
+              <View
+                style={[
+                  styles.fileIconContainer,
+                  {backgroundColor: fileInfo.bgColor},
+                ]}>
+                <Icon name={fileInfo.icon} size={22} color={fileInfo.color} />
+              </View>
+              <View style={styles.fileInfo}>
+                <Text
+                  style={styles.fileName}
+                  numberOfLines={2}
+                  ellipsizeMode="middle">
+                  {message.fileName || 'Unknown File'}
+                </Text>
+                <Text style={styles.fileAction}>Tap to download</Text>
+              </View>
+              <View style={styles.fileDownloadIcon}>
+                <Icon name="download" size={18} color="#4AC6D0" />
+              </View>
+            </TouchableOpacity>
+          )}
+
+          <Text
+            style={[
+              styles.timeStamp,
+              {alignSelf: isCurrentUser ? 'flex-end' : 'flex-start'},
+            ]}>
+            {message.timestamp
+              ? moment(message.timestamp.toDate()).format('HH:mm')
+              : ''}
+          </Text>
+        </View>
+
+        {isCurrentUser && (
+          <AvatarStatus
+            avatarUrl={messageAvatar}
+            size={36}
+            style={styles.currentUserAvatar}
+          />
+        )}
+      </Animated.View>
+    );
+  },
+);
+
+const ChatHeader = memo(
+  ({
+    name,
+    avatar,
+    onBack,
+    onMembersPress,
+    user,
+    chatId,
+  }: {
+    name: string;
+    avatar: string;
+    onBack: () => void;
+    onMembersPress: () => void;
+    user: any;
+    chatId: string;
+  }) => (
+    <LinearGradient colors={['#4AC6D0', '#3BB8C3']} style={styles.header}>
+      <View style={styles.headerLeft}>
+        <TouchableOpacity onPress={onBack} style={styles.backButton}>
+          <Icon name="arrow-back" size={24} color="#fff" />
+        </TouchableOpacity>
+
+        <TouchableOpacity style={styles.headerProfile} onPress={onMembersPress}>
+          <Image
+            source={
+              avatar ? {uri: avatar} : require('../assets/default-avatar.png')
+            }
+            style={styles.avatar}
+          />
+          <View style={styles.headerInfo}>
+            <Text style={styles.headerName}>{name}</Text>
+          </View>
+        </TouchableOpacity>
+      </View>
+
+      <View style={styles.headerRight}>
+        <CallStarter user={user} chatId={chatId} />
+      </View>
+    </LinearGradient>
+  ),
+);
+
+const MessageInput = memo(
+  ({
+    message,
+    onChangeText,
+    onSend,
+    onPickImage,
+    onFileUpload,
+    t,
+  }: {
+    message: string;
+    onChangeText: (text: string) => void;
+    onSend: () => void;
+    onPickImage: () => void;
+    onFileUpload: (url: string, fileName: string) => void;
+    t: (key: string) => string;
+  }) => {
+    const canSend = message.trim() !== '';
+
+    return (
+      <View style={styles.inputSection}>
+        <View style={styles.inputContainer}>
+          <View style={styles.inputActions}>
+            <FileUpload onFileUploaded={onFileUpload} />
+            <TouchableOpacity onPress={onPickImage} style={styles.actionButton}>
+              <Icon name="photo-camera" size={20} color="#4AC6D0" />
+            </TouchableOpacity>
+          </View>
+
+          <TextInput
+            value={message}
+            onChangeText={onChangeText}
+            placeholder={t('chatScreen.typeYourMessage')}
+            placeholderTextColor="#9CA3AF"
+            style={styles.input}
+            multiline
+            maxLength={1000}
+          />
+
+          <TouchableOpacity
+            onPress={onSend}
+            style={[
+              styles.sendButton,
+              canSend ? styles.sendButtonActive : styles.sendButtonDisabled,
+            ]}
+            disabled={!canSend}>
+            <LinearGradient
+              colors={canSend ? ['#4AC6D0', '#3BB8C3'] : ['#BDC3C7', '#BDC3C7']}
+              style={styles.sendButtonGradient}>
+              <Icon name="send" size={20} color="#FFFFFF" />
+            </LinearGradient>
+          </TouchableOpacity>
+        </View>
+      </View>
+    );
+  },
+);
+
+// Main Component
+const ChatScreen: React.FC<{route: any}> = ({route}) => {
+  const {user} = useAuth();
+  const {emit} = useSocket();
   const {t, currentLanguage: language} = useTranslation();
   const navigation = useNavigation<any>();
 
-  const [translatedMessages, setTranslatedMessages] = useState<{
-    [key: string]: string;
-  }>({});
-  const [translatingMessages, setTranslatingMessages] = useState<{
-    [key: string]: boolean;
-  }>({});
-  const [showOriginalMessages, setShowOriginalMessages] = useState<{
-    [key: string]: boolean;
-  }>({});
+  // Route params
+  const {chatId, toUserId, avatar} = route.params || {};
+  const userId = user?.uid;
 
-  const handleTranslateMessage = async (
-    messageId: string,
-    messageText: string,
-  ) => {
-    try {
-      // If already translated and showing translated text, show original
-      if (translatedMessages[messageId] && !showOriginalMessages[messageId]) {
-        setShowOriginalMessages(prev => ({
-          ...prev,
-          [messageId]: true,
-        }));
-        return;
-      }
+  // State
+  const [name, setName] = useState(route.params?.name || '');
+  const [message, setMessage] = useState('');
+  const [messages, setMessages] = useState<Message[]>([]);
+  const [selectedImage, setSelectedImage] = useState<string | null>(null);
+  const [userData, setUserData] = useState<UserData>({});
+  const [translationState, setTranslationState] = useState<TranslationState>(
+    {},
+  );
 
-      // If showing original, show translated again
-      if (showOriginalMessages[messageId]) {
-        setShowOriginalMessages(prev => ({
-          ...prev,
-          [messageId]: false,
-        }));
-        return;
-      }
+  // Refs
+  const flatListRef = useRef<FlatList>(null);
+  const fadeAnim = useRef(new Animated.Value(0)).current;
 
-      // Start translation
-      setTranslatingMessages(prev => ({
-        ...prev,
-        [messageId]: true,
-      }));
+  // Memoized grouped messages
+  const groupedMessages = useMemo(() => {
+    const grouped: Message[] = [];
+    let lastDate = '';
 
-      const result = await translationService.translateText(
-        messageText,
-        language,
+    messages.forEach(msg => {
+      const dateStr = moment(msg.timestamp?.toDate?.() || new Date()).format(
+        'YYYY-MM-DD',
       );
+      if (dateStr !== lastDate) {
+        grouped.push({
+          type: 'date',
+          date: dateStr,
+          id: `date-${dateStr}`,
+        } as Message);
+        lastDate = dateStr;
+      }
+      grouped.push({type: 'message', ...msg} as Message);
+    });
 
-      setTranslatedMessages(prev => ({
-        ...prev,
-        [messageId]: result.translatedText,
-      }));
-
-      setShowOriginalMessages(prev => ({
-        ...prev,
-        [messageId]: false,
-      }));
-    } catch (error) {
-      console.error('Translation error:', error);
-      Alert.alert(
-        t('chatScreen.translationError'),
-        error.message || t('chatScreen.translationFailed'),
-      );
-    } finally {
-      setTranslatingMessages(prev => ({
-        ...prev,
-        [messageId]: false,
-      }));
-    }
-  };
-
-  // Animated entrance
-  useEffect(() => {
-    Animated.timing(fadeAnim, {
-      toValue: 1,
-      duration: 300,
-      useNativeDriver: true,
-    }).start();
-  }, []);
-
-  // Auto scroll to bottom when messages change
-  useEffect(() => {
-    if (messages.length > 0 && flatListRef.current) {
-      setTimeout(() => {
-        flatListRef.current?.scrollToEnd({animated: true});
-      }, 100);
-    }
+    return grouped;
   }, [messages]);
 
-  // Request permissions on Android
-  const requestPermissions = async () => {
-    if (Platform.OS === 'android') {
-      const granted = await PermissionsAndroid.requestMultiple([
-        PermissionsAndroid.PERMISSIONS.RECORD_AUDIO,
-        PermissionsAndroid.PERMISSIONS.CAMERA,
-      ]);
-      if (
-        granted['android.permission.RECORD_AUDIO'] !== 'granted' ||
-        granted['android.permission.CAMERA'] !== 'granted'
-      ) {
-        Alert.alert(
-          'Permission Denied',
-          'Audio and Camera permissions are required for the call',
-        );
-        return;
-      }
-    }
-  };
+  // Translation handler - optimized
+  const handleTranslateMessage = useCallback(
+    async (messageId: string, messageText: string) => {
+      const currentState = translationState[messageId];
 
-  const uploadFile = async (url: string, fileName: string) => {
-    await firestore()
-      .collection('chats')
-      .doc(chatId)
-      .collection('messages')
-      .add({
-        from: userId,
-        to: toUserId,
-        fileURL: url,
-        fileName: fileName,
-        timestamp: firestore.FieldValue.serverTimestamp(),
-      });
-
-    await firestore()
-      .collection('chats')
-      .doc(chatId)
-      .set(
-        {
-          lastMessage: fileName,
-          lastMessageTime: firestore.FieldValue.serverTimestamp(),
-          lastSender: userId,
-          lastSenderName: user?.name || user?.email,
-          messageType: 'file',
-        },
-        {merge: true},
-      );
-  };
-
-  // Listen to chat data changes
-  useEffect(() => {
-    const unsubscribeChat = firestore()
-      .collection('chats')
-      .doc(chatId)
-      .onSnapshot(async chatDoc => {
-        const chatData = chatDoc.data();
-        if (!chatData) {
-          setName('Untitled Group');
-        } else if (!chatData.members || chatData.members.length === 0) {
-          setName(chatData.name || 'Untitled Group');
+      try {
+        // Toggle states
+        if (currentState?.translatedText && !currentState.showOriginal) {
+          setTranslationState(prev => ({
+            ...prev,
+            [messageId]: {...prev[messageId], showOriginal: true},
+          }));
+          return;
         }
-      });
 
-    return () => unsubscribeChat();
-  }, [chatId]);
+        if (currentState?.showOriginal) {
+          setTranslationState(prev => ({
+            ...prev,
+            [messageId]: {...prev[messageId], showOriginal: false},
+          }));
+          return;
+        }
 
-  // Listen to messages
-  useEffect(() => {
-    const unsubscribe = firestore()
-      .collection('chats')
-      .doc(chatId)
-      .collection('messages')
-      .orderBy('timestamp', 'asc')
-      .onSnapshot(querySnapshot => {
-        const msgs: any[] = [];
-        querySnapshot.forEach(doc => {
-          msgs.push({id: doc.id, ...doc.data()});
-        });
-        setMessages(msgs);
-      });
+        // Start translation
+        setTranslationState(prev => ({
+          ...prev,
+          [messageId]: {
+            translatedText: '',
+            isTranslating: true,
+            showOriginal: false,
+          },
+        }));
 
-    return () => unsubscribe();
-  }, [chatId]);
+        const result = await translationService.translateText(
+          messageText,
+          language,
+        );
 
-  // Fetch user data
-  useEffect(() => {
-    const fetchUserNames = async () => {
-      const userIds = [...new Set(messages.map(msg => msg.from))];
-      if (userIds.length === 0) {
-        return;
+        setTranslationState(prev => ({
+          ...prev,
+          [messageId]: {
+            translatedText: result.translatedText,
+            isTranslating: false,
+            showOriginal: false,
+          },
+        }));
+      } catch (error: any) {
+        console.error('Translation error:', error);
+        Alert.alert(
+          t('chatScreen.translationError'),
+          error.message || t('chatScreen.translationFailed'),
+        );
+
+        setTranslationState(prev => ({
+          ...prev,
+          [messageId]: {
+            ...prev[messageId],
+            isTranslating: false,
+          },
+        }));
       }
+    },
+    [translationState, language, t],
+  );
 
-      const usersSnapshot = await firestore()
-        .collection('users')
-        .where(firestore.FieldPath.documentId(), 'in', userIds)
-        .get();
-
-      const names: any = {};
-      const avatars: any = {};
-      usersSnapshot.forEach(doc => {
-        names[doc.id] = doc.data()?.name || doc.data().email;
-        avatars[doc.id] = doc.data()?.avatar?.url || null;
-      });
-      setUserNames(names);
-      setUserAvatars(avatars);
-    };
-
-    fetchUserNames();
-  }, [messages]);
-  const handleSend = async () => {
+  // Send message handler - optimized
+  const handleSend = useCallback(async () => {
     if (message.trim() === '') {
       return;
     }
 
     const messageText = message.trim();
-    setMessage(''); // Clear input immediately
+    setMessage('');
 
     try {
-      // Add message to Firestore
+      const messageData = {
+        from: userId,
+        to: toUserId,
+        text: messageText,
+        timestamp: firestore.FieldValue.serverTimestamp(),
+      };
+
       await firestore()
         .collection('chats')
         .doc(chatId)
         .collection('messages')
-        .add({
-          from: userId,
-          to: toUserId,
-          text: messageText,
-          timestamp: firestore.FieldValue.serverTimestamp(),
-        });
+        .add(messageData);
 
-      // Update chat metadata
       await firestore()
         .collection('chats')
         .doc(chatId)
@@ -326,84 +644,51 @@ const ChatScreen = ({route}: any) => {
           {merge: true},
         );
 
-      // Get chat members for notification
+      // Socket notification
       const chatDoc = await firestore().collection('chats').doc(chatId).get();
       if (chatDoc.exists) {
         const chatData = chatDoc.data();
-        const allMemberIds = chatData?.members || [];
+        const recipientIds = (chatData?.members || []).filter(
+          (id: string) => id !== userId,
+        );
 
-        // Lọc ra những người nhận (không bao gồm người gửi)
-        const recipientIds = allMemberIds.filter(id => id !== userId);
-        // Emit socket event for push notifications
         emit('send_message', {
           chatId,
           senderId: userId,
           message: messageText,
-          memberIds: recipientIds, // Chỉ recipients
+          memberIds: recipientIds,
         });
       }
     } catch (error) {
       console.error('Error sending message:', error);
       Alert.alert('Error', 'Failed to send message. Please try again.');
     }
-  };
-  const handleFileDownload = async (fileURL: string, fileName: string) => {
-    try {
-      const downloadDest =
-        Platform.OS === 'android'
-          ? `${RNFS.DownloadDirectoryPath}/${fileName}`
-          : `${RNFS.DocumentDirectoryPath}/${fileName}`;
+  }, [message, userId, toUserId, chatId, user, emit]);
 
-      const res = await RNFS.downloadFile({
-        fromUrl: fileURL,
-        toFile: downloadDest,
-      }).promise;
-
-      if (res.statusCode === 200) {
-        Alert.alert('Download Complete', `File saved to: ${downloadDest}`);
-      } else {
-        Alert.alert('Error', `Download failed with code: ${res.statusCode}`);
-      }
-    } catch (error) {
-      console.error('Download error:', error);
-      Alert.alert('Download Error', 'Unable to download file.');
-    }
-  };
-
-  const handlePickImage = async () => {
+  // Image picker handler - optimized
+  const handlePickImage = useCallback(async () => {
     const result = await launchImageLibrary({
       mediaType: 'photo',
       quality: 0.8,
     });
 
-    if (result.didCancel) {
+    if (result.didCancel || !result.assets?.[0]?.uri) {
       return;
     }
 
-    const asset = result.assets?.[0];
-    if (!asset || !asset.uri) {
-      return;
-    }
-
-    const uri = asset.uri;
+    const uri = result.assets[0].uri;
     const formData = new FormData();
     formData.append('file', {
       uri,
       name: 'chat-image.jpg',
       type: 'image/jpeg',
     } as any);
-
-    const cloud_name = 'djlhfgzbw';
-    const upload_preset = 'chatapp';
-    formData.append('upload_preset', upload_preset);
+    formData.append('upload_preset', CLOUD_CONFIG.uploadPreset);
 
     try {
       const res = await fetch(
-        `https://api.cloudinary.com/v1_1/${cloud_name}/image/upload`,
-        {
-          method: 'POST',
-          body: formData,
-        },
+        `https://api.cloudinary.com/v1_1/${CLOUD_CONFIG.name}/image/upload`,
+        {method: 'POST', body: formData},
       );
 
       const json = await res.json();
@@ -433,359 +718,267 @@ const ChatScreen = ({route}: any) => {
             },
             {merge: true},
           );
-      } else {
-        Alert.alert('Upload Failed', json.error?.message || 'Unknown error');
       }
     } catch (err) {
       console.error('Image upload error:', err);
       Alert.alert('Error', 'Failed to upload image');
     }
-  };
+  }, [chatId, userId, toUserId, user]);
 
-  const groupMessagesByDate = (Messages: any[]) => {
-    const grouped: any[] = [];
-    let lastDate = '';
+  // File upload handler - optimized
+  const uploadFile = useCallback(
+    async (url: string, fileName: string) => {
+      await firestore()
+        .collection('chats')
+        .doc(chatId)
+        .collection('messages')
+        .add({
+          from: userId,
+          to: toUserId,
+          fileURL: url,
+          fileName: fileName,
+          timestamp: firestore.FieldValue.serverTimestamp(),
+        });
 
-    Messages.forEach(msg => {
-      const dateStr = moment(msg.timestamp?.toDate?.() || new Date()).format(
-        'YYYY-MM-DD',
-      );
-      if (dateStr !== lastDate) {
-        grouped.push({type: 'date', date: dateStr});
-        lastDate = dateStr;
+      await firestore()
+        .collection('chats')
+        .doc(chatId)
+        .set(
+          {
+            lastMessage: fileName,
+            lastMessageTime: firestore.FieldValue.serverTimestamp(),
+            lastSender: userId,
+            lastSenderName: user?.name || user?.email,
+            messageType: 'file',
+          },
+          {merge: true},
+        );
+    },
+    [chatId, userId, toUserId, user],
+  );
+
+  // File download handler - optimized
+  const handleFileDownload = useCallback(
+    async (fileURL: string, fileName: string) => {
+      try {
+        const downloadDest =
+          Platform.OS === 'android'
+            ? `${RNFS.DownloadDirectoryPath}/${fileName}`
+            : `${RNFS.DocumentDirectoryPath}/${fileName}`;
+
+        const res = await RNFS.downloadFile({
+          fromUrl: fileURL,
+          toFile: downloadDest,
+        }).promise;
+
+        if (res.statusCode === 200) {
+          Alert.alert('Download Complete', `File saved to: ${downloadDest}`);
+        }
+      } catch (error) {
+        console.error('Download error:', error);
+        Alert.alert('Download Error', 'Unable to download file.');
       }
-      grouped.push({type: 'message', ...msg});
+    },
+    [],
+  );
+
+  // Navigation handlers - memoized
+  const handleBack = useCallback(() => {
+    navigation.navigate('ChatList');
+  }, [navigation]);
+
+  const handleMembersPress = useCallback(() => {
+    navigation.navigate('ChatMembers', {
+      chatId: chatId,
+      currentUserId: userId,
     });
+  }, [navigation, chatId, userId]);
 
-    return grouped;
-  };
+  const handleImagePress = useCallback((imageUrl: string) => {
+    setSelectedImage(imageUrl);
+  }, []);
 
-  const formatDisplayDate = (dateStr: string) => {
-    const today = moment().startOf('day');
-    const target = moment(dateStr);
+  const handleImageModalClose = useCallback(() => {
+    setSelectedImage(null);
+  }, []);
 
-    if (target.isSame(today, 'day')) {
-      return 'Today';
-    }
-    if (target.isSame(today.clone().subtract(1, 'day'), 'day')) {
-      return 'Yesterday';
-    }
-    if (target.isAfter(today.clone().subtract(6, 'days'))) {
-      return target.format('dddd');
-    }
-    return target.format('MMM D, YYYY');
-  };
+  // Render item function - memoized
+  const renderMessage = useCallback(
+    ({item}: {item: Message}) => {
+      if (item.type === 'date') {
+        return <DateSeparator date={item.date!} />;
+      }
 
-  const renderMessage = ({item}: any) => {
-    if (item.type === 'date') {
+      const isCurrentUser = item.from === userId;
+      const userInfo = userData[item.from] || {
+        name: 'Unknown User',
+        avatar: '',
+      };
+
       return (
-        <View style={styles.dateSeparator}>
-          <View style={styles.dateLine} />
-          <Text style={styles.dateText}>{formatDisplayDate(item.date)}</Text>
-          <View style={styles.dateLine} />
-        </View>
+        <MessageBubble
+          message={item}
+          isCurrentUser={isCurrentUser}
+          userName={userInfo.name}
+          messageAvatar={
+            isCurrentUser ? user?.avatar?.url || '' : userInfo.avatar
+          }
+          translationState={translationState[item.id]}
+          onTranslate={handleTranslateMessage}
+          onImagePress={handleImagePress}
+          onFileDownload={handleFileDownload}
+          t={t}
+        />
       );
+    },
+    [
+      userId,
+      userData,
+      user,
+      translationState,
+      handleTranslateMessage,
+      handleImagePress,
+      handleFileDownload,
+      t,
+    ],
+  );
+
+  // Key extractor - memoized
+  const keyExtractor = useCallback((item: Message) => item.id, []);
+
+  // Effects
+  useEffect(() => {
+    Animated.timing(fadeAnim, {
+      toValue: 1,
+      duration: 300,
+      useNativeDriver: true,
+    }).start();
+  }, [fadeAnim]);
+
+  // Auto scroll effect
+  useEffect(() => {
+    if (messages.length > 0 && flatListRef.current) {
+      setTimeout(() => {
+        flatListRef.current?.scrollToEnd({animated: true});
+      }, 100);
     }
+  }, [messages]);
 
-    const isCurrentUser = item.from === userId;
-    const messageAvatar = userAvatars[item.from] || '';
-    const userName = userNames[item.from] || 'Unknown User';
-    const isTranslated = translatedMessages[item.id];
-    const isTranslating = translatingMessages[item.id];
-    const showOriginal = showOriginalMessages[item.id];
+  // Chat data listener
+  useEffect(() => {
+    const unsubscribeChat = firestore()
+      .collection('chats')
+      .doc(chatId)
+      .onSnapshot(chatDoc => {
+        const chatData = chatDoc.data();
+        if (!chatData) {
+          setName('Untitled Group');
+        } else if (!chatData.members || chatData.members.length === 0) {
+          setName(chatData.name || 'Untitled Group');
+        }
+      });
 
-    return (
-      <Animated.View
-        style={[
-          styles.messageContainer,
-          isCurrentUser ? styles.sentContainer : styles.receivedContainer,
-          {opacity: fadeAnim},
-        ]}>
-        {!isCurrentUser && (
-          <AvatarStatus
-            avatarUrl={messageAvatar}
-            status={item?.status || 'offline'}
-            size={36}
-            style={styles.messageAvatar}
-          />
-        )}
+    return () => unsubscribeChat();
+  }, [chatId]);
 
-        <View style={styles.messageContentContainer}>
-          {!isCurrentUser && (
-            <Text style={styles.messageSenderName}>{userName}</Text>
-          )}
+  // Messages listener
+  useEffect(() => {
+    const unsubscribe = firestore()
+      .collection('chats')
+      .doc(chatId)
+      .collection('messages')
+      .orderBy('timestamp', 'asc')
+      .onSnapshot(querySnapshot => {
+        const msgs: Message[] = [];
+        querySnapshot.forEach(doc => {
+          msgs.push({id: doc.id, ...doc.data()} as Message);
+        });
+        setMessages(msgs);
+      });
 
-          {/* Text Message */}
-          {item.text && (
-            <View style={styles.messageWrapper}>
-              <View
-                style={[
-                  styles.messageBubble,
-                  isCurrentUser ? styles.sentBubble : styles.receivedBubble,
-                ]}>
-                <Text
-                  style={isCurrentUser ? styles.sentText : styles.receivedText}>
-                  {isTranslated && !showOriginal
-                    ? translatedMessages[item.id]
-                    : item.text}
-                </Text>
-              </View>
+    return () => unsubscribe();
+  }, [chatId]);
 
-              {/* Translation Controls */}
-              <View style={styles.translationControls}>
-                <TouchableOpacity
-                  style={styles.translateButton}
-                  onPress={() => handleTranslateMessage(item.id, item.text)}
-                  disabled={isTranslating}>
-                  {isTranslating ? (
-                    <View style={styles.translatingContainer}>
-                      <ActivityIndicator size="small" color="#4AC6D0" />
-                      <Text style={styles.translatingText}>
-                        {t('chatScreen.translating')}
-                      </Text>
-                    </View>
-                  ) : (
-                    <View style={styles.translateButtonContent}>
-                      <Icon
-                        name="translate"
-                        size={14}
-                        color="#4AC6D0"
-                        style={styles.translateIcon}
-                      />
-                      <Text style={styles.translateButtonText}>
-                        {isTranslated && !showOriginal
-                          ? t('chatScreen.showOriginal')
-                          : isTranslated && showOriginal
-                          ? t('chatScreen.showTranslation')
-                          : t('chatScreen.translate')}
-                      </Text>
-                    </View>
-                  )}
-                </TouchableOpacity>
+  // User data fetcher
+  useEffect(() => {
+    const fetchUserData = async () => {
+      const userIds = [...new Set(messages.map(msg => msg.from))];
+      if (userIds.length === 0) {
+        return;
+      }
 
-                {/* Translation indicator */}
-                {isTranslated && !showOriginal && (
-                  <View style={styles.translationIndicator}>
-                    <Icon name="check" size={12} color="#10B981" />
-                    <Text style={styles.translationIndicatorText}>
-                      {t('chatScreen.translated')}
-                    </Text>
-                  </View>
-                )}
-              </View>
-            </View>
-          )}
+      const usersSnapshot = await firestore()
+        .collection('users')
+        .where(firestore.FieldPath.documentId(), 'in', userIds)
+        .get();
 
-          {/* Image Message */}
-          {item.imageUrl && (
-            <TouchableOpacity
-              onPress={() => setSelectedImage(item.imageUrl)}
-              style={[
-                styles.imageContainer,
-                isCurrentUser
-                  ? styles.sentImageContainer
-                  : styles.receivedImageContainer,
-              ]}>
-              <Image
-                source={{uri: item.imageUrl}}
-                style={styles.imageMessage}
-                resizeMode="cover"
-              />
-              <View style={styles.imageOverlay}>
-                <Icon name="zoom-in" size={24} color="rgba(255,255,255,0.8)" />
-              </View>
-            </TouchableOpacity>
-          )}
+      const newUserData: UserData = {};
+      usersSnapshot.forEach(doc => {
+        const data = doc.data();
+        newUserData[doc.id] = {
+          name: data?.name || data.email || 'Unknown User',
+          avatar: data?.avatar?.url || '',
+        };
+      });
 
-          {/* File Message */}
-          {item.fileURL &&
-            (() => {
-              const fileInfo = getFileTypeInfo(item.fileName);
-              return (
-                <TouchableOpacity
-                  onPress={() =>
-                    handleFileDownload(item.fileURL, item.fileName)
-                  }
-                  style={[
-                    styles.fileContainer,
-                    isCurrentUser
-                      ? styles.sentFileContainer
-                      : styles.receivedFileContainer,
-                  ]}
-                  activeOpacity={0.7}>
-                  <View
-                    style={[
-                      styles.fileIconContainer,
-                      {backgroundColor: fileInfo.bgColor},
-                    ]}>
-                    <Icon
-                      name={fileInfo.icon}
-                      size={22}
-                      color={fileInfo.color}
-                    />
-                  </View>
-                  <View style={styles.fileInfo}>
-                    <Text
-                      style={styles.fileName}
-                      numberOfLines={2}
-                      ellipsizeMode="middle">
-                      {item.fileName || 'Unknown File'}
-                    </Text>
-                    <Text style={styles.fileAction}>Tap to download</Text>
-                  </View>
-                  <View style={styles.fileDownloadIcon}>
-                    <Icon name="download" size={18} color="#4AC6D0" />
-                  </View>
-                </TouchableOpacity>
-              );
-            })()}
+      setUserData(newUserData);
+    };
 
-          <Text
-            style={[
-              styles.timeStamp,
-              {alignSelf: isCurrentUser ? 'flex-end' : 'flex-start'},
-            ]}>
-            {item.timestamp
-              ? moment(item.timestamp.toDate()).format('HH:mm')
-              : ''}
-          </Text>
-        </View>
-
-        {isCurrentUser && (
-          <AvatarStatus
-            avatarUrl={user?.avatar?.url}
-            status={user?.userStatus?.status}
-            size={36}
-            style={styles.currentUserAvatar}
-          />
-        )}
-      </Animated.View>
-    );
-  };
+    fetchUserData();
+  }, [messages]);
 
   return (
     <SafeAreaView style={styles.container}>
       <StatusBar backgroundColor="#4AC6D0" barStyle="light-content" />
 
-      {/* Header */}
-      <LinearGradient colors={['#4AC6D0', '#3BB8C3']} style={styles.header}>
-        <View style={styles.headerLeft}>
-          <TouchableOpacity
-            onPress={() => navigation.navigate('ChatList')}
-            style={styles.backButton}>
-            <Icon name="arrow-back" size={24} color="#fff" />
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={styles.headerProfile}
-            onPress={() =>
-              navigation.navigate('ChatMembers', {
-                chatId: chatId,
-                currentUserId: userId,
-              })
-            }>
-            <Image
-              source={
-                avatar ? {uri: avatar} : require('../assets/default-avatar.png')
-              }
-              style={styles.avatar}
-            />
-            <View style={styles.headerInfo}>
-              <Text style={styles.headerName}>{name}</Text>
-              {/* <Text style={styles.headerStatus}>Online</Text> */}
-            </View>
-          </TouchableOpacity>
-        </View>
-
-        <View style={styles.headerRight}>
-          <CallStarter user={user} chatId={chatId} />
-          {/* <TouchableOpacity style={styles.headerAction}>
-            <Icon name="more-vert" size={24} color="#fff" />
-          </TouchableOpacity> */}
-        </View>
-      </LinearGradient>
+      <ChatHeader
+        name={name}
+        avatar={avatar}
+        onBack={handleBack}
+        onMembersPress={handleMembersPress}
+        user={user}
+        chatId={chatId}
+      />
 
       <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         style={styles.keyboardAvoid}>
         <View style={styles.chatContainer}>
-          {/* Messages List */}
           <FlatList
-            data={groupMessagesByDate(messages)}
             ref={flatListRef}
-            keyExtractor={(item, index) => item.id || index.toString()}
+            data={groupedMessages}
+            keyExtractor={keyExtractor}
+            renderItem={renderMessage}
             contentContainerStyle={styles.messagesList}
             showsVerticalScrollIndicator={false}
-            onContentSizeChange={() => {
-              if (messages.length > 0) {
-                flatListRef.current?.scrollToEnd({animated: true});
-              }
-            }}
-            renderItem={renderMessage}
+            removeClippedSubviews
+            maxToRenderPerBatch={10}
+            windowSize={10}
+            initialNumToRender={20}
+            getItemLayout={undefined} // Let FlatList calculate
           />
 
-          {/* Input Area */}
-          <View style={styles.inputSection}>
-            <View style={styles.inputContainer}>
-              <View style={styles.inputActions}>
-                <FileUpload
-                  onFileUploaded={(url: any, fileName: any) =>
-                    uploadFile(url, fileName)
-                  }
-                />
-                <TouchableOpacity
-                  onPress={handlePickImage}
-                  style={styles.actionButton}>
-                  <Icon name="photo-camera" size={20} color="#4AC6D0" />
-                </TouchableOpacity>
-              </View>
-
-              <TextInput
-                value={message}
-                onChangeText={setMessage}
-                placeholder={t('chatScreen.typeYourMessage')}
-                placeholderTextColor="#9CA3AF"
-                style={styles.input}
-                multiline
-                maxLength={1000}
-                onFocus={() => setIsTyping(true)}
-                onBlur={() => setIsTyping(false)}
-              />
-
-              <TouchableOpacity
-                onPress={handleSend}
-                style={[
-                  styles.sendButton,
-                  message.trim() === ''
-                    ? styles.sendButtonDisabled
-                    : styles.sendButtonActive,
-                ]}
-                disabled={message.trim() === ''}>
-                <LinearGradient
-                  colors={
-                    message.trim() === ''
-                      ? ['#BDC3C7', '#BDC3C7']
-                      : ['#4AC6D0', '#3BB8C3']
-                  }
-                  style={styles.sendButtonGradient}>
-                  <Icon name="send" size={20} color="#FFFFFF" />
-                </LinearGradient>
-              </TouchableOpacity>
-            </View>
-          </View>
+          <MessageInput
+            message={message}
+            onChangeText={setMessage}
+            onSend={handleSend}
+            onPickImage={handlePickImage}
+            onFileUpload={uploadFile}
+            t={t}
+          />
         </View>
       </KeyboardAvoidingView>
 
-      {/* Image Modal */}
       <ImageModal
         visible={!!selectedImage}
         imageUrl={selectedImage}
-        onClose={() => setSelectedImage(null)}
+        onClose={handleImageModalClose}
       />
     </SafeAreaView>
   );
 };
 
+// Same styles as before but organized
 const styles = StyleSheet.create({
   container: {
     flex: 1,
@@ -826,9 +1019,6 @@ const styles = StyleSheet.create({
     borderWidth: 2,
     borderColor: '#E9EDF5',
   },
-  headerAvatar: {
-    marginRight: 12,
-  },
   headerInfo: {
     flex: 1,
   },
@@ -838,17 +1028,9 @@ const styles = StyleSheet.create({
     color: '#fff',
     marginBottom: 2,
   },
-  headerStatus: {
-    fontSize: 13,
-    color: 'rgba(255,255,255,0.8)',
-  },
   headerRight: {
     flexDirection: 'row',
     alignItems: 'center',
-  },
-  headerAction: {
-    padding: 8,
-    marginLeft: 8,
   },
   keyboardAvoid: {
     flex: 1,
@@ -994,8 +1176,6 @@ const styles = StyleSheet.create({
     fontSize: 15,
     lineHeight: 20,
   },
-
-  // Fixed file container styles
   fileContainer: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1010,21 +1190,18 @@ const styles = StyleSheet.create({
     shadowOffset: {width: 0, height: 1},
     shadowOpacity: 0.1,
     shadowRadius: 2,
-    maxWidth: '100%', // Ensure it doesn't overflow
-    minWidth: 200, // Minimum width for better appearance
+    maxWidth: '100%',
+    minWidth: 200,
   },
-
   sentFileContainer: {
     alignSelf: 'flex-end',
     backgroundColor: 'rgba(74, 198, 208, 0.1)',
     borderColor: '#4AC6D0',
   },
-
   receivedFileContainer: {
     alignSelf: 'flex-start',
     backgroundColor: '#FFFFFF',
   },
-
   fileIconContainer: {
     width: 44,
     height: 44,
@@ -1033,14 +1210,12 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     marginRight: 12,
-    flexShrink: 0, // Prevent icon from shrinking
+    flexShrink: 0,
   },
-
   fileInfo: {
     flex: 1,
-    minWidth: 0, // Allow text to shrink and wrap properly
+    minWidth: 0,
   },
-
   fileName: {
     fontSize: 14,
     fontWeight: '600',
@@ -1048,7 +1223,6 @@ const styles = StyleSheet.create({
     marginBottom: 4,
     lineHeight: 18,
   },
-
   fileAction: {
     fontSize: 12,
     color: '#4AC6D0',
@@ -1056,38 +1230,11 @@ const styles = StyleSheet.create({
     textTransform: 'uppercase',
     letterSpacing: 0.5,
   },
-
   fileDownloadIcon: {
     marginLeft: 8,
     padding: 4,
     flexShrink: 0,
   },
-
-  // Optional: Add different file type icons
-  fileTypeIcon: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginRight: 12,
-    flexShrink: 0,
-  },
-
-  // Different colors for different file types
-  fileTypePdf: {
-    backgroundColor: 'rgba(239, 68, 68, 0.15)',
-  },
-
-  fileTypeDoc: {
-    backgroundColor: 'rgba(59, 130, 246, 0.15)',
-  },
-
-  fileTypeDefault: {
-    backgroundColor: 'rgba(74, 198, 208, 0.15)',
-  },
-
-  // Enhanced image container styles for consistency
   imageContainer: {
     marginVertical: 4,
     borderRadius: 16,
@@ -1098,17 +1245,14 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.15,
     shadowRadius: 4,
     position: 'relative',
-    maxWidth: '100%', // Ensure consistency
+    maxWidth: '100%',
   },
-
   sentImageContainer: {
     alignSelf: 'flex-end',
   },
-
   receivedImageContainer: {
     alignSelf: 'flex-start',
   },
-
   imageMessage: {
     width: 200,
     height: 200,
@@ -1122,48 +1266,6 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     padding: 6,
   },
-  // fileContainer: {
-  //   flexDirection: 'row',
-  //   alignItems: 'center',
-  //   backgroundColor: '#FFFFFF',
-  //   padding: 12,
-  //   borderRadius: 16,
-  //   marginVertical: 4,
-  //   borderWidth: 1,
-  //   borderColor: '#E2E8F0',
-  //   elevation: 1,
-  // },
-  // sentFileContainer: {
-  //   alignSelf: 'flex-end',
-  //   backgroundColor: '#E0F7FA',
-  //   borderColor: '#4AC6D0',
-  // },
-  // receivedFileContainer: {
-  //   alignSelf: 'flex-start',
-  // },
-  // fileIconContainer: {
-  //   width: 40,
-  //   height: 40,
-  //   borderRadius: 20,
-  //   backgroundColor: '#F0FDFF',
-  //   justifyContent: 'center',
-  //   alignItems: 'center',
-  //   marginRight: 12,
-  // },
-  // fileInfo: {
-  //   flex: 1,
-  // },
-  // fileName: {
-  //   fontSize: 14,
-  //   fontWeight: '600',
-  //   color: '#1E293B',
-  //   marginBottom: 2,
-  // },
-  // fileAction: {
-  //   fontSize: 12,
-  //   color: '#4AC6D0',
-  //   fontWeight: '500',
-  // },
   timeStamp: {
     fontSize: 11,
     color: '#94A3B8',
@@ -1224,4 +1326,4 @@ const styles = StyleSheet.create({
   },
 });
 
-export default ChatScreen;
+export default memo(ChatScreen);

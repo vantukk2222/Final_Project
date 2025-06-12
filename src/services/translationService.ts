@@ -1,6 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import lanEn from '../locales/lan_en.json';
 
+// Types
 interface SupportedLanguage {
   code: string;
   name: string;
@@ -9,7 +10,58 @@ interface SupportedLanguage {
   azureCode: string;
 }
 
-export const SUPPORTED_LANGUAGES: SupportedLanguage[] = [
+interface TranslationCache {
+  data: TranslationData;
+  timestamp: number;
+  version: string;
+}
+
+interface BatchTranslationRequest {
+  text: string;
+}
+
+interface BatchTranslationResponse {
+  translations: Array<{
+    text: string;
+    to: string;
+  }>;
+}
+
+interface CacheStats {
+  currentLanguage: string;
+  cachedLanguages: string[];
+  totalCachedLanguages: number;
+  cacheSize: number;
+  lastUpdate: number;
+}
+
+interface TranslationServiceConfig {
+  batchSize: number;
+  retryAttempts: number;
+  retryDelay: number;
+  cacheVersion: string;
+  cacheExpiry: number;
+  requestTimeout: number;
+}
+
+// Enums for better type safety
+enum StorageKeys {
+  LANGUAGE = '@selected_language',
+  FIRST_LAUNCH = '@first_launch_done',
+  TRANSLATION_DATA = '@translation_data',
+  CACHE_METADATA = '@cache_metadata',
+}
+
+enum TranslationStatus {
+  IDLE = 'idle',
+  LOADING = 'loading',
+  TRANSLATING = 'translating',
+  ERROR = 'error',
+  SUCCESS = 'success',
+}
+
+// Constants
+export const SUPPORTED_LANGUAGES: readonly SupportedLanguage[] = Object.freeze([
   {
     code: 'en',
     name: 'English',
@@ -43,7 +95,7 @@ export const SUPPORTED_LANGUAGES: SupportedLanguage[] = [
     name: 'Chinese',
     nativeName: '中文',
     flag: '🇨🇳',
-    azureCode: 'zh',
+    azureCode: 'zh-Hans',
   },
   {
     code: 'fr',
@@ -66,32 +118,103 @@ export const SUPPORTED_LANGUAGES: SupportedLanguage[] = [
     flag: '🇪🇸',
     azureCode: 'es',
   },
-];
+] as const);
 
 type TranslationData = typeof lanEn;
+type LanguageCode = (typeof SUPPORTED_LANGUAGES)[number]['code'];
+
+// Default configuration
+const DEFAULT_CONFIG: TranslationServiceConfig = Object.freeze({
+  batchSize: 100,
+  retryAttempts: 3,
+  retryDelay: 1000,
+  cacheVersion: '1.0.0',
+  cacheExpiry: 7 * 24 * 60 * 60 * 1000, // 7 days
+  requestTimeout: 30000, // 30 seconds
+});
+
+// Utility functions
+const createRetryableFunction = <T extends any[], R>(
+  fn: (...args: T) => Promise<R>,
+  maxRetries: number,
+  delay: number,
+) => {
+  return async (...args: T): Promise<R> => {
+    let lastError: Error;
+
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+      try {
+        return await fn(...args);
+      } catch (error) {
+        lastError = error as Error;
+
+        if (attempt === maxRetries) {
+          throw lastError;
+        }
+
+        // Exponential backoff
+        const retryDelay = delay * Math.pow(2, attempt);
+        await new Promise(resolve => setTimeout(resolve, retryDelay));
+      }
+    }
+
+    throw lastError!;
+  };
+};
+
+const withTimeout = <T>(promise: Promise<T>, timeoutMs: number): Promise<T> => {
+  return Promise.race([
+    promise,
+    new Promise<T>((_, reject) =>
+      setTimeout(() => reject(new Error('Request timeout')), timeoutMs),
+    ),
+  ]);
+};
 
 class TranslationService {
-  private currentLanguage: string = 'en';
+  // Private properties
+  private currentLanguage: LanguageCode = 'en';
   private translationData: TranslationData = lanEn;
   private azureKey: string = '';
   private azureRegion: string = '';
+  private status: TranslationStatus = TranslationStatus.IDLE;
+  private config: TranslationServiceConfig = DEFAULT_CONFIG;
+  private cache: Map<string, TranslationCache> = new Map();
+  private isInitialized: boolean = false;
+  private initializationPromise: Promise<void> | null = null;
+  private translationPromises: Map<string, Promise<TranslationData>> =
+    new Map();
 
-  // Storage keys
-  private readonly LANGUAGE_KEY = '@selected_language';
-  private readonly FIRST_LAUNCH_KEY = '@first_launch_done';
-  private readonly TRANSLATION_DATA_KEY = '@translation_data';
+  // Event listeners for status changes
+  private statusListeners: Set<(status: TranslationStatus) => void> = new Set();
 
-  constructor() {
-    this.loadSettings();
+  constructor(config?: Partial<TranslationServiceConfig>) {
+    this.config = {...DEFAULT_CONFIG, ...config};
+    this.initializeAsync();
   }
+
+  // Public API Methods
 
   /**
    * Initialize with Azure credentials
    */
-  async initialize(azureKey: string, azureRegion: string) {
+  async initialize(azureKey: string, azureRegion: string): Promise<void> {
+    if (
+      this.isInitialized &&
+      this.azureKey === azureKey &&
+      this.azureRegion === azureRegion
+    ) {
+      return; // Already initialized with same credentials
+    }
+
     this.azureKey = azureKey;
     this.azureRegion = azureRegion;
-    console.log('🌐 Translation Service initialized');
+
+    this.validateCredentials();
+    await this.loadSettings();
+
+    this.isInitialized = true;
+    console.log('🌐 Translation Service initialized successfully');
   }
 
   /**
@@ -99,18 +222,22 @@ class TranslationService {
    */
   async isFirstLaunch(): Promise<boolean> {
     try {
-      const firstLaunchDone = await AsyncStorage.getItem(this.FIRST_LAUNCH_KEY);
+      const firstLaunchDone = await AsyncStorage.getItem(
+        StorageKeys.FIRST_LAUNCH,
+      );
       return firstLaunchDone === null;
     } catch (error) {
-      console.error('Error checking first launch:', error);
-      return true;
+      console.error('❌ Error checking first launch:', error);
+      return true; // Default to first launch on error
     }
   }
 
   /**
    * Mark first launch as completed and set language
    */
-  async completeFirstLaunch(selectedLanguage: string) {
+  async completeFirstLaunch(selectedLanguage: LanguageCode): Promise<void> {
+    this.validateLanguageCode(selectedLanguage);
+
     try {
       console.log(
         '🚀 Completing first launch with language:',
@@ -118,7 +245,7 @@ class TranslationService {
       );
 
       // Mark first launch as done
-      await AsyncStorage.setItem(this.FIRST_LAUNCH_KEY, 'true');
+      await AsyncStorage.setItem(StorageKeys.FIRST_LAUNCH, 'true');
 
       // Set language and translate if needed
       await this.setLanguage(selectedLanguage);
@@ -126,66 +253,68 @@ class TranslationService {
       console.log('✅ First launch completed successfully');
     } catch (error) {
       console.error('❌ Error completing first launch:', error);
-      throw error;
+      throw new Error(
+        `Failed to complete first launch: ${(error as Error).message}`,
+      );
     }
   }
 
   /**
    * Set language and translate all texts if needed
    */
-  async setLanguage(languageCode: string) {
+  async setLanguage(languageCode: LanguageCode): Promise<void> {
+    this.validateLanguageCode(languageCode);
+
+    if (languageCode === this.currentLanguage) {
+      console.log('🔄 Language already set to:', languageCode);
+      return;
+    }
+
     try {
       console.log('🌐 Setting language to:', languageCode);
+      this.setStatus(TranslationStatus.LOADING);
 
       this.currentLanguage = languageCode;
-      await AsyncStorage.setItem(this.LANGUAGE_KEY, languageCode);
+      await AsyncStorage.setItem(StorageKeys.LANGUAGE, languageCode);
 
       if (languageCode === 'en') {
         // Use original English data
         this.translationData = lanEn;
         console.log('📝 Using original English data');
       } else {
-        // Check if we have cached translation for this language
-        const cachedTranslation = await this.getCachedTranslation(languageCode);
-
-        if (cachedTranslation) {
-          console.log('📋 Using cached translation for:', languageCode);
-          this.translationData = cachedTranslation;
-        } else {
-          console.log(
-            '🔄 Translating to',
-            languageCode,
-            '- this may take a moment...',
-          );
-          await this.translateAndCacheLanguage(languageCode);
-        }
+        await this.loadOrTranslateLanguage(languageCode);
       }
 
+      this.setStatus(TranslationStatus.SUCCESS);
       console.log('✅ Language set successfully to:', languageCode);
     } catch (error) {
       console.error('❌ Error setting language:', error);
+      this.setStatus(TranslationStatus.ERROR);
+
       // Fallback to English on error
       this.currentLanguage = 'en';
       this.translationData = lanEn;
-      throw error;
+
+      throw new Error(`Failed to set language: ${(error as Error).message}`);
     }
   }
 
   /**
    * Get current language
    */
-  getCurrentLanguage(): string {
+  getCurrentLanguage(): LanguageCode {
     return this.currentLanguage;
   }
 
   /**
-   * Get translation for a key path (e.g., 'common.ok')
-   */
-  // Cập nhật method t() để handle missing keys
-  /**
-   * Get translation for a key path (e.g., 'common.ok')
+   * Get translation for a key path with enhanced error handling
    */
   t(keyPath: string): string {
+    if (!keyPath || typeof keyPath !== 'string') {
+      console.warn('🔍 Invalid key path provided:', keyPath);
+      return this.createFallbackText(String(keyPath));
+    }
+
     try {
       const keys = keyPath.split('.');
       let value: any = this.translationData;
@@ -194,20 +323,23 @@ class TranslationService {
         if (value && typeof value === 'object' && key in value) {
           value = value[key];
         } else {
-          // Key not found - show warning in development and return fallback
+          // Key not found - show warning in development
           if (__DEV__) {
-            // console.warn(`🔍 Translation key not found: ${keyPath}`);
+            console.warn(`🔍 Translation key not found: ${keyPath}`);
           }
 
-          // Return a more user-friendly fallback
-          const lastKey = keys[keys.length - 1];
-          return this.createFallbackText(lastKey);
+          return this.createFallbackText(keyPath);
         }
       }
 
-      return typeof value === 'string'
-        ? value
-        : this.createFallbackText(keyPath);
+      if (typeof value === 'string') {
+        return value;
+      } else {
+        console.warn(
+          `🔍 Translation value is not a string for key: ${keyPath}`,
+        );
+        return this.createFallbackText(keyPath);
+      }
     } catch (error) {
       console.error('❌ Error getting translation:', error);
       return this.createFallbackText(keyPath);
@@ -215,58 +347,282 @@ class TranslationService {
   }
 
   /**
-   * Create user-friendly fallback text from key
+   * Get translation with interpolation support
    */
-  private createFallbackText(key: string): string {
-    // Convert camelCase/kebab-case to readable text
-    return key
-      .split(/[-_]/)
-      .map(word => word.charAt(0).toUpperCase() + word.slice(1))
-      .join(' ')
-      .replace(/([A-Z])/g, ' $1')
-      .trim()
-      .replace(/\s+/g, ' ');
+  tInterpolate(
+    keyPath: string,
+    variables: Record<string, string | number>,
+  ): string {
+    let translation = this.t(keyPath);
+
+    Object.entries(variables).forEach(([key, value]) => {
+      const regex = new RegExp(`{{\\s*${key}\\s*}}`, 'g');
+      translation = translation.replace(regex, String(value));
+    });
+
+    return translation;
+  }
+
+  /**
+   * Check if translation exists for a key
+   */
+  hasTranslation(keyPath: string): boolean {
+    try {
+      const translation = this.t(keyPath);
+      return translation !== this.createFallbackText(keyPath);
+    } catch {
+      return false;
+    }
   }
 
   /**
    * Get all translation data
    */
-  getAllTranslations(): TranslationData {
-    return this.translationData;
+  getAllTranslations(): Readonly<TranslationData> {
+    return Object.freeze({...this.translationData});
   }
 
   /**
-   * Translate entire language file using Azure Translator
+   * Get current status
    */
-  private async translateAndCacheLanguage(targetLanguage: string) {
+  getStatus(): TranslationStatus {
+    return this.status;
+  }
+
+  /**
+   * Add status listener
+   */
+  addStatusListener(listener: (status: TranslationStatus) => void): () => void {
+    this.statusListeners.add(listener);
+    return () => this.statusListeners.delete(listener);
+  }
+
+  /**
+   * Clear all cached translations
+   */
+  async clearCache(): Promise<void> {
     try {
-      const azureLangCode = this.getAzureLanguageCode(targetLanguage);
-      console.log(
-        `🔄 Starting translation to ${targetLanguage} (Azure: ${azureLangCode})`,
+      const keys = await AsyncStorage.getAllKeys();
+      const translationKeys = keys.filter(
+        key =>
+          key.startsWith(StorageKeys.TRANSLATION_DATA) ||
+          key === StorageKeys.CACHE_METADATA,
       );
 
+      await AsyncStorage.multiRemove(translationKeys);
+      this.cache.clear();
+
+      console.log('🗑️ Translation cache cleared');
+    } catch (error) {
+      console.error('❌ Error clearing cache:', error);
+      throw new Error(`Failed to clear cache: ${(error as Error).message}`);
+    }
+  }
+
+  /**
+   * Get cache statistics with enhanced information
+   */
+  async getCacheStats(): Promise<CacheStats> {
+    try {
+      const keys = await AsyncStorage.getAllKeys();
+      const translationKeys = keys.filter(key =>
+        key.startsWith(StorageKeys.TRANSLATION_DATA),
+      );
+
+      const cachedLanguages = translationKeys.map(key =>
+        key.replace(`${StorageKeys.TRANSLATION_DATA}_`, ''),
+      );
+
+      // Calculate cache size
+      let cacheSize = 0;
+      for (const key of translationKeys) {
+        try {
+          const data = await AsyncStorage.getItem(key);
+          if (data) {
+            cacheSize += new Blob([data]).size;
+          }
+        } catch {
+          // Ignore individual errors
+        }
+      }
+
+      return {
+        currentLanguage: this.currentLanguage,
+        cachedLanguages,
+        totalCachedLanguages: translationKeys.length,
+        cacheSize,
+        lastUpdate: Date.now(),
+      };
+    } catch (error) {
+      console.error('❌ Error getting cache stats:', error);
+      return {
+        currentLanguage: this.currentLanguage,
+        cachedLanguages: [],
+        totalCachedLanguages: 0,
+        cacheSize: 0,
+        lastUpdate: 0,
+      };
+    }
+  }
+
+  /**
+   * Force refresh translation for current language
+   */
+  async refreshCurrentLanguage(): Promise<void> {
+    if (this.currentLanguage === 'en') {
+      this.translationData = lanEn;
+      return;
+    }
+
+    try {
+      // Clear cache for current language
+      await this.clearLanguageCache(this.currentLanguage);
+
+      // Retranslate
+      await this.translateAndCacheLanguage(this.currentLanguage);
+    } catch (error) {
+      console.error('❌ Error refreshing current language:', error);
+      throw new Error(
+        `Failed to refresh language: ${(error as Error).message}`,
+      );
+    }
+  }
+
+  // Private Methods
+
+  /**
+   * Initialize service asynchronously
+   */
+  private async initializeAsync(): Promise<void> {
+    if (this.initializationPromise) {
+      return this.initializationPromise;
+    }
+
+    this.initializationPromise = this.loadSettings().catch(error => {
+      console.error('❌ Error during async initialization:', error);
+    });
+
+    return this.initializationPromise;
+  }
+
+  /**
+   * Validate Azure credentials
+   */
+  private validateCredentials(): void {
+    if (!this.azureKey || !this.azureRegion) {
+      throw new Error('Azure credentials are required');
+    }
+
+    if (this.azureKey.length < 10) {
+      throw new Error('Invalid Azure key format');
+    }
+
+    if (!/^[a-z0-9-]+$/.test(this.azureRegion)) {
+      throw new Error('Invalid Azure region format');
+    }
+  }
+
+  /**
+   * Validate language code
+   */
+  private validateLanguageCode(
+    languageCode: string,
+  ): asserts languageCode is LanguageCode {
+    const validCodes = SUPPORTED_LANGUAGES.map(lang => lang.code);
+    if (!validCodes.includes(languageCode as LanguageCode)) {
+      throw new Error(`Unsupported language code: ${languageCode}`);
+    }
+  }
+
+  /**
+   * Set status and notify listeners
+   */
+  private setStatus(status: TranslationStatus): void {
+    if (this.status !== status) {
+      this.status = status;
+      this.statusListeners.forEach(listener => {
+        try {
+          listener(status);
+        } catch (error) {
+          console.error('❌ Error in status listener:', error);
+        }
+      });
+    }
+  }
+
+  /**
+   * Load or translate language with optimizations
+   */
+  private async loadOrTranslateLanguage(
+    languageCode: LanguageCode,
+  ): Promise<void> {
+    // Check if translation is already in progress
+    const existingPromise = this.translationPromises.get(languageCode);
+    if (existingPromise) {
+      console.log('🔄 Translation already in progress for:', languageCode);
+      this.translationData = await existingPromise;
+      return;
+    }
+
+    // Check cache first
+    const cachedTranslation = await this.getCachedTranslation(languageCode);
+    if (cachedTranslation && this.isCacheValid(cachedTranslation)) {
+      console.log('📋 Using cached translation for:', languageCode);
+      this.translationData = cachedTranslation.data;
+      return;
+    }
+
+    // Create translation promise
+    const translationPromise = this.translateAndCacheLanguage(languageCode);
+    this.translationPromises.set(languageCode, translationPromise);
+
+    try {
+      this.translationData = await translationPromise;
+    } finally {
+      // Clean up promise
+      this.translationPromises.delete(languageCode);
+    }
+  }
+
+  /**
+   * Translate entire language file using Azure Translator with enhanced error handling
+   */
+  private async translateAndCacheLanguage(
+    targetLanguage: LanguageCode,
+  ): Promise<TranslationData> {
+    const azureLangCode = this.getAzureLanguageCode(targetLanguage);
+    console.log(
+      `🔄 Starting translation to ${targetLanguage} (Azure: ${azureLangCode})`,
+    );
+
+    this.setStatus(TranslationStatus.TRANSLATING);
+
+    try {
       // Flatten all texts for translation
       const flatTexts = this.flattenTranslationObject(lanEn);
       const textsToTranslate = Object.values(flatTexts);
 
       console.log(`📝 Translating ${textsToTranslate.length} texts...`);
 
-      // Translate in batches (Azure has limits)
-      const batchSize = 100;
+      // Translate in batches with retry logic
       const translatedTexts: string[] = [];
+      const batchCount = Math.ceil(
+        textsToTranslate.length / this.config.batchSize,
+      );
 
-      for (let i = 0; i < textsToTranslate.length; i += batchSize) {
-        const batch = textsToTranslate.slice(i, i + batchSize);
-        console.log(
-          `🔄 Translating batch ${Math.floor(i / batchSize) + 1}/${Math.ceil(
-            textsToTranslate.length / batchSize,
-          )}`,
+      for (let i = 0; i < textsToTranslate.length; i += this.config.batchSize) {
+        const batch = textsToTranslate.slice(i, i + this.config.batchSize);
+        const batchIndex = Math.floor(i / this.config.batchSize) + 1;
+
+        console.log(`🔄 Translating batch ${batchIndex}/${batchCount}`);
+
+        const retryableTranslate = createRetryableFunction(
+          (texts: string[]) => this.translateBatch(texts, azureLangCode),
+          this.config.retryAttempts,
+          this.config.retryDelay,
         );
 
-        const batchTranslations = await this.translateBatch(
-          batch,
-          azureLangCode,
-        );
+        const batchTranslations = await retryableTranslate(batch);
         translatedTexts.push(...batchTranslations);
       }
 
@@ -279,18 +635,16 @@ class TranslationService {
       // Cache the translated data
       await this.cacheTranslation(targetLanguage, translatedData);
 
-      // Set as current translation data
-      this.translationData = translatedData;
-
       console.log('✅ Translation completed and cached successfully');
+      return translatedData;
     } catch (error) {
       console.error('❌ Error translating language:', error);
-      throw error;
+      throw new Error(`Translation failed: ${(error as Error).message}`);
     }
   }
 
   /**
-   * Translate batch of texts using Azure Translator
+   * Translate batch of texts using Azure Translator with timeout
    */
   private async translateBatch(
     texts: string[],
@@ -298,26 +652,33 @@ class TranslationService {
   ): Promise<string[]> {
     const url = `https://${this.azureRegion}.api.cognitive.microsoft.com/translator/text/v3.0/translate?api-version=3.0&to=${targetLang}`;
 
-    const body = texts.map(text => ({text}));
+    const body: BatchTranslationRequest[] = texts.map(text => ({text}));
 
-    const response = await fetch(url, {
+    const fetchPromise = fetch(url, {
       method: 'POST',
       headers: {
         'Ocp-Apim-Subscription-Key': this.azureKey,
         'Ocp-Apim-Subscription-Region': this.azureRegion,
         'Content-Type': 'application/json',
+        'X-ClientTraceId': this.generateTraceId(),
       },
       body: JSON.stringify(body),
     });
 
+    const response = await withTimeout(
+      fetchPromise,
+      this.config.requestTimeout,
+    );
+
     if (!response.ok) {
+      const errorText = await response.text().catch(() => 'Unknown error');
       throw new Error(
-        `Azure Translator API error: ${response.status} ${response.statusText}`,
+        `Azure Translator API error: ${response.status} ${response.statusText} - ${errorText}`,
       );
     }
 
-    const results = await response.json();
-    return results.map((result: any) => result.translations[0]?.text || '');
+    const results: BatchTranslationResponse[] = await response.json();
+    return results.map(result => result.translations[0]?.text || '');
   }
 
   /**
@@ -327,12 +688,16 @@ class TranslationService {
     obj: any,
     prefix = '',
   ): Record<string, string> {
-    let flattened: Record<string, string> = {};
+    const flattened: Record<string, string> = {};
 
     for (const [key, value] of Object.entries(obj)) {
       const newKey = prefix ? `${prefix}.${key}` : key;
 
-      if (typeof value === 'object' && value !== null) {
+      if (
+        typeof value === 'object' &&
+        value !== null &&
+        !Array.isArray(value)
+      ) {
         Object.assign(flattened, this.flattenTranslationObject(value, newKey));
       } else if (typeof value === 'string') {
         flattened[newKey] = value;
@@ -353,142 +718,189 @@ class TranslationService {
     const keys = Object.keys(flatTexts);
 
     keys.forEach((keyPath, index) => {
-      const keys = keyPath.split('.');
+      const keyParts = keyPath.split('.');
       let current = result;
 
-      for (let i = 0; i < keys.length - 1; i++) {
-        if (!current[keys[i]]) {
-          current[keys[i]] = {};
+      for (let i = 0; i < keyParts.length - 1; i++) {
+        const key = keyParts[i];
+        if (!current[key]) {
+          current[key] = {};
         }
-        current = current[keys[i]];
+        current = current[key];
       }
 
-      current[keys[keys.length - 1]] =
-        translatedTexts[index] || flatTexts[keyPath];
+      const finalKey = keyParts[keyParts.length - 1];
+      current[finalKey] = translatedTexts[index] || flatTexts[keyPath];
     });
 
     return result as TranslationData;
   }
 
   /**
-   * Get cached translation from AsyncStorage
+   * Get cached translation from AsyncStorage with enhanced validation
    */
   private async getCachedTranslation(
-    languageCode: string,
-  ): Promise<TranslationData | null> {
+    languageCode: LanguageCode,
+  ): Promise<TranslationCache | null> {
     try {
-      const cacheKey = `${this.TRANSLATION_DATA_KEY}_${languageCode}`;
+      const cacheKey = `${StorageKeys.TRANSLATION_DATA}_${languageCode}`;
       const cachedData = await AsyncStorage.getItem(cacheKey);
 
-      if (cachedData) {
-        return JSON.parse(cachedData);
+      if (!cachedData) {
+        return null;
       }
 
-      return null;
+      const cache: TranslationCache = JSON.parse(cachedData);
+
+      // Validate cache structure
+      if (!cache.data || !cache.timestamp || !cache.version) {
+        console.warn('🔍 Invalid cache structure for:', languageCode);
+        await this.clearLanguageCache(languageCode);
+        return null;
+      }
+
+      return cache;
     } catch (error) {
-      console.error('Error loading cached translation:', error);
+      console.error('❌ Error loading cached translation:', error);
+      // Clear corrupted cache
+      await this.clearLanguageCache(languageCode);
       return null;
     }
   }
 
   /**
-   * Cache translation to AsyncStorage
+   * Check if cache is still valid
+   */
+  private isCacheValid(cache: TranslationCache): boolean {
+    const isVersionValid = cache.version === this.config.cacheVersion;
+    const isTimeValid = Date.now() - cache.timestamp < this.config.cacheExpiry;
+
+    return isVersionValid && isTimeValid;
+  }
+
+  /**
+   * Cache translation to AsyncStorage with metadata
    */
   private async cacheTranslation(
-    languageCode: string,
+    languageCode: LanguageCode,
     translationData: TranslationData,
-  ) {
+  ): Promise<void> {
     try {
-      const cacheKey = `${this.TRANSLATION_DATA_KEY}_${languageCode}`;
-      await AsyncStorage.setItem(cacheKey, JSON.stringify(translationData));
+      const cacheKey = `${StorageKeys.TRANSLATION_DATA}_${languageCode}`;
+      const cache: TranslationCache = {
+        data: translationData,
+        timestamp: Date.now(),
+        version: this.config.cacheVersion,
+      };
+
+      await AsyncStorage.setItem(cacheKey, JSON.stringify(cache));
+      this.cache.set(languageCode, cache);
+
       console.log('💾 Translation cached for:', languageCode);
     } catch (error) {
-      console.error('Error caching translation:', error);
+      console.error('❌ Error caching translation:', error);
+      // Non-fatal error, don't throw
     }
   }
 
   /**
-   * Load settings from AsyncStorage
+   * Clear cache for specific language
    */
-  private async loadSettings() {
+  private async clearLanguageCache(languageCode: LanguageCode): Promise<void> {
     try {
-      const savedLanguage = await AsyncStorage.getItem(this.LANGUAGE_KEY);
+      const cacheKey = `${StorageKeys.TRANSLATION_DATA}_${languageCode}`;
+      await AsyncStorage.removeItem(cacheKey);
+      this.cache.delete(languageCode);
+    } catch (error) {
+      console.error('❌ Error clearing language cache:', error);
+    }
+  }
 
-      if (savedLanguage) {
-        this.currentLanguage = savedLanguage;
+  /**
+   * Load settings from AsyncStorage with error recovery
+   */
+  private async loadSettings(): Promise<void> {
+    try {
+      const savedLanguage = await AsyncStorage.getItem(StorageKeys.LANGUAGE);
+
+      if (savedLanguage && this.isValidLanguageCode(savedLanguage)) {
+        this.currentLanguage = savedLanguage as LanguageCode;
 
         if (savedLanguage !== 'en') {
           const cachedTranslation = await this.getCachedTranslation(
-            savedLanguage,
+            this.currentLanguage,
           );
-          if (cachedTranslation) {
-            this.translationData = cachedTranslation;
+          if (cachedTranslation && this.isCacheValid(cachedTranslation)) {
+            this.translationData = cachedTranslation.data;
           }
         }
       }
 
       console.log('📋 Translation settings loaded:', this.currentLanguage);
     } catch (error) {
-      console.error('Error loading translation settings:', error);
+      console.error('❌ Error loading translation settings:', error);
+      // Reset to default on error
+      this.currentLanguage = 'en';
+      this.translationData = lanEn;
     }
+  }
+
+  /**
+   * Check if language code is valid
+   */
+  private isValidLanguageCode(code: string): code is LanguageCode {
+    return SUPPORTED_LANGUAGES.some(lang => lang.code === code);
   }
 
   /**
    * Get Azure language code from our language code
    */
-  private getAzureLanguageCode(languageCode: string): string {
+  private getAzureLanguageCode(languageCode: LanguageCode): string {
     const language = SUPPORTED_LANGUAGES.find(
       lang => lang.code === languageCode,
     );
-    return language?.azureCode || languageCode;
+    if (!language) {
+      throw new Error(`Unsupported language code: ${languageCode}`);
+    }
+    return language.azureCode;
   }
 
   /**
-   * Clear all cached translations
+   * Create user-friendly fallback text from key
    */
-  async clearCache() {
-    try {
-      const keys = await AsyncStorage.getAllKeys();
-      const translationKeys = keys.filter(key =>
-        key.startsWith(this.TRANSLATION_DATA_KEY),
-      );
-
-      await AsyncStorage.multiRemove(translationKeys);
-      console.log('🗑️ Translation cache cleared');
-    } catch (error) {
-      console.error('Error clearing cache:', error);
+  private createFallbackText(key: string): string {
+    if (!key) {
+      return 'Missing Translation';
     }
+
+    // Convert camelCase/kebab-case to readable text
+    return key
+      .split(/[-_.]/)
+      .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+      .join(' ')
+      .replace(/([A-Z])/g, ' $1')
+      .trim()
+      .replace(/\s+/g, ' ');
   }
 
   /**
-   * Get cache statistics
+   * Generate unique trace ID for API requests
    */
-  async getCacheStats() {
-    try {
-      const keys = await AsyncStorage.getAllKeys();
-      const translationKeys = keys.filter(key =>
-        key.startsWith(this.TRANSLATION_DATA_KEY),
-      );
-
-      const stats = {
-        currentLanguage: this.currentLanguage,
-        cachedLanguages: translationKeys.map(key =>
-          key.replace(this.TRANSLATION_DATA_KEY + '_', ''),
-        ),
-        totalCachedLanguages: translationKeys.length,
-      };
-
-      return stats;
-    } catch (error) {
-      console.error('Error getting cache stats:', error);
-      return {
-        currentLanguage: this.currentLanguage,
-        cachedLanguages: [],
-        totalCachedLanguages: 0,
-      };
-    }
+  private generateTraceId(): string {
+    return `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
   }
 }
 
-// Export singleton instance
+// Export singleton instance with enhanced configuration
 export const translationService = new TranslationService();
+
+// Export types for external use
+export type {
+  SupportedLanguage,
+  TranslationData,
+  LanguageCode,
+  CacheStats,
+  TranslationServiceConfig,
+};
+
+export {TranslationStatus, StorageKeys};

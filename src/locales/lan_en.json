@@ -8,6 +8,7 @@
     "loading": "Loading...",
     "error": "Error",
     "success": "Success",
+    "restart": "Restart",
     "yes": "Yes",
     "no": "No",
     "close": "Close",
@@ -496,6 +497,18 @@
     "groupCount": " group",
     "groupCount_other": "gr oup",
     "startChat": "Start Chat"
+  },
+  "systemLan": {
+    "popular": "Popular",
+    "selectLanguage": "Select Language",
+    "chooseLanguage": "Choose your preferred language",
+    "restartApp":"App will restart to apply the new language",
+    "updating": "Updating...",
+    "applyLanguage": "Change Language",
+    "faileđUpate": "Failed to update language. Please try again.",
+    "languageChanged": "Language Changed",
+    "restartRequired": "App will restart to apply the new language. Restart now?"
+
   },
   
   "admin": {

@@ -11,6 +11,7 @@ import {AuthProvider} from './src/contexts/AuthContext';
 import SocketClient from './src/services/socketClient';
 import {SocketProvider} from './src/contexts/SocketContext';
 import RootNavigator from './src/navigation/RootNavigator';
+import {setupPlayer} from './src/services/trackPlayerService';
 
 // Azure Translator credentials
 const AZURE_KEY =
@@ -119,9 +120,19 @@ const AppContent = () => {
 };
 
 export default function App() {
-  console.log('🔧 App initialized with Azure Translator');
-  console.log('🔑 Azure Key:', AZURE_KEY);
-  console.log('🌎 Azure Region:', AZURE_REGION);
+  useEffect(() => {
+    const initializeTrackPlayer = async () => {
+      try {
+        await setupPlayer();
+        console.log('✅ TrackPlayer initialized successfully');
+      } catch (error) {
+        console.error('❌ Failed to initialize TrackPlayer:', error);
+      }
+    };
+
+    initializeTrackPlayer();
+  }, []);
+
   return (
     <TranslationProvider azureKey={AZURE_KEY} azureRegion={AZURE_REGION}>
       <AppContent />

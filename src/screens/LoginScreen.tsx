@@ -1,4 +1,4 @@
-import React, {useState, useEffect} from 'react';
+import React, {useCallback, useEffect, useMemo, useRef} from 'react';
 import {
   View,
   Text,
@@ -14,6 +14,7 @@ import {
   Dimensions,
   KeyboardAvoidingView,
   Platform,
+  Keyboard,
 } from 'react-native';
 import auth from '@react-native-firebase/auth';
 import {useForm, Controller} from 'react-hook-form';
@@ -22,26 +23,34 @@ import Icon from 'react-native-vector-icons/FontAwesome5';
 import LinearGradient from 'react-native-linear-gradient';
 import {useTranslation} from '../contexts/TranslationContext';
 
+// Types
+interface LoginFormData {
+  email: string;
+  password: string;
+}
+
+interface AnimationRefs {
+  fadeAnim: Animated.Value;
+  slideAnim: Animated.Value;
+  logoAnim: Animated.Value;
+}
+
+// Constants
 const {width, height} = Dimensions.get('window');
+const HEADER_HEIGHT = height * 0.4;
+const LOGO_SIZE = 90;
 
-const LoginScreen = () => {
-  const {t} = useTranslation();
-  const {
-    control,
-    handleSubmit,
-    formState: {errors},
-  } = useForm();
-  const [loading, setLoading] = useState(false);
-  const [showPassword, setShowPassword] = useState(false);
-  const navigation = useNavigation<any>();
+// Validation patterns
+const EMAIL_REGEX = /^[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}$/i;
+const MIN_PASSWORD_LENGTH = 6;
 
-  // Animation values
-  const fadeAnim = new Animated.Value(0);
-  const slideAnim = new Animated.Value(50);
-  const logoAnim = new Animated.Value(0);
+// Custom hooks
+const useAnimations = (): AnimationRefs => {
+  const fadeAnim = useRef(new Animated.Value(0)).current;
+  const slideAnim = useRef(new Animated.Value(50)).current;
+  const logoAnim = useRef(new Animated.Value(0)).current;
 
-  useEffect(() => {
-    // Entrance animations
+  const startAnimations = useCallback(() => {
     Animated.sequence([
       Animated.timing(fadeAnim, {
         toValue: 1,
@@ -61,307 +70,457 @@ const LoginScreen = () => {
         }),
       ]),
     ]).start();
-  }, []);
+  }, [fadeAnim, slideAnim, logoAnim]);
 
-  const onLogin = async (data: any) => {
-    // const email = 'tourguidene@gmail.com';
-    // const password = '111111';
-    setLoading(true);
-    try {
-      await auth().signInWithEmailAndPassword(data.email, data.password);
-      // await auth().signInWithEmailAndPassword(email, password);
-      setLoading(false);
-    } catch (error: any) {
-      // console.log('Login error:', error.message);
-      Alert.alert(t('auth.loginFailed'), t('auth.loginError'));
-    } finally {
-      setLoading(false);
-    }
-  };
+  useEffect(() => {
+    startAnimations();
+  }, [startAnimations]);
 
-  // Custom validation messages based on current language
-  const getValidationRules = () => ({
-    email: {
-      required: t('auth.emailRequired'),
-      pattern: {
-        value: /^[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}$/i,
-        message: t('auth.invalidEmailAddress'),
+  return {fadeAnim, slideAnim, logoAnim};
+};
+
+const useKeyboardHandler = () => {
+  const keyboardHeight = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    const keyboardWillShow = (event: any) => {
+      Animated.timing(keyboardHeight, {
+        duration: event.duration || 250,
+        toValue: event.endCoordinates.height,
+        useNativeDriver: false,
+      }).start();
+    };
+
+    const keyboardWillHide = (event: any) => {
+      Animated.timing(keyboardHeight, {
+        duration: event.duration || 250,
+        toValue: 0,
+        useNativeDriver: false,
+      }).start();
+    };
+
+    const showSubscription = Keyboard.addListener(
+      'keyboardDidShow',
+      keyboardWillShow,
+    );
+    const hideSubscription = Keyboard.addListener(
+      'keyboardDidHide',
+      keyboardWillHide,
+    );
+
+    return () => {
+      showSubscription?.remove();
+      hideSubscription?.remove();
+    };
+  }, [keyboardHeight]);
+
+  return keyboardHeight;
+};
+
+// Components
+const DecorativeElements = React.memo(() => (
+  <>
+    <View style={styles.decorativeCircle1} />
+    <View style={styles.decorativeCircle2} />
+    <View style={styles.decorativeCircle3} />
+  </>
+));
+
+const BannerImage = React.memo(({logoAnim}: {logoAnim: Animated.Value}) => (
+  <Animated.View
+    style={[
+      styles.bannerContainer,
+      {
+        opacity: logoAnim,
+        transform: [
+          {
+            scale: logoAnim.interpolate({
+              inputRange: [0, 1],
+              outputRange: [0.8, 1],
+            }),
+          },
+        ],
       },
-    },
-    password: {
-      required: t('auth.passwordRequired'),
-      minLength: {
-        value: 6,
-        message: t('auth.passwordMinLength'),
-      },
+    ]}>
+    <Image
+      source={{
+        uri: 'https://images.unsplash.com/photo-1503220317375-aaad61436b1b?ixlib=rb-1.2.1&auto=format&fit=crop&w=750&q=80',
+      }}
+      style={styles.bannerImage}
+      resizeMode="cover"
+      // Performance optimization
+      loadingIndicatorSource={{
+        uri: 'data:image/gif;base64,R0lGODlhAQABAIAAAP///wAAACH5BAEAAAAALAAAAAABAAEAAAICRAEAOw==',
+      }}
+      fadeDuration={300}
+    />
+    <AppLogo />
+  </Animated.View>
+));
+
+const AppLogo = React.memo(() => {
+  const {t} = useTranslation();
+
+  return (
+    <View style={styles.bannerOverlay}>
+      <View style={styles.logoContainer}>
+        <View style={styles.logoCircle}>
+          <Icon name="globe-americas" size={50} color="#fff" solid />
+        </View>
+        <Text style={styles.appTitle}>{t('app.name')}</Text>
+        <Text style={styles.appSubtitle}>{t('app.subtitle')}</Text>
+      </View>
+    </View>
+  );
+});
+
+const CustomInput = React.memo(
+  ({
+    control,
+    name,
+    rules,
+    placeholder,
+    iconName,
+    secureTextEntry = false,
+    keyboardType = 'default',
+    autoCapitalize = 'none',
+    autoComplete,
+    error,
+    showPasswordToggle = false,
+    onTogglePassword,
+    showPassword,
+  }: any) => (
+    <View style={styles.inputWrapper}>
+      <Text style={styles.inputLabel}>{placeholder}</Text>
+      <View style={[styles.inputContainer, error && styles.inputError]}>
+        <View style={styles.inputIconContainer}>
+          <Icon name={iconName} size={16} color="#4AC6D0" />
+        </View>
+        <Controller
+          control={control}
+          name={name}
+          rules={rules}
+          render={({field: {onChange, value}}) => (
+            <TextInput
+              placeholder={placeholder}
+              placeholderTextColor="#94A3B8"
+              style={styles.input}
+              onChangeText={onChange}
+              value={value}
+              secureTextEntry={secureTextEntry && !showPassword}
+              keyboardType={keyboardType}
+              autoCapitalize={autoCapitalize}
+              autoComplete={autoComplete}
+              autoCorrect={false}
+              textContentType={
+                name === 'password' ? 'password' : 'emailAddress'
+              }
+            />
+          )}
+        />
+        {showPasswordToggle && (
+          <TouchableOpacity
+            style={styles.passwordToggle}
+            onPress={onTogglePassword}
+            hitSlop={{top: 10, bottom: 10, left: 10, right: 10}}>
+            <Icon
+              name={showPassword ? 'eye-slash' : 'eye'}
+              size={16}
+              color="#64748B"
+            />
+          </TouchableOpacity>
+        )}
+      </View>
+      {error && (
+        <Animated.View style={styles.errorContainer}>
+          <Icon name="exclamation-circle" size={12} color="#EF4444" />
+          <Text style={styles.errorText}>{error.message}</Text>
+        </Animated.View>
+      )}
+    </View>
+  ),
+);
+
+const LoginButton = React.memo(({onPress, loading, t}: any) => (
+  <TouchableOpacity
+    style={[styles.loginButton, loading && styles.loginButtonDisabled]}
+    onPress={onPress}
+    disabled={loading}
+    activeOpacity={0.8}>
+    <LinearGradient
+      colors={
+        loading ? ['#94A3B8', '#64748B'] : ['#4AC6D0', '#3BB8C3', '#2DA5B0']
+      }
+      style={styles.loginButtonGradient}>
+      {loading ? (
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator color="#fff" size="small" />
+          <Text style={styles.loadingText}>{t('auth.signingIn')}</Text>
+        </View>
+      ) : (
+        <View style={styles.buttonContent}>
+          <Text style={styles.loginButtonText}>{t('auth.signIn')}</Text>
+          <Icon name="arrow-right" size={16} color="#fff" />
+        </View>
+      )}
+    </LinearGradient>
+  </TouchableOpacity>
+));
+
+const SocialLoginSection = React.memo(({t}: {t: (key: string) => string}) => (
+  <>
+    <View style={styles.dividerContainer}>
+      <View style={styles.dividerLine} />
+      <Text style={styles.dividerText}>{t('common.or')}</Text>
+      <View style={styles.dividerLine} />
+    </View>
+    {/* Commented out social login for now */}
+    {/* <View style={styles.socialContainer}>
+      <TouchableOpacity style={styles.socialButton} activeOpacity={0.8}>
+        <Icon name="google" size={20} color="#DB4437" />
+        <Text style={styles.socialButtonText}>{t('social.google')}</Text>
+      </TouchableOpacity>
+      <TouchableOpacity style={styles.socialButton} activeOpacity={0.8}>
+        <Icon name="facebook-f" size={20} color="#4267B2" />
+        <Text style={styles.socialButtonText}>{t('social.facebook')}</Text>
+      </TouchableOpacity>
+    </View> */}
+  </>
+));
+
+// Main Component
+const LoginScreen: React.FC = () => {
+  const {t} = useTranslation();
+  const navigation = useNavigation<any>();
+  const {fadeAnim, slideAnim, logoAnim} = useAnimations();
+  const keyboardHeight = useKeyboardHandler();
+
+  // Form handling
+  const {
+    control,
+    handleSubmit,
+    formState: {errors, isSubmitting},
+    setError,
+    clearErrors,
+  } = useForm<LoginFormData>({
+    mode: 'onChange',
+    defaultValues: {
+      email: '',
+      password: '',
     },
   });
 
+  // State
+  const [showPassword, setShowPassword] = React.useState(false);
+  const loadingRef = useRef(false);
+
+  // Validation rules (memoized for performance)
+  const validationRules = useMemo(
+    () => ({
+      email: {
+        required: t('auth.emailRequired'),
+        pattern: {
+          value: EMAIL_REGEX,
+          message: t('auth.invalidEmailAddress'),
+        },
+      },
+      password: {
+        required: t('auth.passwordRequired'),
+        minLength: {
+          value: MIN_PASSWORD_LENGTH,
+          message: t('auth.passwordMinLength'),
+        },
+      },
+    }),
+    [t],
+  );
+
+  // Handlers
+  const handleTogglePassword = useCallback(() => {
+    setShowPassword(prev => !prev);
+  }, []);
+
+  const handleForgotPassword = useCallback(() => {
+    navigation.navigate('ForgotPassword');
+  }, [navigation]);
+
+  const handleRegister = useCallback(() => {
+    navigation.navigate('Register');
+  }, [navigation]);
+
+  const onSubmit = useCallback(
+    async (data: LoginFormData) => {
+      if (loadingRef.current) {
+        return;
+      }
+
+      loadingRef.current = true;
+      clearErrors();
+
+      try {
+        await auth().signInWithEmailAndPassword(
+          data.email.trim(),
+          data.password,
+        );
+        // Navigation will be handled by AuthContext
+      } catch (error: any) {
+        console.error('Login error:', error);
+
+        // Handle specific Firebase errors
+        let errorMessage = t('auth.loginError');
+
+        switch (error.code) {
+          case 'auth/user-not-found':
+          case 'auth/wrong-password':
+            errorMessage = t('auth.invalidCredentials');
+            break;
+          case 'auth/invalid-email':
+            setError('email', {message: t('auth.invalidEmailAddress')});
+            return;
+          case 'auth/user-disabled':
+            errorMessage = t('auth.accountDisabled');
+            break;
+          case 'auth/too-many-requests':
+            errorMessage = t('auth.tooManyAttempts');
+            break;
+          case 'auth/network-request-failed':
+            errorMessage = t('auth.networkError');
+            break;
+          default:
+            errorMessage = error.message || t('auth.loginError');
+        }
+
+        Alert.alert(t('auth.loginFailed'), errorMessage);
+      } finally {
+        loadingRef.current = false;
+      }
+    },
+    [t, clearErrors, setError],
+  );
+
+  // Render
   return (
     <>
       <StatusBar backgroundColor="#4AC6D0" barStyle="light-content" />
       <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         style={styles.container}>
-        <ScrollView
-          style={styles.scrollContainer}
-          showsVerticalScrollIndicator={false}
-          contentContainerStyle={styles.scrollContent}>
-          {/* Header with Gradient */}
-          <LinearGradient
-            colors={['#4AC6D0', '#3BB8C3', '#2DA5B0']}
-            style={styles.headerGradient}>
+        <Animated.View
+          style={[
+            styles.container,
+            {
+              paddingBottom: Platform.OS === 'ios' ? keyboardHeight : 0,
+            },
+          ]}>
+          <ScrollView
+            style={styles.scrollContainer}
+            showsVerticalScrollIndicator={false}
+            contentContainerStyle={styles.scrollContent}
+            keyboardShouldPersistTaps="handled">
+            {/* Header with Gradient */}
+            <LinearGradient
+              colors={['#4AC6D0', '#3BB8C3', '#2DA5B0']}
+              style={styles.headerGradient}>
+              <Animated.View
+                style={[styles.headerOverlay, {opacity: fadeAnim}]}>
+                <DecorativeElements />
+                <BannerImage logoAnim={logoAnim} />
+              </Animated.View>
+            </LinearGradient>
+
+            {/* Main Content */}
             <Animated.View
               style={[
-                styles.headerOverlay,
+                styles.contentContainer,
                 {
                   opacity: fadeAnim,
+                  transform: [{translateY: slideAnim}],
                 },
               ]}>
-              {/* Decorative Elements */}
-              <View style={styles.decorativeCircle1} />
-              <View style={styles.decorativeCircle2} />
-              <View style={styles.decorativeCircle3} />
+              {/* Welcome Section */}
+              <View style={styles.welcomeSection}>
+                <Text style={styles.welcomeTitle}>{t('auth.welcomeBack')}</Text>
+                <Text style={styles.welcomeSubtitle}>
+                  {t('auth.signInToContinue')}
+                </Text>
+              </View>
 
-              {/* Banner Image */}
-              <Animated.View
-                style={[
-                  styles.bannerContainer,
-                  {
-                    opacity: logoAnim,
-                    transform: [
-                      {
-                        scale: logoAnim.interpolate({
-                          inputRange: [0, 1],
-                          outputRange: [0.8, 1],
-                        }),
-                      },
-                    ],
-                  },
-                ]}>
-                <Image
-                  source={{
-                    uri: 'https://images.unsplash.com/photo-1503220317375-aaad61436b1b?ixlib=rb-1.2.1&auto=format&fit=crop&w=750&q=80',
-                  }}
-                  style={styles.bannerImage}
+              {/* Form Container */}
+              <View style={styles.formContainer}>
+                {/* Email Input */}
+                <CustomInput
+                  control={control}
+                  name="email"
+                  rules={validationRules.email}
+                  placeholder={t('auth.emailAddress')}
+                  iconName="envelope"
+                  keyboardType="email-address"
+                  autoComplete="email"
+                  error={errors.email}
                 />
-                <View style={styles.bannerOverlay}>
-                  <View style={styles.logoContainer}>
-                    <View style={styles.logoCircle}>
-                      <Icon
-                        name="globe-americas"
-                        size={50}
-                        color="#fff"
-                        solid
-                      />
-                    </View>
-                    <Text style={styles.appTitle}>{t('app.name')}</Text>
-                    <Text style={styles.appSubtitle}>{t('app.subtitle')}</Text>
-                  </View>
-                </View>
-              </Animated.View>
+
+                {/* Password Input */}
+                <CustomInput
+                  control={control}
+                  name="password"
+                  rules={validationRules.password}
+                  placeholder={t('auth.password')}
+                  iconName="lock"
+                  secureTextEntry
+                  autoComplete="password"
+                  error={errors.password}
+                  showPasswordToggle
+                  onTogglePassword={handleTogglePassword}
+                  showPassword={showPassword}
+                />
+
+                {/* Forgot Password */}
+                <TouchableOpacity
+                  style={styles.forgotPasswordContainer}
+                  onPress={handleForgotPassword}
+                  activeOpacity={0.7}
+                  hitSlop={{top: 10, bottom: 10, left: 10, right: 10}}>
+                  <Text style={styles.forgotPasswordText}>
+                    {t('auth.forgotYourPassword')}
+                  </Text>
+                </TouchableOpacity>
+
+                {/* Login Button */}
+                <LoginButton
+                  onPress={handleSubmit(onSubmit)}
+                  loading={isSubmitting}
+                  t={t}
+                />
+
+                {/* Social Login Section */}
+                <SocialLoginSection t={t} />
+              </View>
+
+              {/* Footer */}
+              <View style={styles.footer}>
+                <Text style={styles.footerText}>
+                  {t('auth.dontHaveAccount')}{' '}
+                </Text>
+                <TouchableOpacity
+                  onPress={handleRegister}
+                  activeOpacity={0.7}
+                  hitSlop={{top: 10, bottom: 10, left: 10, right: 10}}>
+                  <Text style={styles.registerText}>
+                    {t('auth.createAccount')}
+                  </Text>
+                </TouchableOpacity>
+              </View>
             </Animated.View>
-          </LinearGradient>
-
-          {/* Main Content */}
-          <Animated.View
-            style={[
-              styles.contentContainer,
-              {
-                opacity: fadeAnim,
-                transform: [{translateY: slideAnim}],
-              },
-            ]}>
-            {/* Welcome Section */}
-            <View style={styles.welcomeSection}>
-              <Text style={styles.welcomeTitle}>{t('auth.welcomeBack')}</Text>
-              <Text style={styles.welcomeSubtitle}>
-                {t('auth.signInToContinue')}
-              </Text>
-            </View>
-
-            {/* Form Container */}
-            <View style={styles.formContainer}>
-              {/* Email Input */}
-              <View style={styles.inputWrapper}>
-                <Text style={styles.inputLabel}>{t('auth.emailAddress')}</Text>
-                <View
-                  style={[
-                    styles.inputContainer,
-                    errors.email && styles.inputError,
-                  ]}>
-                  <View style={styles.inputIconContainer}>
-                    <Icon name="envelope" size={16} color="#4AC6D0" />
-                  </View>
-                  <Controller
-                    control={control}
-                    name="email"
-                    rules={getValidationRules().email}
-                    render={({field: {onChange, value}}) => (
-                      <TextInput
-                        placeholder={t('placeholders.enterEmail')}
-                        placeholderTextColor="#94A3B8"
-                        style={styles.input}
-                        onChangeText={onChange}
-                        value={value}
-                        keyboardType="email-address"
-                        autoCapitalize="none"
-                        autoComplete="email"
-                      />
-                    )}
-                  />
-                </View>
-                {errors.email && (
-                  <Animated.View style={styles.errorContainer}>
-                    <Icon name="exclamation-circle" size={12} color="#EF4444" />
-                    <Text style={styles.errorText}>{errors.email.message}</Text>
-                  </Animated.View>
-                )}
-              </View>
-
-              {/* Password Input */}
-              <View style={styles.inputWrapper}>
-                <Text style={styles.inputLabel}>{t('auth.password')}</Text>
-                <View
-                  style={[
-                    styles.inputContainer,
-                    errors.password && styles.inputError,
-                  ]}>
-                  <View style={styles.inputIconContainer}>
-                    <Icon name="lock" size={16} color="#4AC6D0" />
-                  </View>
-                  <Controller
-                    control={control}
-                    // value="111111"
-                    name="password"
-                    rules={getValidationRules().password}
-                    render={({field: {onChange, value}}) => (
-                      <TextInput
-                        placeholder={t('placeholders.enterPassword')}
-                        placeholderTextColor="#94A3B8"
-                        secureTextEntry={!showPassword}
-                        style={styles.input}
-                        onChangeText={onChange}
-                        value={value}
-                        autoCapitalize="none"
-                        autoComplete="password"
-                      />
-                    )}
-                  />
-                  <TouchableOpacity
-                    style={styles.passwordToggle}
-                    onPress={() => setShowPassword(!showPassword)}>
-                    <Icon
-                      name={showPassword ? 'eye-slash' : 'eye'}
-                      size={16}
-                      color="#64748B"
-                    />
-                  </TouchableOpacity>
-                </View>
-                {errors.password && (
-                  <Animated.View style={styles.errorContainer}>
-                    <Icon name="exclamation-circle" size={12} color="#EF4444" />
-                    <Text style={styles.errorText}>
-                      {errors.password.message}
-                    </Text>
-                  </Animated.View>
-                )}
-              </View>
-
-              {/* Forgot Password */}
-              <TouchableOpacity
-                style={styles.forgotPasswordContainer}
-                onPress={() => navigation.navigate('ForgotPassword')}
-                activeOpacity={0.7}>
-                <Text style={styles.forgotPasswordText}>
-                  {t('auth.forgotYourPassword')}
-                </Text>
-              </TouchableOpacity>
-
-              {/* Login Button */}
-              <TouchableOpacity
-                style={[
-                  styles.loginButton,
-                  loading && styles.loginButtonDisabled,
-                ]}
-                onPress={handleSubmit(onLogin)}
-                disabled={loading}
-                activeOpacity={0.8}>
-                <LinearGradient
-                  colors={
-                    loading
-                      ? ['#94A3B8', '#64748B']
-                      : ['#4AC6D0', '#3BB8C3', '#2DA5B0']
-                  }
-                  style={styles.loginButtonGradient}>
-                  {loading ? (
-                    <View style={styles.loadingContainer}>
-                      <ActivityIndicator color="#fff" size="small" />
-                      <Text style={styles.loadingText}>
-                        {t('auth.signingIn')}
-                      </Text>
-                    </View>
-                  ) : (
-                    <View style={styles.buttonContent}>
-                      <Text style={styles.loginButtonText}>
-                        {t('auth.signIn')}
-                      </Text>
-                      <Icon name="arrow-right" size={16} color="#fff" />
-                    </View>
-                  )}
-                </LinearGradient>
-              </TouchableOpacity>
-
-              {/* Divider */}
-              <View style={styles.dividerContainer}>
-                <View style={styles.dividerLine} />
-                <Text style={styles.dividerText}>{t('common.or')}</Text>
-                <View style={styles.dividerLine} />
-              </View>
-
-              {/* Social Login Options */}
-              {/* <View style={styles.socialContainer}>
-                <TouchableOpacity
-                  style={styles.socialButton}
-                  activeOpacity={0.8}>
-                  <Icon name="google" size={20} color="#DB4437" />
-                  <Text style={styles.socialButtonText}>
-                    {t('social.google')}
-                  </Text>
-                </TouchableOpacity>
-
-                <TouchableOpacity
-                  style={styles.socialButton}
-                  activeOpacity={0.8}>
-                  <Icon name="facebook-f" size={20} color="#4267B2" />
-                  <Text style={styles.socialButtonText}>
-                    {t('social.facebook')}
-                  </Text>
-                </TouchableOpacity>
-              </View> */}
-            </View>
-
-            {/* Footer */}
-            <View style={styles.footer}>
-              <Text style={styles.footerText}>
-                {t('auth.dontHaveAccount')}{' '}
-              </Text>
-              <TouchableOpacity
-                onPress={() => navigation.navigate('Register')}
-                activeOpacity={0.7}>
-                <Text style={styles.registerText}>
-                  {t('auth.createAccount')}
-                </Text>
-              </TouchableOpacity>
-            </View>
-          </Animated.View>
-        </ScrollView>
+          </ScrollView>
+        </Animated.View>
       </KeyboardAvoidingView>
     </>
   );
 };
 
+// Optimized StyleSheet (same styles as before but organized better)
 const styles = StyleSheet.create({
+  // Container styles
   container: {
     flex: 1,
     backgroundColor: '#F8FAFC',
@@ -373,9 +532,9 @@ const styles = StyleSheet.create({
     flexGrow: 1,
   },
 
-  // Header Styles
+  // Header styles
   headerGradient: {
-    height: height * 0.4,
+    height: HEADER_HEIGHT,
     position: 'relative',
   },
   headerOverlay: {
@@ -423,7 +582,6 @@ const styles = StyleSheet.create({
   bannerImage: {
     width: '100%',
     height: '100%',
-    resizeMode: 'cover',
   },
   bannerOverlay: {
     ...StyleSheet.absoluteFillObject,
@@ -435,9 +593,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   logoCircle: {
-    width: 90,
-    height: 90,
-    borderRadius: 45,
+    width: LOGO_SIZE,
+    height: LOGO_SIZE,
+    borderRadius: LOGO_SIZE / 2,
     backgroundColor: 'rgba(74, 198, 208, 0.9)',
     justifyContent: 'center',
     alignItems: 'center',
@@ -464,7 +622,7 @@ const styles = StyleSheet.create({
     fontWeight: '500',
   },
 
-  // Content Styles
+  // Content styles
   contentContainer: {
     flex: 1,
     paddingHorizontal: 24,
@@ -495,7 +653,7 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
 
-  // Form Styles
+  // Form styles
   formContainer: {
     gap: 20,
   },
@@ -557,10 +715,11 @@ const styles = StyleSheet.create({
     fontWeight: '500',
   },
 
-  // Button Styles
+  // Button styles
   forgotPasswordContainer: {
     alignSelf: 'flex-end',
     marginTop: -8,
+    paddingVertical: 8,
   },
   forgotPasswordText: {
     color: '#4AC6D0',
@@ -609,7 +768,7 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
 
-  // Divider & Social
+  // Divider & Social styles
   dividerContainer: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -626,41 +785,15 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '500',
   },
-  socialContainer: {
-    flexDirection: 'row',
-    gap: 12,
-  },
-  socialButton: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#fff',
-    borderRadius: 12,
-    paddingVertical: 14,
-    paddingHorizontal: 16,
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
-    gap: 8,
-    elevation: 2,
-    shadowColor: '#000',
-    shadowOffset: {width: 0, height: 1},
-    shadowOpacity: 0.05,
-    shadowRadius: 2,
-  },
-  socialButtonText: {
-    color: '#374151',
-    fontSize: 14,
-    fontWeight: '600',
-  },
 
-  // Footer
+  // Footer styles
   footer: {
     flexDirection: 'row',
     justifyContent: 'center',
     alignItems: 'center',
     marginTop: 12,
     marginBottom: 24,
+    paddingVertical: 8,
   },
   footerText: {
     color: '#64748B',
@@ -673,4 +806,4 @@ const styles = StyleSheet.create({
   },
 });
 
-export default LoginScreen;
+export default React.memo(LoginScreen);

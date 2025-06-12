@@ -1,4 +1,12 @@
-import React, {useEffect, useState} from 'react';
+import React, {
+  useEffect,
+  useState,
+  useRef,
+  useCallback,
+  useMemo,
+  memo,
+  useReducer,
+} from 'react';
 import {
   View,
   Text,
@@ -23,89 +31,141 @@ import ChatOptionsModal from '../components/ChatOptionsModal';
 import LinearGradient from 'react-native-linear-gradient';
 import {useTranslation} from '../contexts/TranslationContext';
 
-const {width} = Dimensions.get('window');
-
-// Tab Navigation Component for ChatListScreen
+// Types
 type ChatTabType = 'groups' | 'private';
 
-interface ChatTabNavigationProps {
-  activeTab: ChatTabType;
-  onTabChange: (tab: ChatTabType) => void;
-  groupCount: number;
-  privateCount: number;
+interface ChatData {
+  id: string;
+  name?: string;
+  isGroup: boolean;
+  members: string[];
+  memberEmails?: string[];
+  avatar?: string;
+  lastMessage?: string;
+  lastSenderName?: string;
+  lastMessageTime?: Date;
+  formattedTime?: string;
+  pinned: string[];
+  muted: string[];
+  unreadCount: number;
+  roles: Record<string, string>;
+  createdAt: Date;
 }
 
-const ChatTabNavigation: React.FC<ChatTabNavigationProps> = ({
-  activeTab,
-  onTabChange,
-  groupCount,
-  privateCount,
-}) => {
-  const {t} = useTranslation();
+interface UserProfile {
+  avatarUrl: string;
+}
 
-  const tabs = [
-    {
-      key: 'groups',
-      label: t('chat.travel'),
-      shortLabel: t('chat.travel'),
-      icon: 'group',
-      count: groupCount,
-      color: '#4AC6D0',
-    },
-    {
-      key: 'private',
-      label: t('chat.chats'),
-      shortLabel: t('chat.chats'),
-      icon: 'chat',
-      count: privateCount,
-      color: '#10B981',
-    },
-  ] as const;
+// State types
+type StateAction =
+  | {type: 'SET_LOADING'; payload: boolean}
+  | {type: 'SET_CHATS'; payload: ChatData[]}
+  | {type: 'SET_GROUP_CHATS'; payload: ChatData[]}
+  | {type: 'SET_PRIVATE_CHATS'; payload: ChatData[]}
+  | {type: 'SET_FILTERED_GROUPS'; payload: ChatData[]}
+  | {type: 'SET_FILTERED_PRIVATE'; payload: ChatData[]}
+  | {type: 'SET_USER_PROFILE'; payload: UserProfile}
+  | {type: 'SET_SEARCH_QUERY'; payload: string}
+  | {type: 'SET_SEARCH_VISIBLE'; payload: boolean}
+  | {type: 'SET_MODAL_VISIBLE'; payload: boolean}
+  | {type: 'SET_GROUP_MODAL_VISIBLE'; payload: boolean}
+  | {type: 'SET_SELECTED_CHAT'; payload: ChatData | null}
+  | {type: 'SET_ACTIVE_TAB'; payload: ChatTabType}
+  | {type: 'SET_GROUP_NAME'; payload: string}
+  | {type: 'SET_INPUT_EMAILS'; payload: string}
+  | {type: 'RESET_FORM'};
 
-  return (
-    <View style={styles.tabContainer}>
-      <View style={styles.tabsWrapper}>
-        {tabs.map(tab => (
-          <TouchableOpacity
-            key={tab.key}
-            style={styles.tabButtonContainer}
-            onPress={() => onTabChange(tab.key as ChatTabType)}
-            activeOpacity={0.8}>
-            {activeTab === tab.key ? (
-              <LinearGradient
-                colors={
-                  tab.key === 'groups'
-                    ? ['#4AC6D0', '#3BB8C3']
-                    : ['#10B981', '#059669']
-                }
-                style={[styles.tabButton, styles.tabButtonActive]}>
-                <View style={styles.tabContent}>
-                  <View style={styles.activeIconContainer}>
-                    <Icon name={tab.icon} size={18} color="#fff" />
-                  </View>
-                  <Text style={styles.tabButtonTextActive}>
-                    {tab.label} ({tab.count})
-                  </Text>
-                </View>
-              </LinearGradient>
-            ) : (
-              <View style={styles.tabButton}>
-                <View style={styles.tabContent}>
-                  <Icon name={tab.icon} size={16} color="#64748B" />
-                  <Text style={styles.tabButtonText}>
-                    {tab.shortLabel} ({tab.count})
-                  </Text>
-                </View>
-              </View>
-            )}
-          </TouchableOpacity>
-        ))}
-      </View>
-    </View>
-  );
+interface ChatListState {
+  chats: ChatData[];
+  groupChats: ChatData[];
+  privateChats: ChatData[];
+  filteredGroupChats: ChatData[];
+  filteredPrivateChats: ChatData[];
+  userProfile: UserProfile;
+  loading: boolean;
+  searchQuery: string;
+  searchVisible: boolean;
+  modalVisible: boolean;
+  groupModalVisible: boolean;
+  selectedChat: ChatData | null;
+  activeTab: ChatTabType;
+  groupName: string;
+  inputEmails: string;
+}
+
+const initialState: ChatListState = {
+  chats: [],
+  groupChats: [],
+  privateChats: [],
+  filteredGroupChats: [],
+  filteredPrivateChats: [],
+  userProfile: {avatarUrl: ''},
+  loading: false,
+  searchQuery: '',
+  searchVisible: false,
+  modalVisible: false,
+  groupModalVisible: false,
+  selectedChat: null,
+  activeTab: 'groups',
+  groupName: '',
+  inputEmails: '',
 };
 
-export const formatMessageTime = (date: Date): string => {
+// Atomic state reducer
+const chatListReducer = (
+  state: ChatListState,
+  action: StateAction,
+): ChatListState => {
+  switch (action.type) {
+    case 'SET_LOADING':
+      return {...state, loading: action.payload};
+    case 'SET_CHATS':
+      return {...state, chats: action.payload};
+    case 'SET_GROUP_CHATS':
+      return {...state, groupChats: action.payload};
+    case 'SET_PRIVATE_CHATS':
+      return {...state, privateChats: action.payload};
+    case 'SET_FILTERED_GROUPS':
+      return {...state, filteredGroupChats: action.payload};
+    case 'SET_FILTERED_PRIVATE':
+      return {...state, filteredPrivateChats: action.payload};
+    case 'SET_USER_PROFILE':
+      return {...state, userProfile: action.payload};
+    case 'SET_SEARCH_QUERY':
+      return {...state, searchQuery: action.payload};
+    case 'SET_SEARCH_VISIBLE':
+      return {...state, searchVisible: action.payload};
+    case 'SET_MODAL_VISIBLE':
+      return {...state, modalVisible: action.payload};
+    case 'SET_GROUP_MODAL_VISIBLE':
+      return {...state, groupModalVisible: action.payload};
+    case 'SET_SELECTED_CHAT':
+      return {...state, selectedChat: action.payload};
+    case 'SET_ACTIVE_TAB':
+      return {...state, activeTab: action.payload};
+    case 'SET_GROUP_NAME':
+      return {...state, groupName: action.payload};
+    case 'SET_INPUT_EMAILS':
+      return {...state, inputEmails: action.payload};
+    case 'RESET_FORM':
+      return {
+        ...state,
+        groupName: '',
+        inputEmails: '',
+        groupModalVisible: false,
+      };
+    default:
+      return state;
+  }
+};
+
+// Constants
+const {width} = Dimensions.get('window');
+const ANIMATION_DURATION = 500;
+const BATCH_SIZE = 10;
+
+// Memoized utility functions - outside component
+const formatMessageTime = (date: Date): string => {
   if (!date) {
     return '';
   }
@@ -115,30 +175,31 @@ export const formatMessageTime = (date: Date): string => {
 
   if (diffInSeconds < 60) {
     return 'now';
-  } else if (diffInSeconds < 3600) {
-    const minutes = Math.floor(diffInSeconds / 60);
-    return `${minutes}m`;
-  } else if (diffInSeconds < 86400) {
-    const hours = Math.floor(diffInSeconds / 3600);
-    return `${hours}h`;
-  } else if (diffInSeconds < 604800) {
-    const days = Math.floor(diffInSeconds / 86400);
-    return `${days}d`;
-  } else {
-    return date.toLocaleDateString('en-US', {
-      month: 'short',
-      day: 'numeric',
-    });
   }
+  if (diffInSeconds < 3600) {
+    return `${Math.floor(diffInSeconds / 60)}m`;
+  }
+  if (diffInSeconds < 86400) {
+    return `${Math.floor(diffInSeconds / 3600)}h`;
+  }
+  if (diffInSeconds < 604800) {
+    return `${Math.floor(diffInSeconds / 86400)}d`;
+  }
+
+  return date.toLocaleDateString('en-US', {
+    month: 'short',
+    day: 'numeric',
+  });
 };
 
-// Helper function to sort chats with pinned ones first
-const sortChatsWithPinned = (chats: any[], currentUserId: string) => {
-  return chats.sort((a, b) => {
+const sortChatsWithPinned = (
+  chats: ChatData[],
+  currentUserId: string,
+): ChatData[] => {
+  return [...chats].sort((a, b) => {
     const aIsPinned = a.pinned?.includes(currentUserId);
     const bIsPinned = b.pinned?.includes(currentUserId);
 
-    // If one is pinned and the other isn't, prioritize pinned
     if (aIsPinned && !bIsPinned) {
       return -1;
     }
@@ -146,441 +207,260 @@ const sortChatsWithPinned = (chats: any[], currentUserId: string) => {
       return 1;
     }
 
-    // If both are pinned or both are not pinned, sort by lastMessageTime
     if (a.lastMessageTime && b.lastMessageTime) {
-      return b.lastMessageTime - a.lastMessageTime;
-    } else if (a.lastMessageTime) {
-      return -1;
-    } else if (b.lastMessageTime) {
-      return 1;
-    } else {
-      return b.createdAt && a.createdAt ? b.createdAt - a.createdAt : 0;
+      return b.lastMessageTime.getTime() - a.lastMessageTime.getTime();
     }
+    if (a.lastMessageTime) {
+      return -1;
+    }
+    if (b.lastMessageTime) {
+      return 1;
+    }
+
+    return b.createdAt && a.createdAt
+      ? b.createdAt.getTime() - a.createdAt.getTime()
+      : 0;
   });
 };
 
-const ChatListScreen = () => {
-  const navigation = useNavigation<any>();
-  const {user, signOut, role} = useAuth();
-  const [chats, setChats] = useState<any[]>([]);
-  const [groupChats, setGroupChats] = useState<any[]>([]);
-  const [privateChats, setPrivateChats] = useState<any[]>([]);
-  const [filteredGroupChats, setFilteredGroupChats] = useState<any[]>([]);
-  const [filteredPrivateChats, setFilteredPrivateChats] = useState<any[]>([]);
-  const [inputEmails, setInputEmails] = useState('');
-  const [avatarUrl, setAvatarUrl] = useState('');
-  const [loading, setLoading] = useState(false);
-  const [showOptions, setShowOptions] = useState(false);
-  const [showGroupModal, setShowGroupModal] = useState(false);
-  const [groupName, setGroupName] = useState('');
-  const [searchVisible, setSearchVisible] = useState(false);
-  const [searchQuery, setSearchQuery] = useState('');
-  const [modalVisible, setModalVisible] = useState(false);
-  const [selectedChat, setSelectedChat] = useState(null);
-  const [activeTab, setActiveTab] = useState<ChatTabType>('groups');
-  const {t} = useTranslation();
+// Custom hooks
+const useStableRefs = () => {
+  const refs = useRef({
+    fadeAnim: new Animated.Value(0),
+    slideAnim: new Animated.Value(50),
+    unsubscribeChats: null as (() => void) | null,
+    unsubscribeProfile: null as (() => void) | null,
+    isInitialized: false,
+    lastChatsHash: '',
+  });
 
-  // Animation values
-  const fadeAnim = new Animated.Value(0);
-  const slideAnim = new Animated.Value(50);
+  return refs.current;
+};
 
-  useEffect(() => {
-    // Entrance animation
-    Animated.parallel([
-      Animated.timing(fadeAnim, {
-        toValue: 1,
-        duration: 500,
-        useNativeDriver: true,
-      }),
-      Animated.timing(slideAnim, {
-        toValue: 0,
-        duration: 500,
-        useNativeDriver: true,
-      }),
-    ]).start();
-  }, []);
-
-  useEffect(() => {
-    if (!user?.uid) {
-      return;
+const useAnimations = (refs: ReturnType<typeof useStableRefs>) => {
+  const startEntranceAnimation = useCallback(() => {
+    if (!refs.isInitialized) {
+      Animated.parallel([
+        Animated.timing(refs.fadeAnim, {
+          toValue: 1,
+          duration: ANIMATION_DURATION,
+          useNativeDriver: true,
+        }),
+        Animated.timing(refs.slideAnim, {
+          toValue: 0,
+          duration: ANIMATION_DURATION,
+          useNativeDriver: true,
+        }),
+      ]).start();
+      refs.isInitialized = true;
     }
-    setLoading(true);
+  }, [refs]);
 
-    let unsubscribeProfile: () => void;
+  return {startEntranceAnimation};
+};
 
-    const loadProfile = () => {
-      unsubscribeProfile = firestore()
-        .collection('users')
-        .doc(user?.uid)
-        .onSnapshot(
-          doc => {
-            const data = doc.data();
-            if (data) {
-              setAvatarUrl(data?.avatar?.secure_url || data?.avatar?.url || '');
-            }
-          },
-          error => {
-            console.error('Profile snapshot error:', error);
-          },
-        );
-    };
-
-    loadProfile();
-
-    const unsubscribe = firestore()
-      .collection('chats')
-      .where('members', 'array-contains', user?.uid)
-      .onSnapshot(
-        async querySnapshot => {
-          try {
-            const chatData: any[] = [];
-            const userIdsSet = new Set<string>();
-
-            querySnapshot.forEach(doc => {
-              const data = doc.data();
-
-              // Convert Firestore timestamps to readable format
-              const processedData = {
-                id: doc.id,
-                ...data,
-                createdAt: data.createdAt?.toDate
-                  ? data.createdAt.toDate()
-                  : data.createdAt,
-                lastMessageTime: data.lastMessageTime?.toDate
-                  ? data.lastMessageTime.toDate()
-                  : null,
-                updatedAt: data.updatedAt?.toDate
-                  ? data.updatedAt.toDate()
-                  : data.updatedAt,
-                // Keep pinned as array
-                pinned: data.pinned || [],
-                muted: data.muted || [],
-              };
-
-              chatData.push(processedData);
-              data.members?.forEach((id: string) => userIdsSet.add(id));
-            });
-
-            const userIds = Array.from(userIdsSet);
-            if (userIds.length > 0) {
-              const userMap: Record<
-                string,
-                {name: string; email: string; avatar?: string}
-              > = {};
-
-              // Process users in batches of 10 (Firestore 'in' clause limit)
-              for (let i = 0; i < userIds.length; i += 10) {
-                const batch = userIds.slice(i, i + 10);
-                const usersSnapshot = await firestore()
-                  .collection('users')
-                  .where(firestore.FieldPath.documentId(), 'in', batch)
-                  .get();
-
-                usersSnapshot.forEach(doc => {
-                  const userData = doc.data();
-                  userMap[doc.id] = {
-                    name: userData?.name || userData.email,
-                    email: userData.email,
-                    avatar:
-                      userData?.avatar?.secure_url || userData?.avatar?.url,
-                  };
-                });
-              }
-
-              const enrichedChats = chatData.map(chat => {
-                const otherMemberId = chat.members.find(
-                  (id: string) => id !== user?.uid,
-                );
-                return {
-                  ...chat,
-                  memberEmails: chat.members.map(
-                    (id: string) =>
-                      userMap[id]?.name || userMap[id]?.email || id,
-                  ),
-                  avatar: otherMemberId ? userMap[otherMemberId]?.avatar : null,
-                  // Add formatted time string for display
-                  formattedTime: chat.lastMessageTime
-                    ? formatMessageTime(chat.lastMessageTime)
-                    : '',
-                };
-              });
-
-              // Separate group chats and private chats, then sort with pinned first
-              const groups = sortChatsWithPinned(
-                enrichedChats.filter(chat => chat.isGroup === true),
-                user.uid,
-              );
-              const privates = sortChatsWithPinned(
-                enrichedChats.filter(chat => chat.isGroup === false),
-                user.uid,
-              );
-
-              const allSorted = sortChatsWithPinned(enrichedChats, user.uid);
-
-              setChats(allSorted);
-              setGroupChats(groups);
-              setPrivateChats(privates);
-              setFilteredGroupChats(groups);
-              setFilteredPrivateChats(privates);
-            } else {
-              setChats([]);
-              setGroupChats([]);
-              setPrivateChats([]);
-              setFilteredGroupChats([]);
-              setFilteredPrivateChats([]);
-            }
-          } catch (error) {
-            console.error('Error loading chats:', error);
-            Alert.alert('Error', 'Failed to load chat list. Please try again.');
-          } finally {
-            setLoading(false);
-          }
+// Memoized Components
+const ChatTabNavigation = memo(
+  ({
+    activeTab,
+    onTabChange,
+    groupCount,
+    privateCount,
+    t,
+  }: {
+    activeTab: ChatTabType;
+    onTabChange: (tab: ChatTabType) => void;
+    groupCount: number;
+    privateCount: number;
+    t: (key: string) => string;
+  }) => {
+    const tabs = useMemo(
+      () => [
+        {
+          key: 'groups' as const,
+          label: t('chat.travel'),
+          shortLabel: t('chat.travel'),
+          icon: 'group',
+          count: groupCount,
+          colors: ['#4AC6D0', '#3BB8C3'],
         },
-        error => {
-          console.error('Firestore snapshot error:', error);
-          setLoading(false);
-          Alert.alert('Error', 'Failed to listen for chat updates.');
+        {
+          key: 'private' as const,
+          label: t('chat.chats'),
+          shortLabel: t('chat.chats'),
+          icon: 'chat',
+          count: privateCount,
+          colors: ['#10B981', '#059669'],
         },
-      );
+      ],
+      [groupCount, privateCount, t],
+    );
 
-    return () => {
-      unsubscribe();
-      if (unsubscribeProfile) {
-        unsubscribeProfile();
-      }
-    };
-  }, [user?.uid]);
-
-  // Search functionality with pinned sorting
-  useEffect(() => {
-    if (!searchQuery.trim()) {
-      setFilteredGroupChats(groupChats);
-      setFilteredPrivateChats(privateChats);
-    } else {
-      const query = searchQuery.toLowerCase();
-
-      const filteredGroups = groupChats.filter(
-        chat =>
-          chat.name?.toLowerCase().includes(query) ||
-          chat.memberEmails?.some(email => email.toLowerCase().includes(query)),
-      );
-
-      const filteredPrivate = privateChats.filter(
-        chat =>
-          chat.name?.toLowerCase().includes(query) ||
-          chat.memberEmails?.some(email => email.toLowerCase().includes(query)),
-      );
-
-      // Re-sort filtered results with pinned first
-      setFilteredGroupChats(sortChatsWithPinned(filteredGroups, user.uid));
-      setFilteredPrivateChats(sortChatsWithPinned(filteredPrivate, user.uid));
-    }
-  }, [searchQuery, groupChats, privateChats, user.uid]);
-
-  const handleCreateChat = async () => {
-    setLoading(true);
-    const emails = inputEmails
-      .split(',')
-      .map(e => e.trim().toLowerCase())
-      .filter(Boolean);
-
-    if (emails.length === 0) {
-      setLoading(false);
-      Alert.alert(t('common.error'), t('chat.enterAtLeastOneEmail'));
-      return;
-    }
-
-    try {
-      const usersSnapshot = await firestore()
-        .collection('users')
-        .where('email', 'in', emails)
-        .get();
-
-      const users = usersSnapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data(),
-      }));
-      const foundEmails = users.map(u => u.email?.toLowerCase());
-      const notFound = emails.filter(email => !foundEmails.includes(email));
-
-      if (notFound.length > 0) {
-        setGroupName('');
-        setInputEmails('');
-        setLoading(false);
-        Alert.alert(
-          t('common.error'),
-          `${t('chat.emailsNotFound')}: ${notFound.join(', ')}`,
-        );
-        return;
-      }
-
-      const memberIds = users.map(u => u.id);
-      if (!memberIds.includes(user?.uid)) {
-        memberIds.push(user?.uid);
-      }
-
-      const roles = memberIds.reduce((acc, memberId) => {
-        acc[memberId] = memberId === user?.uid ? 'owner' : 'member';
-        return acc;
-      }, {} as Record<string, string>);
-
-      if (role === 'tourist' && emails.length === 1) {
-        // Create private chat for tourists
-        const chatId = [memberIds[0], memberIds[1]].sort().join('_');
-        await firestore().collection('chats').doc(chatId).set(
-          {
-            isGroup: false,
-            members: memberIds,
-            roles,
-            pinned: [],
-            muted: [],
-            createdAt: firestore.FieldValue.serverTimestamp(),
-            createdBy: user?.uid,
-          },
-          {merge: true},
-        );
-      } else {
-        // Create group chat for tour guides or multiple members
-        await firestore()
-          .collection('chats')
-          .add({
-            isGroup: true,
-            members: memberIds,
-            roles,
-            name: groupName || t('chat.defaultGroupName'),
-            pinned: [],
-            muted: [],
-            createdAt: firestore.FieldValue.serverTimestamp(),
-            createdBy: user?.uid,
-          });
-      }
-
-      setGroupName('');
-      setInputEmails('');
-      setShowGroupModal(false);
-      setLoading(false);
-    } catch (err) {
-      console.error(err);
-      setLoading(false);
-      setGroupName('');
-      setInputEmails('');
-      Alert.alert(t('common.error'), t('chat.failedToCreateChat'));
-    } finally {
-      setLoading(false);
-      setGroupName('');
-      setInputEmails('');
-    }
-  };
-
-  const onLongPressItem = item => {
-    setSelectedChat(item);
-    setModalVisible(true);
-  };
-
-  const onPin = async (id: string) => {
-    setModalVisible(false);
-    try {
-      setLoading(true);
-      const chatRef = firestore().collection('chats').doc(id);
-      const chatDoc = await chatRef.get();
-      if (!chatDoc.exists) {
-        Alert.alert(t('common.error'), t('chat.chatNotFound'));
-        return;
-      }
-      const chatData = chatDoc.data();
-      const pinnedUsers = chatData.pinned || [];
-
-      if (pinnedUsers.includes(user?.uid)) {
-        // Unpin: remove user from pinned array
-        const updatedPinned = pinnedUsers.filter(uid => uid !== user?.uid);
-        await chatRef.update({pinned: updatedPinned});
-      } else {
-        // Pin: add user to pinned array
-        pinnedUsers.push(user?.uid);
-        await chatRef.update({pinned: pinnedUsers});
-      }
-    } catch (error) {
-      console.error('Error pinning/unpinning chat:', error);
-      Alert.alert(t('common.error'), t('chat.failedToUpdatePinStatus'));
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const onMute = async (id: string) => {
-    setModalVisible(false);
-    try {
-      setLoading(true);
-      const chatRef = firestore().collection('chats').doc(id);
-      const chatDoc = await chatRef.get();
-      if (!chatDoc.exists) {
-        Alert.alert(t('common.error'), t('chat.chatNotFound'));
-        return;
-      }
-      const chatData = chatDoc.data();
-      const mutedUsers = chatData.muted || [];
-
-      if (mutedUsers.includes(user?.uid)) {
-        // Unmute: remove user from muted array
-        const updatedMuted = mutedUsers.filter(uid => uid !== user?.uid);
-        await chatRef.update({muted: updatedMuted});
-      } else {
-        // Mute: add user to muted array
-        mutedUsers.push(user?.uid);
-        await chatRef.update({muted: updatedMuted});
-      }
-    } catch (error) {
-      console.error('Error muting/unmuting chat:', error);
-      Alert.alert(t('common.error'), t('chat.failedToUpdateMuteStatus'));
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const deleteChat = async (id: string) => {
-    setModalVisible(false);
-    Alert.alert(t('chat.deleteChat'), t('chat.deleteChatConfirmation'), [
-      {
-        text: t('common.cancel'),
-        style: 'cancel',
+    const handleTabPress = useCallback(
+      (tabKey: ChatTabType) => {
+        onTabChange(tabKey);
       },
-      {
-        text: t('common.delete'),
-        style: 'destructive',
-        onPress: async () => {
-          try {
-            setLoading(true);
-            await firestore().collection('chats').doc(id).delete();
-          } catch (error) {
-            console.error('Error deleting chat:', error);
-            Alert.alert(t('common.error'), t('chat.failedToDeleteChat'));
-          } finally {
-            setLoading(false);
-          }
-        },
-      },
-    ]);
-  };
+      [onTabChange],
+    );
 
-  const renderGroupItem = ({item, index}) => {
+    return (
+      <View style={styles.tabContainer}>
+        <View style={styles.tabsWrapper}>
+          {tabs.map(tab => (
+            <TouchableOpacity
+              key={tab.key}
+              style={styles.tabButtonContainer}
+              onPress={() => handleTabPress(tab.key)}
+              activeOpacity={0.8}>
+              {activeTab === tab.key ? (
+                <LinearGradient
+                  colors={tab.colors}
+                  style={[styles.tabButton, styles.tabButtonActive]}>
+                  <View style={styles.tabContent}>
+                    <View style={styles.activeIconContainer}>
+                      <Icon name={tab.icon} size={18} color="#fff" />
+                    </View>
+                    <Text style={styles.tabButtonTextActive}>
+                      {tab.label} ({tab.count})
+                    </Text>
+                  </View>
+                </LinearGradient>
+              ) : (
+                <View style={styles.tabButton}>
+                  <View style={styles.tabContent}>
+                    <Icon name={tab.icon} size={16} color="#64748B" />
+                    <Text style={styles.tabButtonText}>
+                      {tab.shortLabel} ({tab.count})
+                    </Text>
+                  </View>
+                </View>
+              )}
+            </TouchableOpacity>
+          ))}
+        </View>
+      </View>
+    );
+  },
+  (prevProps, nextProps) => {
+    return (
+      prevProps.activeTab === nextProps.activeTab &&
+      prevProps.groupCount === nextProps.groupCount &&
+      prevProps.privateCount === nextProps.privateCount
+    );
+  },
+);
+
+const HeaderComponent = memo(
+  ({
+    searchVisible,
+    searchQuery,
+    avatarUrl,
+    conversationCount,
+    onSearchToggle,
+    onSearchChange,
+    onSearchClose,
+    onProfilePress,
+    t,
+  }: {
+    searchVisible: boolean;
+    searchQuery: string;
+    avatarUrl: string;
+    conversationCount: number;
+    onSearchToggle: () => void;
+    onSearchChange: (query: string) => void;
+    onSearchClose: () => void;
+    onProfilePress: () => void;
+    t: (key: string) => string;
+  }) => (
+    <LinearGradient colors={['#4AC6D0', '#3BB8C3']} style={styles.header}>
+      {!searchVisible ? (
+        <View style={styles.headerContent}>
+          <View style={styles.headerLeft}>
+            <Text style={styles.headerTitle}>{t('chat.travelChats')}</Text>
+            <Text style={styles.headerSubtitle}>
+              {conversationCount} {t('chat.conversation').toUpperCase()}
+            </Text>
+          </View>
+          <View style={styles.headerActions}>
+            <TouchableOpacity
+              style={styles.headerButton}
+              onPress={onSearchToggle}>
+              <Icon name="search" size={22} color="#FFF" />
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.profileContainer}
+              onPress={onProfilePress}>
+              <Image
+                source={
+                  avatarUrl
+                    ? {uri: avatarUrl}
+                    : require('../assets/default-avatar.png')
+                }
+                style={styles.profileAvatar}
+              />
+              <View style={styles.onlineIndicator} />
+            </TouchableOpacity>
+          </View>
+        </View>
+      ) : (
+        <View style={styles.searchContainer}>
+          <View style={styles.searchInputContainer}>
+            <Icon name="search" size={20} color="rgba(255,255,255,0.7)" />
+            <TextInput
+              style={styles.searchInput}
+              placeholder={t('chat.searchConversations')}
+              placeholderTextColor="rgba(255,255,255,0.7)"
+              value={searchQuery}
+              onChangeText={onSearchChange}
+              autoFocus
+            />
+          </View>
+          <TouchableOpacity
+            style={styles.searchCloseButton}
+            onPress={onSearchClose}>
+            <Icon name="close" size={22} color="#FFF" />
+          </TouchableOpacity>
+        </View>
+      )}
+    </LinearGradient>
+  ),
+  (prevProps, nextProps) => {
+    return (
+      prevProps.searchVisible === nextProps.searchVisible &&
+      prevProps.searchQuery === nextProps.searchQuery &&
+      prevProps.avatarUrl === nextProps.avatarUrl &&
+      prevProps.conversationCount === nextProps.conversationCount
+    );
+  },
+);
+
+const GroupChatItem = memo(
+  ({
+    item,
+    userId,
+    onPress,
+    onLongPress,
+    t,
+  }: {
+    item: ChatData;
+    userId: string;
+    onPress: () => void;
+    onLongPress: () => void;
+    t: (key: string) => string;
+  }) => {
     const chatName = item.name || t('chat.defaultGroupName');
     const memberCount = item.members?.length || 0;
-    const isPinned = item.pinned?.includes(user?.uid);
-    const isMuted = item.muted?.includes(user?.uid);
+    const isPinned = item.pinned?.includes(userId);
+    const isMuted = item.muted?.includes(userId);
 
-    let lastMessagePreview = '';
-    if (
-      item.lastSenderName &&
-      (user?.email === item?.lastSenderName ||
-        user?.name === item?.lastSenderName)
-    ) {
-      lastMessagePreview = t('chat.you') + ': ' + (item?.lastMessage || '');
-    } else if (item.lastSenderName) {
-      lastMessagePreview =
-        item?.lastSenderName + ': ' + (item?.lastMessage || '');
-    } else {
-      lastMessagePreview = t('chat.readyForAdventure');
-    }
+    const lastMessagePreview = useMemo(() => {
+      if (item.lastSenderName && userId === item.lastSenderName) {
+        return t('chat.you') + ': ' + (item.lastMessage || '');
+      } else if (item.lastSenderName) {
+        return item.lastSenderName + ': ' + (item.lastMessage || '');
+      }
+      return t('chat.readyForAdventure');
+    }, [item.lastSenderName, item.lastMessage, userId, t]);
 
     return (
       <Animated.View style={styles.chatItemWrapper}>
@@ -590,20 +470,10 @@ const ChatListScreen = () => {
             styles.groupChatItem,
             isPinned && styles.pinnedChatItem,
           ]}
-          onPress={() =>
-            navigation.navigate('Chat', {
-              chatId: item.id,
-              toUserId: item.members.find(id => id !== user?.uid),
-              name: chatName,
-              avatar: item.avatar,
-              currentAvatar: avatarUrl,
-              isGroup: true,
-            })
-          }
-          onLongPress={() => onLongPressItem(item)}
+          onPress={onPress}
+          onLongPress={onLongPress}
           delayLongPress={300}
           activeOpacity={0.7}>
-          {/* Pinned indicator */}
           {isPinned && (
             <View style={styles.pinnedIndicator}>
               <Icon name="push-pin" size={16} color="#F59E0B" />
@@ -670,29 +540,53 @@ const ChatListScreen = () => {
         </TouchableOpacity>
       </Animated.View>
     );
-  };
+  },
+  (prevProps, nextProps) => {
+    return (
+      prevProps.item.id === nextProps.item.id &&
+      prevProps.item.name === nextProps.item.name &&
+      prevProps.item.lastMessage === nextProps.item.lastMessage &&
+      prevProps.item.lastSenderName === nextProps.item.lastSenderName &&
+      prevProps.item.formattedTime === nextProps.item.formattedTime &&
+      prevProps.item.unreadCount === nextProps.item.unreadCount &&
+      JSON.stringify(prevProps.item.pinned) ===
+        JSON.stringify(nextProps.item.pinned) &&
+      JSON.stringify(prevProps.item.muted) ===
+        JSON.stringify(nextProps.item.muted)
+    );
+  },
+);
 
-  const renderPrivateItem = ({item, index}) => {
+const PrivateChatItem = memo(
+  ({
+    item,
+    userId,
+    onPress,
+    onLongPress,
+    t,
+  }: {
+    item: ChatData;
+    userId: string;
+    onPress: () => void;
+    onLongPress: () => void;
+    t: (key: string) => string;
+  }) => {
     const otherEmails = item.memberEmails?.filter(
-      (email, emailIndex) => item.members[emailIndex] !== user?.uid,
+      (email, emailIndex) => item.members[emailIndex] !== userId,
     );
     const chatName = otherEmails?.join(', ') || t('chat.privateChat');
-    const isPinned = item.pinned?.includes(user?.uid);
-    const isMuted = item.muted?.includes(user?.uid);
+    const isPinned = item.pinned?.includes(userId);
+    const isMuted = item.muted?.includes(userId);
 
-    let lastMessagePreview = '';
-    if (
-      item.lastSenderName &&
-      (user?.email === item?.lastSenderName ||
-        user?.name === item?.lastSenderName)
-    ) {
-      lastMessagePreview = t('chat.you') + ': ' + (item?.lastMessage || '');
-    } else if (item.lastSenderName) {
-      lastMessagePreview =
-        item?.lastSenderName + ': ' + (item?.lastMessage || '');
-    } else {
-      lastMessagePreview = t('chat.letsExploreTogether');
-    }
+    const lastMessagePreview = useMemo(() => {
+      if (item.lastSenderName && userId === item.lastSenderName) {
+        return t('chat.you') + ': ' + (item.lastMessage || '');
+      } else if (item.lastSenderName) {
+        return item.lastSenderName + ': ' + (item.lastMessage || '');
+      }
+      return t('chat.letsExploreTogether');
+    }, [item.lastSenderName, item.lastMessage, userId, t]);
+
     return (
       <Animated.View style={styles.chatItemWrapper}>
         <TouchableOpacity
@@ -701,20 +595,10 @@ const ChatListScreen = () => {
             styles.privateChatItem,
             isPinned && styles.pinnedChatItem,
           ]}
-          onPress={() =>
-            navigation.navigate('Chat', {
-              chatId: item.id,
-              toUserId: item.members.find(id => id !== user?.uid),
-              name: chatName,
-              avatar: item.avatar,
-              currentAvatar: avatarUrl,
-              isGroup: false,
-            })
-          }
-          onLongPress={() => onLongPressItem(item)}
+          onPress={onPress}
+          onLongPress={onLongPress}
           delayLongPress={300}
           activeOpacity={0.7}>
-          {/* Pinned indicator */}
           {isPinned && (
             <View style={styles.pinnedIndicator}>
               <Icon name="push-pin" size={16} color="#F59E0B" />
@@ -782,9 +666,41 @@ const ChatListScreen = () => {
         </TouchableOpacity>
       </Animated.View>
     );
-  };
+  },
+  (prevProps, nextProps) => {
+    return (
+      prevProps.item.id === nextProps.item.id &&
+      prevProps.item.avatar === nextProps.item.avatar &&
+      prevProps.item.lastMessage === nextProps.item.lastMessage &&
+      prevProps.item.lastSenderName === nextProps.item.lastSenderName &&
+      prevProps.item.formattedTime === nextProps.item.formattedTime &&
+      prevProps.item.unreadCount === nextProps.item.unreadCount &&
+      JSON.stringify(prevProps.item.memberEmails) ===
+        JSON.stringify(nextProps.item.memberEmails) &&
+      JSON.stringify(prevProps.item.pinned) ===
+        JSON.stringify(nextProps.item.pinned) &&
+      JSON.stringify(prevProps.item.muted) ===
+        JSON.stringify(nextProps.item.muted)
+    );
+  },
+);
 
-  const renderEmptyList = (type: ChatTabType) => (
+const EmptyListComponent = memo(
+  ({
+    type,
+    userRole,
+    fadeAnim,
+    slideAnim,
+    onCreatePress,
+    t,
+  }: {
+    type: ChatTabType;
+    userRole: string;
+    fadeAnim: Animated.Value;
+    slideAnim: Animated.Value;
+    onCreatePress: () => void;
+    t: (key: string) => string;
+  }) => (
     <Animated.View
       style={[
         styles.emptyContainer,
@@ -813,10 +729,10 @@ const ChatListScreen = () => {
             ? t('chat.createGroupToPlant')
             : t('chat.startPrivateConversation')}
         </Text>
-        {user.role === 'tour_guide' && (
+        {userRole === 'tour_guide' && (
           <TouchableOpacity
             style={styles.startChatButton}
-            onPress={() => setShowGroupModal(true)}>
+            onPress={onCreatePress}>
             <LinearGradient
               colors={['#4AC6D0', '#3BB8C3']}
               style={styles.startChatGradient}>
@@ -831,31 +747,59 @@ const ChatListScreen = () => {
         )}
       </LinearGradient>
     </Animated.View>
-  );
+  ),
+  (prevProps, nextProps) => {
+    return (
+      prevProps.type === nextProps.type &&
+      prevProps.userRole === nextProps.userRole
+    );
+  },
+);
 
-  const renderCreateModal = () => (
-    <Modal visible={showGroupModal} transparent animationType="fade">
+const CreateChatModal = memo(
+  ({
+    visible,
+    userRole,
+    groupName,
+    inputEmails,
+    onClose,
+    onGroupNameChange,
+    onEmailsChange,
+    onSubmit,
+    t,
+  }: {
+    visible: boolean;
+    userRole: string;
+    groupName: string;
+    inputEmails: string;
+    onClose: () => void;
+    onGroupNameChange: (text: string) => void;
+    onEmailsChange: (text: string) => void;
+    onSubmit: () => void;
+    t: (key: string) => string;
+  }) => (
+    <Modal visible={visible} transparent animationType="fade">
       <View style={styles.modalOverlay}>
-        <Animated.View style={[styles.modalContainer]}>
+        <Animated.View style={styles.modalContainer}>
           <LinearGradient
             colors={['#4AC6D0', '#3BB8C3']}
             style={styles.modalHeader}>
             <Icon name="add-circle" size={24} color="#FFF" />
             <Text style={styles.modalHeaderText}>
-              {user.role === 'tour_guide'
+              {userRole === 'tour_guide'
                 ? t('chat.createTravelGroup')
                 : t('chat.startNewChat')}
             </Text>
           </LinearGradient>
 
           <View style={styles.modalContent}>
-            {user.role === 'tour_guide' && (
+            {userRole === 'tour_guide' && (
               <View style={styles.inputWrapper}>
                 <Icon name="label" size={20} color="#4AC6D0" />
                 <TextInput
                   placeholder={t('chat.groupNameOptional')}
                   value={groupName}
-                  onChangeText={setGroupName}
+                  onChangeText={onGroupNameChange}
                   style={styles.inputField}
                   placeholderTextColor="#94A3B8"
                 />
@@ -866,34 +810,26 @@ const ChatListScreen = () => {
               <Icon name="email" size={20} color="#4AC6D0" />
               <TextInput
                 placeholder={
-                  user.role === 'tour_guide'
+                  userRole === 'tour_guide'
                     ? t('chat.enterEmailsCommaSeparated')
                     : t('chat.enterEmailAddress')
                 }
                 value={inputEmails}
-                onChangeText={setInputEmails}
+                onChangeText={onEmailsChange}
                 style={styles.inputField}
                 placeholderTextColor="#94A3B8"
-                multiline={user.role === 'tour_guide'}
+                multiline={userRole === 'tour_guide'}
               />
             </View>
 
             <View style={styles.buttonContainer}>
-              <TouchableOpacity
-                style={styles.cancelButton}
-                onPress={() => {
-                  setShowGroupModal(false);
-                  setGroupName('');
-                  setInputEmails('');
-                }}>
+              <TouchableOpacity style={styles.cancelButton} onPress={onClose}>
                 <Text style={styles.cancelButtonText}>
                   {t('common.cancel')}
                 </Text>
               </TouchableOpacity>
 
-              <TouchableOpacity
-                style={styles.confirmButton}
-                onPress={handleCreateChat}>
+              <TouchableOpacity style={styles.confirmButton} onPress={onSubmit}>
                 <LinearGradient
                   colors={['#4AC6D0', '#3BB8C3']}
                   style={styles.confirmButtonGradient}>
@@ -908,102 +844,579 @@ const ChatListScreen = () => {
         </Animated.View>
       </View>
     </Modal>
+  ),
+  (prevProps, nextProps) => {
+    return (
+      prevProps.visible === nextProps.visible &&
+      prevProps.groupName === nextProps.groupName &&
+      prevProps.inputEmails === nextProps.inputEmails &&
+      prevProps.userRole === nextProps.userRole
+    );
+  },
+);
+
+// Main Component
+const ChatListScreen: React.FC = () => {
+  const navigation = useNavigation<any>();
+  const {user, role} = useAuth();
+  const {t} = useTranslation();
+  const [state, dispatch] = useReducer(chatListReducer, initialState);
+  const refs = useStableRefs();
+  const {startEntranceAnimation} = useAnimations(refs);
+
+  // Memoized computed values
+  const computedValues = useMemo(() => {
+    const currentData =
+      state.activeTab === 'groups'
+        ? state.filteredGroupChats
+        : state.filteredPrivateChats;
+    return {
+      currentData,
+      conversationCount: currentData.length,
+      canCreateChat: role === 'tour_guide',
+    };
+  }, [
+    state.activeTab,
+    state.filteredGroupChats,
+    state.filteredPrivateChats,
+    role,
+  ]);
+
+  // Stable navigation handlers
+  const navigationHandlers = useMemo(
+    () => ({
+      handleChatPress: (item: ChatData) => {
+        navigation.navigate('Chat', {
+          chatId: item.id,
+          toUserId: item.members.find(id => id !== user?.uid),
+          name: item.isGroup
+            ? item.name || t('chat.defaultGroupName')
+            : item.memberEmails
+                ?.filter((email, index) => item.members[index] !== user?.uid)
+                ?.join(', ') || t('chat.privateChat'),
+          avatar: item.avatar,
+          currentAvatar: state.userProfile.avatarUrl,
+          isGroup: item.isGroup,
+        });
+      },
+      handleProfilePress: () => navigation.navigate('UserProfile'),
+      handleChatMembersPress: (chatId: string) => {
+        navigation.navigate('ChatMembers', {
+          chatId,
+          currentUserId: user?.uid,
+        });
+      },
+    }),
+    [navigation, user?.uid, state.userProfile.avatarUrl, t],
   );
 
-  const getCurrentData = () => {
-    return activeTab === 'groups' ? filteredGroupChats : filteredPrivateChats;
-  };
+  // Form handlers - memoized
+  const formHandlers = useMemo(
+    () => ({
+      handleSearchToggle: () =>
+        dispatch({type: 'SET_SEARCH_VISIBLE', payload: true}),
+      handleSearchChange: (query: string) =>
+        dispatch({type: 'SET_SEARCH_QUERY', payload: query}),
+      handleSearchClose: () => {
+        dispatch({type: 'SET_SEARCH_VISIBLE', payload: false});
+        dispatch({type: 'SET_SEARCH_QUERY', payload: ''});
+      },
+      handleTabChange: (tab: ChatTabType) =>
+        dispatch({type: 'SET_ACTIVE_TAB', payload: tab}),
+      handleModalToggle: () =>
+        dispatch({
+          type: 'SET_GROUP_MODAL_VISIBLE',
+          payload: !state.groupModalVisible,
+        }),
+      handleModalClose: () => dispatch({type: 'RESET_FORM'}),
+      handleGroupNameChange: (text: string) =>
+        dispatch({type: 'SET_GROUP_NAME', payload: text}),
+      handleEmailsChange: (text: string) =>
+        dispatch({type: 'SET_INPUT_EMAILS', payload: text}),
+    }),
+    [state.groupModalVisible],
+  );
 
-  const getCurrentRenderItem = () => {
-    return activeTab === 'groups' ? renderGroupItem : renderPrivateItem;
-  };
+  // Chat interaction handlers - memoized
+  const chatHandlers = useMemo(
+    () => ({
+      handleLongPress: (item: ChatData) => {
+        dispatch({type: 'SET_SELECTED_CHAT', payload: item});
+        dispatch({type: 'SET_MODAL_VISIBLE', payload: true});
+      },
+      handleCloseModal: () =>
+        dispatch({type: 'SET_MODAL_VISIBLE', payload: false}),
+    }),
+    [],
+  );
+
+  // Data processing functions - optimized
+  const processChatsData = useCallback(
+    async (querySnapshot: any): Promise<ChatData[]> => {
+      const chatData: ChatData[] = [];
+      const userIdsSet = new Set<string>();
+
+      querySnapshot.forEach((doc: any) => {
+        const data = doc.data();
+        const processedData: ChatData = {
+          id: doc.id,
+          ...data,
+          createdAt: data.createdAt?.toDate
+            ? data.createdAt.toDate()
+            : data.createdAt,
+          lastMessageTime: data.lastMessageTime?.toDate
+            ? data.lastMessageTime.toDate()
+            : null,
+          pinned: data.pinned || [],
+          muted: data.muted || [],
+          unreadCount: data.unreadCount || 0,
+        };
+
+        chatData.push(processedData);
+        data.members?.forEach((id: string) => userIdsSet.add(id));
+      });
+
+      const userIds = Array.from(userIdsSet);
+      if (userIds.length === 0) {
+        return [];
+      }
+
+      // Process users in batches - optimized
+      const userMap: Record<
+        string,
+        {name: string; email: string; avatar?: string}
+      > = {};
+
+      for (let i = 0; i < userIds.length; i += BATCH_SIZE) {
+        const batch = userIds.slice(i, i + BATCH_SIZE);
+        const usersSnapshot = await firestore()
+          .collection('users')
+          .where(firestore.FieldPath.documentId(), 'in', batch)
+          .get();
+
+        usersSnapshot.forEach(doc => {
+          const userData = doc.data();
+          userMap[doc.id] = {
+            name: userData?.name || userData.email,
+            email: userData.email,
+            avatar: userData?.avatar?.secure_url || userData?.avatar?.url,
+          };
+        });
+      }
+
+      return chatData.map(chat => {
+        const otherMemberId = chat.members.find(
+          (id: string) => id !== user?.uid,
+        );
+        return {
+          ...chat,
+          memberEmails: chat.members.map(
+            (id: string) => userMap[id]?.name || userMap[id]?.email || id,
+          ),
+          avatar: otherMemberId ? userMap[otherMemberId]?.avatar : null,
+          formattedTime: chat.lastMessageTime
+            ? formatMessageTime(chat.lastMessageTime)
+            : '',
+        };
+      });
+    },
+    [user?.uid],
+  );
+
+  // Business logic handlers - memoized
+  const businessHandlers = useMemo(
+    () => ({
+      handleCreateChat: async () => {
+        dispatch({type: 'SET_LOADING', payload: true});
+
+        const emails = state.inputEmails
+          .split(',')
+          .map(e => e.trim().toLowerCase())
+          .filter(Boolean);
+
+        if (emails.length === 0) {
+          dispatch({type: 'SET_LOADING', payload: false});
+          Alert.alert(t('common.error'), t('chat.enterAtLeastOneEmail'));
+          return;
+        }
+
+        try {
+          const usersSnapshot = await firestore()
+            .collection('users')
+            .where('email', 'in', emails)
+            .get();
+
+          const users = usersSnapshot.docs.map(doc => ({
+            id: doc.id,
+            ...doc.data(),
+          }));
+          const foundEmails = users.map(u => u.email?.toLowerCase());
+          const notFound = emails.filter(email => !foundEmails.includes(email));
+
+          if (notFound.length > 0) {
+            dispatch({type: 'RESET_FORM'});
+            dispatch({type: 'SET_LOADING', payload: false});
+            Alert.alert(
+              t('common.error'),
+              `${t('chat.emailsNotFound')}: ${notFound.join(', ')}`,
+            );
+            return;
+          }
+
+          const memberIds = users.map(u => u.id);
+          if (!memberIds.includes(user?.uid)) {
+            memberIds.push(user?.uid);
+          }
+
+          const roles = memberIds.reduce((acc, memberId) => {
+            acc[memberId] = memberId === user?.uid ? 'owner' : 'member';
+            return acc;
+          }, {} as Record<string, string>);
+
+          if (role === 'tourist' && emails.length === 1) {
+            // Create private chat for tourists
+            const chatId = [memberIds[0], memberIds[1]].sort().join('_');
+            await firestore().collection('chats').doc(chatId).set(
+              {
+                isGroup: false,
+                members: memberIds,
+                roles,
+                pinned: [],
+                muted: [],
+                createdAt: firestore.FieldValue.serverTimestamp(),
+                createdBy: user?.uid,
+              },
+              {merge: true},
+            );
+          } else {
+            // Create group chat for tour guides or multiple members
+            await firestore()
+              .collection('chats')
+              .add({
+                isGroup: true,
+                members: memberIds,
+                roles,
+                name: state.groupName || t('chat.defaultGroupName'),
+                pinned: [],
+                muted: [],
+                createdAt: firestore.FieldValue.serverTimestamp(),
+                createdBy: user?.uid,
+              });
+          }
+
+          dispatch({type: 'RESET_FORM'});
+        } catch (err) {
+          console.error(err);
+          Alert.alert(t('common.error'), t('chat.failedToCreateChat'));
+          dispatch({type: 'RESET_FORM'});
+        } finally {
+          dispatch({type: 'SET_LOADING', payload: false});
+        }
+      },
+
+      handlePin: async (id: string) => {
+        dispatch({type: 'SET_MODAL_VISIBLE', payload: false});
+        try {
+          dispatch({type: 'SET_LOADING', payload: true});
+          const chatRef = firestore().collection('chats').doc(id);
+          const chatDoc = await chatRef.get();
+
+          if (!chatDoc.exists) {
+            Alert.alert(t('common.error'), t('chat.chatNotFound'));
+            return;
+          }
+
+          const chatData = chatDoc.data();
+          const pinnedUsers = chatData?.pinned || [];
+
+          if (pinnedUsers.includes(user?.uid)) {
+            const updatedPinned = pinnedUsers.filter(
+              (uid: string) => uid !== user?.uid,
+            );
+            await chatRef.update({pinned: updatedPinned});
+          } else {
+            pinnedUsers.push(user?.uid);
+            await chatRef.update({pinned: pinnedUsers});
+          }
+        } catch (error) {
+          console.error('Error pinning/unpinning chat:', error);
+          Alert.alert(t('common.error'), t('chat.failedToUpdatePinStatus'));
+        } finally {
+          dispatch({type: 'SET_LOADING', payload: false});
+        }
+      },
+
+      handleMute: async (id: string) => {
+        dispatch({type: 'SET_MODAL_VISIBLE', payload: false});
+        try {
+          dispatch({type: 'SET_LOADING', payload: true});
+          const chatRef = firestore().collection('chats').doc(id);
+          const chatDoc = await chatRef.get();
+
+          if (!chatDoc.exists) {
+            Alert.alert(t('common.error'), t('chat.chatNotFound'));
+            return;
+          }
+
+          const chatData = chatDoc.data();
+          const mutedUsers = chatData?.muted || [];
+
+          if (mutedUsers.includes(user?.uid)) {
+            const updatedMuted = mutedUsers.filter(
+              (uid: string) => uid !== user?.uid,
+            );
+            await chatRef.update({muted: updatedMuted});
+          } else {
+            mutedUsers.push(user?.uid);
+            await chatRef.update({muted: mutedUsers});
+          }
+        } catch (error) {
+          console.error('Error muting/unmuting chat:', error);
+          Alert.alert(t('common.error'), t('chat.failedToUpdateMuteStatus'));
+        } finally {
+          dispatch({type: 'SET_LOADING', payload: false});
+        }
+      },
+
+      handleDelete: async (id: string) => {
+        dispatch({type: 'SET_MODAL_VISIBLE', payload: false});
+        Alert.alert(t('chat.deleteChat'), t('chat.deleteChatConfirmation'), [
+          {text: t('common.cancel'), style: 'cancel'},
+          {
+            text: t('common.delete'),
+            style: 'destructive',
+            onPress: async () => {
+              try {
+                dispatch({type: 'SET_LOADING', payload: true});
+                await firestore().collection('chats').doc(id).delete();
+              } catch (error) {
+                console.error('Error deleting chat:', error);
+                Alert.alert(t('common.error'), t('chat.failedToDeleteChat'));
+              } finally {
+                dispatch({type: 'SET_LOADING', payload: false});
+              }
+            },
+          },
+        ]);
+      },
+    }),
+    [state.inputEmails, state.groupName, user?.uid, role, t],
+  );
+
+  // Render functions - memoized
+  const renderFunctions = useMemo(
+    () => ({
+      renderGroupItem: ({item}: {item: ChatData}) => (
+        <GroupChatItem
+          item={item}
+          userId={user?.uid || ''}
+          onPress={() => navigationHandlers.handleChatPress(item)}
+          onLongPress={() => chatHandlers.handleLongPress(item)}
+          t={t}
+        />
+      ),
+      renderPrivateItem: ({item}: {item: ChatData}) => (
+        <PrivateChatItem
+          item={item}
+          userId={user?.uid || ''}
+          onPress={() => navigationHandlers.handleChatPress(item)}
+          onLongPress={() => chatHandlers.handleLongPress(item)}
+          t={t}
+        />
+      ),
+    }),
+    [user?.uid, navigationHandlers, chatHandlers, t],
+  );
+
+  const keyExtractor = useCallback((item: ChatData) => item.id, []);
+  const ItemSeparator = useCallback(
+    () => <View style={styles.separator} />,
+    [],
+  );
+
+  // Effects
+  useEffect(() => {
+    startEntranceAnimation();
+  }, [startEntranceAnimation]);
+
+  useEffect(() => {
+    if (!user?.uid) {
+      return;
+    }
+
+    dispatch({type: 'SET_LOADING', payload: true});
+
+    // Profile listener
+    refs.unsubscribeProfile = firestore()
+      .collection('users')
+      .doc(user.uid)
+      .onSnapshot(
+        doc => {
+          const data = doc.data();
+          if (data) {
+            dispatch({
+              type: 'SET_USER_PROFILE',
+              payload: {
+                avatarUrl: data?.avatar?.secure_url || data?.avatar?.url || '',
+              },
+            });
+          }
+        },
+        error => console.error('Profile snapshot error:', error),
+      );
+
+    // Chats listener
+    refs.unsubscribeChats = firestore()
+      .collection('chats')
+      .where('members', 'array-contains', user.uid)
+      .onSnapshot(
+        async querySnapshot => {
+          try {
+            const enrichedChats = await processChatsData(querySnapshot);
+
+            // Hash comparison to prevent unnecessary updates
+            const chatsHash = JSON.stringify(
+              enrichedChats.map(c => ({
+                id: c.id,
+                lastMessageTime: c.lastMessageTime,
+              })),
+            );
+            if (refs.lastChatsHash !== chatsHash) {
+              refs.lastChatsHash = chatsHash;
+
+              const groups = sortChatsWithPinned(
+                enrichedChats.filter(chat => chat.isGroup === true),
+                user.uid,
+              );
+              const privates = sortChatsWithPinned(
+                enrichedChats.filter(chat => chat.isGroup === false),
+                user.uid,
+              );
+
+              dispatch({type: 'SET_CHATS', payload: enrichedChats});
+              dispatch({type: 'SET_GROUP_CHATS', payload: groups});
+              dispatch({type: 'SET_PRIVATE_CHATS', payload: privates});
+              dispatch({type: 'SET_FILTERED_GROUPS', payload: groups});
+              dispatch({type: 'SET_FILTERED_PRIVATE', payload: privates});
+            }
+          } catch (error) {
+            console.error('Error loading chats:', error);
+            // Alert.alert('Error', 'Failed to load chat list. Please try again.');
+          } finally {
+            dispatch({type: 'SET_LOADING', payload: false});
+          }
+        },
+        error => {
+          console.error('Firestore snapshot error:', error);
+          dispatch({type: 'SET_LOADING', payload: false});
+          Alert.alert('Error', 'Failed to listen for chat updates.');
+        },
+      );
+
+    return () => {
+      if (refs.unsubscribeChats) {
+        refs.unsubscribeChats();
+      }
+      if (refs.unsubscribeProfile) {
+        refs.unsubscribeProfile();
+      }
+    };
+  }, [user?.uid, processChatsData, refs]);
+
+  // Search functionality with memoized filtering
+  useEffect(() => {
+    if (!state.searchQuery.trim()) {
+      dispatch({type: 'SET_FILTERED_GROUPS', payload: state.groupChats});
+      dispatch({type: 'SET_FILTERED_PRIVATE', payload: state.privateChats});
+    } else {
+      const query = state.searchQuery.toLowerCase();
+
+      const filteredGroups = state.groupChats.filter(
+        chat =>
+          chat.name?.toLowerCase().includes(query) ||
+          chat.memberEmails?.some(email => email.toLowerCase().includes(query)),
+      );
+
+      const filteredPrivate = state.privateChats.filter(
+        chat =>
+          chat.name?.toLowerCase().includes(query) ||
+          chat.memberEmails?.some(email => email.toLowerCase().includes(query)),
+      );
+
+      dispatch({
+        type: 'SET_FILTERED_GROUPS',
+        payload: sortChatsWithPinned(filteredGroups, user?.uid || ''),
+      });
+      dispatch({
+        type: 'SET_FILTERED_PRIVATE',
+        payload: sortChatsWithPinned(filteredPrivate, user?.uid || ''),
+      });
+    }
+  }, [state.searchQuery, state.groupChats, state.privateChats, user?.uid]);
 
   return (
     <SafeAreaView style={styles.container}>
       <StatusBar backgroundColor="#4AC6D0" barStyle="light-content" />
 
-      {/* Header */}
-      <LinearGradient colors={['#4AC6D0', '#3BB8C3']} style={styles.header}>
-        {!searchVisible ? (
-          <View style={styles.headerContent}>
-            <View style={styles.headerLeft}>
-              <Text style={styles.headerTitle}>{t('chat.travelChats')}</Text>
-              <Text style={styles.headerSubtitle}>
-                {getCurrentData().length} {t('chat.conversation').toUpperCase()}
-              </Text>
-            </View>
-            <View style={styles.headerActions}>
-              <TouchableOpacity
-                style={styles.headerButton}
-                onPress={() => setSearchVisible(true)}>
-                <Icon name="search" size={22} color="#FFF" />
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={styles.profileContainer}
-                onPress={() => navigation.navigate('UserProfile')}>
-                <Image
-                  source={
-                    avatarUrl
-                      ? {uri: avatarUrl}
-                      : require('../assets/default-avatar.png')
-                  }
-                  style={styles.profileAvatar}
-                />
-                <View style={styles.onlineIndicator} />
-              </TouchableOpacity>
-            </View>
-          </View>
-        ) : (
-          <View style={styles.searchContainer}>
-            <View style={styles.searchInputContainer}>
-              <Icon name="search" size={20} color="rgba(255,255,255,0.7)" />
-              <TextInput
-                style={styles.searchInput}
-                placeholder={t('chat.searchConversations')}
-                placeholderTextColor="rgba(255,255,255,0.7)"
-                value={searchQuery}
-                onChangeText={setSearchQuery}
-                autoFocus
-              />
-            </View>
-            <TouchableOpacity
-              style={styles.searchCloseButton}
-              onPress={() => {
-                setSearchVisible(false);
-                setSearchQuery('');
-              }}>
-              <Icon name="close" size={22} color="#FFF" />
-            </TouchableOpacity>
-          </View>
-        )}
-      </LinearGradient>
-
-      {/* Chat Tab Navigation */}
-      <ChatTabNavigation
-        activeTab={activeTab}
-        onTabChange={setActiveTab}
-        groupCount={filteredGroupChats.length}
-        privateCount={filteredPrivateChats.length}
+      <HeaderComponent
+        searchVisible={state.searchVisible}
+        searchQuery={state.searchQuery}
+        avatarUrl={state.userProfile.avatarUrl}
+        conversationCount={computedValues.conversationCount}
+        onSearchToggle={formHandlers.handleSearchToggle}
+        onSearchChange={formHandlers.handleSearchChange}
+        onSearchClose={formHandlers.handleSearchClose}
+        onProfilePress={navigationHandlers.handleProfilePress}
+        t={t}
       />
 
-      {/* Chat List */}
+      <ChatTabNavigation
+        activeTab={state.activeTab}
+        onTabChange={formHandlers.handleTabChange}
+        groupCount={state.filteredGroupChats.length}
+        privateCount={state.filteredPrivateChats.length}
+        t={t}
+      />
+
       <View style={styles.chatListContainer}>
         <FlatList
-          data={getCurrentData()}
-          keyExtractor={item => item.id}
+          data={computedValues.currentData}
+          keyExtractor={keyExtractor}
           contentContainerStyle={styles.listContent}
-          ListEmptyComponent={() => renderEmptyList(activeTab)}
-          renderItem={getCurrentRenderItem()}
+          ListEmptyComponent={() => (
+            <EmptyListComponent
+              type={state.activeTab}
+              userRole={role || ''}
+              fadeAnim={refs.fadeAnim}
+              slideAnim={refs.slideAnim}
+              onCreatePress={formHandlers.handleModalToggle}
+              t={t}
+            />
+          )}
+          renderItem={
+            state.activeTab === 'groups'
+              ? renderFunctions.renderGroupItem
+              : renderFunctions.renderPrivateItem
+          }
           showsVerticalScrollIndicator={false}
-          ItemSeparatorComponent={() => <View style={styles.separator} />}
+          ItemSeparatorComponent={ItemSeparator}
+          removeClippedSubviews
+          initialNumToRender={BATCH_SIZE}
+          maxToRenderPerBatch={BATCH_SIZE}
+          updateCellsBatchingPeriod={50}
+          windowSize={21}
+          getItemLayout={(data, index) => ({
+            length: 80, // Approximate item height
+            offset: 80 * index,
+            index,
+          })}
         />
       </View>
 
-      {/* Floating Action Button */}
-      {user.role === 'tour_guide' && (
+      {computedValues.canCreateChat && (
         <TouchableOpacity
           style={styles.fab}
-          onPress={() => setShowGroupModal(true)}
+          onPress={formHandlers.handleModalToggle}
           activeOpacity={0.8}>
           <LinearGradient
             colors={['#4AC6D0', '#3BB8C3']}
@@ -1013,29 +1426,43 @@ const ChatListScreen = () => {
         </TouchableOpacity>
       )}
 
-      {/* Modals */}
-      {renderCreateModal()}
-      <Loading isLoading={loading} />
+      <CreateChatModal
+        visible={state.groupModalVisible}
+        userRole={role || ''}
+        groupName={state.groupName}
+        inputEmails={state.inputEmails}
+        onClose={formHandlers.handleModalClose}
+        onGroupNameChange={formHandlers.handleGroupNameChange}
+        onEmailsChange={formHandlers.handleEmailsChange}
+        onSubmit={businessHandlers.handleCreateChat}
+        t={t}
+      />
+
+      <Loading isLoading={state.loading} />
+
       <ChatOptionsModal
-        visible={modalVisible}
-        onClose={() => setModalVisible(false)}
-        onDelete={() => deleteChat(selectedChat?.id)}
-        onPin={() => onPin(selectedChat?.id)}
-        onMute={() => onMute(selectedChat?.id)}
+        visible={state.modalVisible}
+        onClose={chatHandlers.handleCloseModal}
+        onDelete={() =>
+          businessHandlers.handleDelete(state.selectedChat?.id || '')
+        }
+        onPin={() => businessHandlers.handlePin(state.selectedChat?.id || '')}
+        onMute={() => businessHandlers.handleMute(state.selectedChat?.id || '')}
         onViewInfo={() => {
-          setModalVisible(false);
-          navigation.navigate('ChatMembers', {
-            chatId: selectedChat?.id,
-            currentUserId: user?.uid,
-          });
+          chatHandlers.handleCloseModal();
+          navigationHandlers.handleChatMembersPress(
+            state.selectedChat?.id || '',
+          );
         }}
-        chatName={selectedChat?.name || t('chat.chat')}
-        isGroup={selectedChat?.isGroup || false}
-        isPinned={selectedChat?.pinned?.includes(user?.uid)}
-        isMuted={selectedChat?.muted?.includes(user?.uid)}
+        chatName={state.selectedChat?.name || t('chat.chat')}
+        isGroup={state.selectedChat?.isGroup || false}
+        isPinned={
+          state.selectedChat?.pinned?.includes(user?.uid || '') || false
+        }
+        isMuted={state.selectedChat?.muted?.includes(user?.uid || '') || false}
         canDelete={
-          selectedChat?.isGroup
-            ? selectedChat?.roles[user?.uid] === 'owner'
+          state.selectedChat?.isGroup
+            ? state.selectedChat?.roles[user?.uid || ''] === 'owner'
             : true
         }
       />
@@ -1043,13 +1470,12 @@ const ChatListScreen = () => {
   );
 };
 
+// Styles remain the same as before
 const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#F8FAFC',
   },
-
-  // Header styles
   header: {
     paddingTop: 8,
     paddingBottom: 20,
@@ -1138,8 +1564,6 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     backgroundColor: 'rgba(255, 255, 255, 0.15)',
   },
-
-  // Tab Navigation Styles
   tabContainer: {
     backgroundColor: '#F8FAFC',
     paddingHorizontal: 16,
@@ -1209,8 +1633,6 @@ const styles = StyleSheet.create({
     textShadowOffset: {width: 0, height: 1},
     textShadowRadius: 2,
   },
-
-  // Chat List
   chatListContainer: {
     flex: 1,
   },
@@ -1389,6 +1811,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
+
   separator: {
     height: 1,
     backgroundColor: '#F1F5F9',

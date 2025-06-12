@@ -4,15 +4,29 @@ import React, {
   useEffect,
   useState,
   useRef,
+  useCallback,
+  useMemo,
 } from 'react';
-import auth from '@react-native-firebase/auth';
+import auth, {FirebaseAuthTypes} from '@react-native-firebase/auth';
 import firestore from '@react-native-firebase/firestore';
 import {Alert} from 'react-native';
 import {fcmService} from '../services/FCMService';
 import {useTranslation} from './TranslationContext';
 
+// Types
 type Role = 'tourist' | 'tour_guide' | 'admin';
 type UserStatus = 'pending' | 'approved' | 'rejected' | 'suspended';
+type OnlineStatus = 'online' | 'offline' | 'away';
+
+interface UserStatusData {
+  deviceId?: string;
+  isOnline?: boolean;
+  lastActivity?: FirebaseAuthTypes.Timestamp;
+  lastSeen?: FirebaseAuthTypes.Timestamp;
+  sessionId?: string;
+  status?: OnlineStatus;
+  updatedAt?: FirebaseAuthTypes.Timestamp;
+}
 
 interface User {
   uid: string;
@@ -23,15 +37,7 @@ interface User {
   name?: string;
   avatar?: string;
   bio?: string;
-  userStatus?: {
-    deviceId?: string;
-    isOnline?: boolean;
-    lastActivity?: any;
-    lastSeen?: any;
-    sessionId?: string;
-    status?: 'online' | 'offline' | 'away';
-    updatedAt?: any;
-  };
+  userStatus?: UserStatusData;
   translateCode?: string;
   fcmToken?: string;
   language?: string;
@@ -52,374 +58,508 @@ interface AuthContextType {
     name?: string,
   ) => Promise<void>;
   signOut: () => Promise<void>;
+  refreshUser: () => Promise<void>;
 }
 
+interface AccessCheckResult {
+  canAccess: boolean;
+  message?: string;
+}
+
+// Constants
+const SIGNOUT_CLEANUP_DELAY = 1000;
+const DEFAULT_USER_STATUS: UserStatusData = {
+  deviceId: '',
+  isOnline: false,
+  lastActivity: null,
+  lastSeen: null,
+  sessionId: '',
+  status: 'offline',
+  updatedAt: null,
+};
+
+// Context
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-const AuthProviderInternal = ({children}: {children: React.ReactNode}) => {
-  const {t} = useTranslation();
+// Custom hooks for auth logic
+const useAuthState = () => {
   const [user, setUser] = useState<User | null>(null);
   const [role, setRole] = useState<Role | null>(null);
   const [loading, setLoading] = useState(true);
 
-  // Refs to track cleanup functions and prevent race conditions
+  return {
+    user,
+    setUser,
+    role,
+    setRole,
+    loading,
+    setLoading,
+  };
+};
+
+const useAuthRefs = () => {
   const unsubscribeDocRef = useRef<(() => void) | null>(null);
   const isSigningOutRef = useRef(false);
+  const currentUserRef = useRef<User | null>(null);
 
-  // Function to handle account status issues
-  const handleAccountStatusIssue = async (userData: any, message: string) => {
-    if (isSigningOutRef.current) {
-      return;
-    } // Prevent multiple alerts during signout
-
-    Alert.alert(t('auth.accountIssue'), message, [
-      {
-        text: t('common.ok'),
-        onPress: async () => {
-          await signOut();
-        },
-      },
-    ]);
+  return {
+    unsubscribeDocRef,
+    isSigningOutRef,
+    currentUserRef,
   };
+};
 
-  // Function to check if user can access the app
-  const checkUserAccess = (
-    userData: any,
-  ): {canAccess: boolean; message?: string} => {
-    if (!userData) {
-      return {canAccess: false, message: t('auth.userDataNotFound')};
-    }
+// Utility functions
+const createDefaultUserData = (
+  authUser: FirebaseAuthTypes.User,
+  role: Role = 'tourist',
+): Partial<User> => ({
+  email: authUser.email || '',
+  role,
+  isActive: true,
+  createdAt: firestore.FieldValue.serverTimestamp(),
+  updatedAt: firestore.FieldValue.serverTimestamp(),
+});
 
-    // Check for tour guides
-    if (userData.role === 'tour_guide') {
-      switch (userData.status) {
-        case 'pending':
-          return {
-            canAccess: false,
-            message: t('auth.tourGuideAwaitingApproval'),
-          };
-        case 'rejected':
-          return {
-            canAccess: false,
-            message: t('auth.tourGuideApplicationRejected'),
-          };
-        case 'suspended':
-          return {
-            canAccess: false,
-            message: t('auth.tourGuideAccountSuspended'),
-          };
-        case 'approved':
-          return {canAccess: true};
-        default:
-          return {
-            canAccess: false,
-            message: t('auth.tourGuideAwaitingApproval'),
-          };
+const transformFirestoreUser = (
+  authUser: FirebaseAuthTypes.User,
+  userData: any,
+): User => ({
+  uid: authUser.uid,
+  email: authUser.email || userData.email || '',
+  role: userData.role || 'tourist',
+  status: userData.status,
+  isActive: userData.isActive !== false,
+  name: userData.name,
+  avatar: userData.avatar,
+  bio: userData.bio,
+  userStatus: userData.userStatus || DEFAULT_USER_STATUS,
+  translateCode: userData.translateCode || 'en-US',
+  language: userData.language || 'en',
+  fcmToken: userData.fcmToken || '',
+  lastActive: userData.lastActive || '',
+  createdAt:
+    userData.createdAt?.toDate()?.toISOString() || new Date().toISOString(),
+  updatedAt:
+    userData.updatedAt?.toDate()?.toISOString() || new Date().toISOString(),
+});
+
+// Main AuthProvider component
+const AuthProviderInternal: React.FC<{children: React.ReactNode}> = ({
+  children,
+}) => {
+  const {t} = useTranslation();
+  const {user, setUser, role, setRole, loading, setLoading} = useAuthState();
+  const {unsubscribeDocRef, isSigningOutRef, currentUserRef} = useAuthRefs();
+
+  // Keep current user ref in sync
+  useEffect(() => {
+    currentUserRef.current = user;
+  }, [user]);
+
+  // Access control logic
+  const checkUserAccess = useCallback(
+    (userData: any): AccessCheckResult => {
+      if (!userData) {
+        return {canAccess: false, message: t('auth.userDataNotFound')};
       }
-    }
 
-    // Check for tourists
-    if (userData.role === 'tourist') {
-      if (userData.isActive === false) {
+      // Tour guide access control
+      if (userData.role === 'tour_guide') {
+        const statusMessages = {
+          pending: t('auth.tourGuideAwaitingApproval'),
+          rejected: t('auth.tourGuideApplicationRejected'),
+          suspended: t('auth.tourGuideAccountSuspended'),
+        };
+
+        const status = userData.status || 'pending';
+        if (status !== 'approved') {
+          return {
+            canAccess: false,
+            message:
+              statusMessages[status as keyof typeof statusMessages] ||
+              statusMessages.pending,
+          };
+        }
+      }
+
+      // Tourist access control
+      if (userData.role === 'tourist' && userData.isActive === false) {
         return {
           canAccess: false,
           message: t('auth.accountDeactivated'),
         };
       }
+
       return {canAccess: true};
-    }
+    },
+    [t],
+  );
 
-    // Admin always has access
-    if (userData.role === 'admin') {
-      return {canAccess: true};
-    }
+  // Account status issue handler
+  const handleAccountStatusIssue = useCallback(
+    async (message: string) => {
+      if (isSigningOutRef.current) {
+        return;
+      }
 
-    return {canAccess: true};
-  };
+      Alert.alert(t('auth.accountIssue'), message, [
+        {
+          text: t('common.ok'),
+          onPress: async () => {
+            await signOut();
+          },
+        },
+      ]);
+    },
+    [t],
+  );
 
-  // Cleanup function for document listener
-  const cleanupDocListener = () => {
+  // Document listener cleanup
+  const cleanupDocListener = useCallback(() => {
     if (unsubscribeDocRef.current) {
-      console.log('Cleaning up document listener');
+      console.log('🧹 Cleaning up document listener');
       unsubscribeDocRef.current();
       unsubscribeDocRef.current = null;
     }
-  };
+  }, []);
 
-  useEffect(() => {
-    const unsubscribeAuth = auth().onAuthStateChanged(async authUser => {
-      console.log('Auth state changed:', authUser?.uid || 'null');
+  // Create user document
+  const createUserDocument = useCallback(
+    async (authUser: FirebaseAuthTypes.User, role: Role = 'tourist') => {
+      try {
+        const userData = createDefaultUserData(authUser, role);
 
-      if (authUser && !isSigningOutRef.current) {
-        // Clean up any existing document listener
-        cleanupDocListener();
-
-        // Listen to user document changes in real-time
-        const unsubscribeDoc = firestore()
+        await firestore()
           .collection('users')
           .doc(authUser.uid)
-          .onSnapshot(
-            async doc => {
-              try {
-                // Skip if we're in the process of signing out
-                if (isSigningOutRef.current) {
-                  console.log('Skipping document update during signout');
-                  return;
-                }
+          .set(userData, {merge: true});
 
-                const userData = doc.data();
-                // console.log('User data updated:', userData);
+        if (!isSigningOutRef.current) {
+          const newUser = transformFirestoreUser(authUser, {
+            ...userData,
+            createdAt: new Date(),
+            updatedAt: new Date(),
+          });
 
-                if (!userData) {
-                  // Create user document if it doesn't exist (for new users)
-                  const newUserData = {
-                    email: authUser.email,
-                    role: 'tourist' as Role,
-                    isActive: true,
-                    createdAt: firestore.FieldValue.serverTimestamp(),
-                  };
+          setUser(newUser);
+          setRole(role);
+          setLoading(false);
+        }
+      } catch (error) {
+        console.error('❌ Error creating user document:', error);
+        throw error;
+      }
+    },
+    [setUser, setRole, setLoading],
+  );
 
-                  await firestore()
-                    .collection('users')
-                    .doc(authUser.uid)
-                    .set(newUserData);
+  // User document snapshot handler
+  const handleUserDocumentSnapshot = useCallback(
+    async (
+      doc: firestore.FirebaseFirestoreTypes.DocumentSnapshot,
+      authUser: FirebaseAuthTypes.User,
+    ) => {
+      try {
+        if (isSigningOutRef.current) {
+          console.log('⏭️ Skipping document update during signout');
+          return;
+        }
 
-                  if (!isSigningOutRef.current) {
-                    setUser({
-                      uid: authUser.uid,
-                      ...newUserData,
-                      email: authUser.email || '',
-                      createdAt: new Date().toISOString(),
-                    });
-                    setRole('tourist');
-                    setLoading(false);
-                  }
-                  return;
-                }
+        const userData = doc.data();
 
-                // Check if user can access the app
-                const accessCheck = checkUserAccess(userData);
+        // Create user document if it doesn't exist
+        if (!userData) {
+          await createUserDocument(authUser);
+          return;
+        }
 
-                if (!accessCheck.canAccess) {
-                  await handleAccountStatusIssue(
-                    userData,
-                    accessCheck.message || t('auth.accessDenied'),
-                  );
-                  return;
-                }
-
-                // Set user data if access is allowed and not signing out
-                if (!isSigningOutRef.current) {
-                  const fullUserData: User = {
-                    uid: authUser.uid,
-                    email: authUser.email || userData.email || '',
-                    role: userData.role || 'tourist',
-                    status: userData.status,
-                    isActive: userData.isActive !== false, // Default to true
-                    name: userData.name,
-                    avatar: userData.avatar,
-                    bio: userData.bio,
-                    userStatus: userData.userStatus || {
-                      deviceId: '',
-                      isOnline: false,
-                      lastActivity: null,
-                      lastSeen: null,
-                      sessionId: '',
-                      status: 'offline',
-                      updatedAt: null,
-                    },
-                    translateCode: userData.translateCode || 'en-US',
-                    language: userData.language || 'en',
-                    fcmToken: userData.fcmToken || '',
-                    lastActive: userData.lastActive || '',
-                    createdAt: userData.createdAt
-                      ? userData.createdAt.toDate().toISOString()
-                      : new Date().toISOString(),
-                    updatedAt: userData.updatedAt
-                      ? userData.updatedAt.toDate().toISOString()
-                      : new Date().toISOString(),
-                  };
-
-                  setUser(fullUserData);
-                  setRole(userData.role || 'tourist');
-                  setLoading(false);
-                }
-              } catch (error) {
-                console.error('Error processing user data:', error);
-                if (!isSigningOutRef.current) {
-                  setLoading(false);
-                }
-              }
-            },
-            error => {
-              console.error('Error listening to user document:', error);
-              if (!isSigningOutRef.current) {
-                setLoading(false);
-              }
-            },
+        // Check access permissions
+        const accessCheck = checkUserAccess(userData);
+        if (!accessCheck.canAccess) {
+          await handleAccountStatusIssue(
+            accessCheck.message || t('auth.accessDenied'),
           );
+          return;
+        }
 
-        // Store the unsubscribe function
-        unsubscribeDocRef.current = unsubscribeDoc;
+        // Update user state
+        if (!isSigningOutRef.current) {
+          const fullUserData = transformFirestoreUser(authUser, userData);
+          setUser(fullUserData);
+          setRole(userData.role || 'tourist');
+          setLoading(false);
+        }
+      } catch (error) {
+        console.error('❌ Error processing user document:', error);
+        if (!isSigningOutRef.current) {
+          setLoading(false);
+        }
+      }
+    },
+    [
+      checkUserAccess,
+      handleAccountStatusIssue,
+      createUserDocument,
+      setUser,
+      setRole,
+      setLoading,
+      t,
+    ],
+  );
+
+  // Document listener error handler
+  const handleDocumentError = useCallback(
+    (error: Error) => {
+      console.error('❌ Error listening to user document:', error);
+      if (!isSigningOutRef.current) {
+        setLoading(false);
+      }
+    },
+    [setLoading],
+  );
+
+  // Setup user document listener
+  const setupUserDocumentListener = useCallback(
+    (authUser: FirebaseAuthTypes.User) => {
+      cleanupDocListener();
+
+      console.log('👂 Setting up user document listener for:', authUser.uid);
+
+      const unsubscribeDoc = firestore()
+        .collection('users')
+        .doc(authUser.uid)
+        .onSnapshot(
+          doc => handleUserDocumentSnapshot(doc, authUser),
+          handleDocumentError,
+        );
+
+      unsubscribeDocRef.current = unsubscribeDoc;
+    },
+    [cleanupDocListener, handleUserDocumentSnapshot, handleDocumentError],
+  );
+
+  // Auth state change handler
+  const handleAuthStateChange = useCallback(
+    async (authUser: FirebaseAuthTypes.User | null) => {
+      console.log('🔐 Auth state changed:', authUser?.uid || 'null');
+
+      if (authUser && !isSigningOutRef.current) {
+        setupUserDocumentListener(authUser);
       } else {
-        // User is not authenticated or signing out
         cleanupDocListener();
         setUser(null);
         setRole(null);
         setLoading(false);
       }
-    });
+    },
+    [
+      setupUserDocumentListener,
+      cleanupDocListener,
+      setUser,
+      setRole,
+      setLoading,
+    ],
+  );
+
+  // Main auth state listener effect
+  useEffect(() => {
+    console.log('🚀 Setting up auth state listener');
+
+    const unsubscribeAuth = auth().onAuthStateChanged(handleAuthStateChange);
 
     return () => {
-      console.log('Cleaning up auth listener');
+      console.log('🧹 Cleaning up auth state listener');
       unsubscribeAuth();
       cleanupDocListener();
     };
-  }, [t]); // Add t as dependency
+  }, [handleAuthStateChange, cleanupDocListener]);
 
-  const signIn = async (email: string, password: string) => {
-    try {
-      setLoading(true);
-      isSigningOutRef.current = false; // Reset signout flag
-      await auth().signInWithEmailAndPassword(email, password);
-      // User data will be handled by the onAuthStateChanged listener
-    } catch (error: any) {
-      setLoading(false);
-      // Let the calling component handle the error with proper translation
-      throw error;
-    }
-  };
+  // Auth methods
+  const signIn = useCallback(
+    async (email: string, password: string) => {
+      try {
+        setLoading(true);
+        isSigningOutRef.current = false;
 
-  const signUp = async (
-    email: string,
-    password: string,
-    role: Role,
-    name?: string,
-  ) => {
-    try {
-      setLoading(true);
-      isSigningOutRef.current = false; // Reset signout flag
-      const userCredential = await auth().createUserWithEmailAndPassword(
-        email,
-        password,
-      );
-
-      const userData = {
-        email,
-        role,
-        name: name || '',
-        createdAt: firestore.FieldValue.serverTimestamp(),
-        updatedAt: firestore.FieldValue.serverTimestamp(),
-        isActive: true,
-        // Set initial status for tour guides
-        ...(role === 'tour_guide' && {status: 'pending'}),
-      };
-
-      await firestore()
-        .collection('users')
-        .doc(userCredential.user.uid)
-        .set(userData, {merge: true});
-
-      // For tour guides, show immediate feedback and sign them out
-      if (role === 'tour_guide') {
-        Alert.alert(
-          t('auth.accountCreated'),
-          t('auth.tourGuideAccountCreatedMessage'),
-          [
-            {
-              text: t('common.ok'),
-              onPress: async () => {
-                await signOut();
-              },
-            },
-          ],
-        );
+        await auth().signInWithEmailAndPassword(email.trim(), password);
+        // User data will be handled by the auth state listener
+      } catch (error: any) {
+        setLoading(false);
+        console.error('❌ Sign in error:', error);
+        throw error;
       }
-      // For tourists, they remain logged in and the AuthContext will handle the flow
-    } catch (error: any) {
-      setLoading(false);
-      // Let the calling component handle the error with proper translation
-      throw error;
-    }
-  };
+    },
+    [setLoading],
+  );
 
-  const signOut = async () => {
+  const signUp = useCallback(
+    async (email: string, password: string, role: Role, name?: string) => {
+      try {
+        setLoading(true);
+        isSigningOutRef.current = false;
+
+        const userCredential = await auth().createUserWithEmailAndPassword(
+          email.trim(),
+          password,
+        );
+
+        const userData = {
+          email: email.trim(),
+          role,
+          name: name?.trim() || '',
+          createdAt: firestore.FieldValue.serverTimestamp(),
+          updatedAt: firestore.FieldValue.serverTimestamp(),
+          isActive: true,
+          ...(role === 'tour_guide' && {status: 'pending'}),
+        };
+
+        await firestore()
+          .collection('users')
+          .doc(userCredential.user.uid)
+          .set(userData, {merge: true});
+
+        // Handle tour guide specific flow
+        if (role === 'tour_guide') {
+          Alert.alert(
+            t('auth.accountCreated'),
+            t('auth.tourGuideAccountCreatedMessage'),
+            [
+              {
+                text: t('common.ok'),
+                onPress: async () => {
+                  await signOut();
+                },
+              },
+            ],
+          );
+        }
+      } catch (error: any) {
+        setLoading(false);
+        console.error('❌ Sign up error:', error);
+        throw error;
+      }
+    },
+    [setLoading, signOut, t],
+  );
+
+  const signOut = useCallback(async () => {
     try {
-      console.log('Starting signout process');
-      isSigningOutRef.current = true; // Set signout flag
+      console.log('🚪 Starting signout process');
+      isSigningOutRef.current = true;
 
-      // Get current user before signing out
       const currentUser = auth().currentUser;
 
+      // Clean up FCM and user data
       if (currentUser) {
         try {
-          // Update last active time (but ignore errors if user is already signed out)
-          // await firestore().collection('users').doc(currentUser.uid).update({
-          //   lastActive: firestore.FieldValue.serverTimestamp(),
-          //   fcmToken: firestore.FieldValue.delete(),
-          // });
-          // Use FCM service to remove token
           await fcmService.removeToken(currentUser.uid);
         } catch (updateError) {
-          console.log(
-            'Could not update user data on signout (user may already be signed out):',
-            updateError,
-          );
+          console.log('⚠️ Could not update user data on signout:', updateError);
         }
       }
 
-      // Clean up document listener before signing out
+      // Clean up listeners and state
       cleanupDocListener();
+      fcmService.cleanup();
 
       // Clear state immediately
       setUser(null);
       setRole(null);
       setLoading(false);
-      fcmService.cleanup();
 
-      // Sign out from Firebase Auth
+      // Sign out from Firebase
       await auth().signOut();
 
-      console.log('Signout completed successfully');
+      console.log('✅ Signout completed successfully');
     } catch (error: any) {
-      console.error('Error signing out:', error);
+      console.error('❌ Error signing out:', error);
 
-      // Even if there's an error, clean up the state
-      isSigningOutRef.current = false;
+      // Clean up state even on error
       cleanupDocListener();
       setUser(null);
       setRole(null);
       setLoading(false);
 
-      // Only throw error if it's not "no current user" (which is expected in some cases)
       if (error.code !== 'auth/no-current-user') {
         throw error;
       }
     } finally {
-      // Reset the signout flag after a delay to ensure all listeners have been cleaned up
+      // Reset signout flag after cleanup delay
       setTimeout(() => {
         isSigningOutRef.current = false;
-      }, 1000);
+      }, SIGNOUT_CLEANUP_DELAY);
     }
-  };
+  }, [cleanupDocListener, setUser, setRole, setLoading]);
+
+  // Refresh user data
+  const refreshUser = useCallback(async () => {
+    const currentUser = auth().currentUser;
+    if (currentUser) {
+      try {
+        const doc = await firestore()
+          .collection('users')
+          .doc(currentUser.uid)
+          .get();
+
+        await handleUserDocumentSnapshot(doc, currentUser);
+      } catch (error) {
+        console.error('❌ Error refreshing user:', error);
+      }
+    }
+  }, [handleUserDocumentSnapshot]);
+
+  // Memoized context value
+  const contextValue = useMemo(
+    () => ({
+      user,
+      role,
+      loading,
+      signIn,
+      signUp,
+      signOut,
+      refreshUser,
+    }),
+    [user, role, loading, signIn, signUp, signOut, refreshUser],
+  );
 
   return (
-    <AuthContext.Provider
-      value={{user, role, loading, signIn, signUp, signOut}}>
-      {children}
-    </AuthContext.Provider>
+    <AuthContext.Provider value={contextValue}>{children}</AuthContext.Provider>
   );
 };
 
-// Main AuthProvider wrapper
-export const AuthProvider = ({children}: {children: React.ReactNode}) => {
+// Main AuthProvider wrapper with error boundary
+export const AuthProvider: React.FC<{children: React.ReactNode}> = ({
+  children,
+}) => {
   return <AuthProviderInternal>{children}</AuthProviderInternal>;
 };
 
-export const useAuth = () => {
+// Custom hook with error handling
+export const useAuth = (): AuthContextType => {
   const context = useContext(AuthContext);
+
   if (!context) {
     throw new Error('useAuth must be used within AuthProvider');
   }
+
   return context;
 };
+
+// Additional utility hooks
+export const useCurrentUser = () => {
+  const {user} = useAuth();
+  return user;
+};
+
+export const useUserRole = () => {
+  const {role} = useAuth();
+  return role;
+};
+
+export const useAuthLoading = () => {
+  const {loading} = useAuth();
+  return loading;
+};
+
+export default AuthProvider;

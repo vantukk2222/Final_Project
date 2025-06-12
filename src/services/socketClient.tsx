@@ -1,681 +1,509 @@
-import React, {useEffect, useRef, useState, useCallback} from 'react';
+import React, {useEffect, useRef, useState, useCallback, useMemo} from 'react';
 import {
-  Modal,
-  Text,
-  TouchableOpacity,
-  View,
-  StyleSheet,
-  Dimensions,
   Platform,
   PermissionsAndroid,
   Animated,
-  Image,
-  StatusBar,
+  AppState,
+  AppStateStatus,
 } from 'react-native';
-import messaging from '@react-native-firebase/messaging';
-import {useNavigation} from '@react-navigation/native';
+import messaging, {
+  FirebaseMessagingTypes,
+} from '@react-native-firebase/messaging';
+import {useNavigation, NavigationProp} from '@react-navigation/native';
 import firestore from '@react-native-firebase/firestore';
 import {useAuth} from '../contexts/AuthContext';
 import {Member} from '../contains/type';
-import Sound from 'react-native-sound';
+import TrackPlayer, {State, RepeatMode, Track} from 'react-native-track-player';
 import LanguageModal from '../components/LanSelect';
-import Icon from 'react-native-vector-icons/MaterialIcons';
-import LinearGradient from 'react-native-linear-gradient';
+import InAppMessageNotification from '../components/ModalInAppMessages';
+import CallModalNotification from '../components/ModalCallNotification';
+import {
+  clearProcessedNotifications,
+  getBackgroundNotifications,
+} from './backgroundHandler';
 
-const {width, height} = Dimensions.get('window');
+// Types
+interface NotificationData {
+  title: string;
+  body: string;
+  meetingId?: string;
+  type: NotificationType;
+  callerName?: string;
+  isVideoCall: boolean;
+  chatId?: string;
+  senderId?: string;
+  timestamp: number;
+}
 
-// In-App Message Notification Component (như Messenger)
-const InAppMessageNotification = ({
-  visible,
-  notificationData,
-  onPress,
-  onDismiss,
-  fadeAnim,
-  slideAnim,
-}) => {
-  const slideDownAnim = useRef(new Animated.Value(-100)).current;
+interface SoundConfig {
+  volume: number;
+  numberOfLoops: number;
+  enabled: boolean;
+  duration: number;
+}
 
-  useEffect(() => {
-    if (visible) {
-      Animated.parallel([
-        Animated.timing(fadeAnim, {
-          toValue: 1,
-          duration: 300,
-          useNativeDriver: true,
-        }),
-        Animated.spring(slideDownAnim, {
-          toValue: 0,
-          tension: 80,
-          friction: 8,
-          useNativeDriver: true,
-        }),
-      ]).start();
+interface NotificationConfig {
+  soundEnabled: boolean;
+  vibrationEnabled: boolean;
+  inAppEnabled: boolean;
+  backgroundEnabled: boolean;
+}
 
-      // Auto dismiss after 4 seconds
-      const timer = setTimeout(() => {
-        onDismiss();
-      }, 4000);
+// Enums
+enum NotificationType {
+  MESSAGE = 'message',
+  CALL = 'call',
+  VIDEO_CALL = 'video_call',
+  SYSTEM = 'system',
+  DEFAULT = 'default',
+}
 
-      return () => clearTimeout(timer);
-    } else {
-      Animated.parallel([
-        Animated.timing(fadeAnim, {
-          toValue: 0,
-          duration: 200,
-          useNativeDriver: true,
-        }),
-        Animated.timing(slideDownAnim, {
-          toValue: -100,
-          duration: 200,
-          useNativeDriver: true,
-        }),
-      ]).start();
-    }
-  }, [visible]);
+enum SoundType {
+  MESSAGE = 'message',
+  CALL = 'call',
+  VIDEO_CALL = 'video_call',
+  DEFAULT = 'default',
+}
 
-  if (!visible || !notificationData) {
-    return null;
-  }
+// Constants
+const SOUND_CONFIG: Record<SoundType, SoundConfig> = Object.freeze({
+  [SoundType.MESSAGE]: {
+    volume: 0.6,
+    numberOfLoops: 2,
+    enabled: true,
+    duration: 3000,
+  },
+  [SoundType.CALL]: {
+    volume: 0.8,
+    numberOfLoops: -1,
+    enabled: true,
+    duration: 30000,
+  },
+  [SoundType.VIDEO_CALL]: {
+    volume: 0.8,
+    numberOfLoops: -1,
+    enabled: true,
+    duration: 30000,
+  },
+  [SoundType.DEFAULT]: {
+    volume: 0.5,
+    numberOfLoops: 1,
+    enabled: true,
+    duration: 2000,
+  },
+});
 
-  return (
-    <Animated.View
-      style={[
-        styles.inAppNotificationContainer,
-        {
-          opacity: fadeAnim,
-          transform: [{translateY: slideDownAnim}],
-        },
-      ]}>
-      <TouchableOpacity
-        style={styles.inAppNotification}
-        onPress={onPress}
-        activeOpacity={0.9}>
-        <LinearGradient
-          colors={['#4AC6D0', '#3BB8C3']}
-          style={styles.inAppNotificationGradient}>
-          {/* Avatar */}
-          <View style={styles.inAppAvatar}>
-            <Icon name="message" size={24} color="#fff" />
-          </View>
+const DEFAULT_NOTIFICATION_CONFIG: NotificationConfig = Object.freeze({
+  soundEnabled: true,
+  vibrationEnabled: true,
+  inAppEnabled: true,
+  backgroundEnabled: true,
+});
 
-          {/* Content */}
-          <View style={styles.inAppContent}>
-            <Text style={styles.inAppTitle} numberOfLines={1}>
-              {notificationData.title}
-            </Text>
-            <Text style={styles.inAppBody} numberOfLines={2}>
-              {notificationData.body}
-            </Text>
-          </View>
+const NOTIFICATION_TIMEOUT = 30000;
 
-          {/* Close button */}
-          <TouchableOpacity
-            style={styles.inAppCloseButton}
-            onPress={onDismiss}
-            hitSlop={{top: 10, bottom: 10, left: 10, right: 10}}>
-            <Icon name="close" size={18} color="rgba(255,255,255,0.8)" />
-          </TouchableOpacity>
-        </LinearGradient>
-      </TouchableOpacity>
-    </Animated.View>
-  );
-};
-// Call Modal Notification Component - Travel Themed Redesign
-const CallModalNotification = ({
-  visible,
-  notificationData,
-  onAccept,
-  onDecline,
-  fadeAnim,
-  scaleAnim,
-  pulseAnim,
-}) => {
-  const isCallNotification =
-    notificationData?.type === 'call' ||
-    notificationData?.type === 'video_call';
+// Track definitions for different notification types
+const NOTIFICATION_TRACKS: Record<SoundType, Track> = Object.freeze({
+  [SoundType.MESSAGE]: {
+    id: 'notification_message',
+    url: require('../assets/sounds/new_messenger.mp3'),
+    title: 'Message Notification',
+    artist: 'App Notification',
+    duration: 3,
+  },
+  [SoundType.CALL]: {
+    id: 'notification_call',
+    url: require('../assets/sounds/ringtone.mp3'),
+    title: 'Incoming Call',
+    artist: 'App Notification',
+    duration: 30,
+  },
+  [SoundType.VIDEO_CALL]: {
+    id: 'notification_video_call',
+    url: require('../assets/sounds/ringtone.mp3'),
+    title: 'Video Call',
+    artist: 'App Notification',
+    duration: 30,
+  },
+  [SoundType.DEFAULT]: {
+    id: 'notification_default',
+    url: require('../assets/sounds/new_messenger.mp3'),
+    title: 'Notification',
+    artist: 'App Notification',
+    duration: 2,
+  },
+});
 
-  // Additional animations for travel feel
-  const pulseRing1 = useRef(new Animated.Value(1)).current;
-  const pulseRing2 = useRef(new Animated.Value(1)).current;
-  const floatAnim = useRef(new Animated.Value(0)).current;
+// Utility functions
+const createRetryableFunction = <T extends any[], R>(
+  fn: (...args: T) => Promise<R>,
+  maxRetries: number = 3,
+  delay: number = 1000,
+) => {
+  return async (...args: T): Promise<R> => {
+    let lastError: Error;
 
-  useEffect(() => {
-    if (visible && isCallNotification) {
-      Animated.parallel([
-        Animated.timing(fadeAnim, {
-          toValue: 1,
-          duration: 400,
-          useNativeDriver: true,
-        }),
-        Animated.spring(scaleAnim, {
-          toValue: 1,
-          tension: 120,
-          friction: 10,
-          useNativeDriver: true,
-        }),
-      ]).start();
-
-      // Travel-themed pulsing waves
-      const createWaveAnimation = (animValue, delay = 0) => {
-        return Animated.loop(
-          Animated.sequence([
-            Animated.delay(delay),
-            Animated.timing(animValue, {
-              toValue: 1.4,
-              duration: 2000,
-              useNativeDriver: true,
-            }),
-            Animated.timing(animValue, {
-              toValue: 1,
-              duration: 2000,
-              useNativeDriver: true,
-            }),
-          ]),
-        );
-      };
-
-      // Gentle floating animation
-      const floatAnimation = Animated.loop(
-        Animated.sequence([
-          Animated.timing(floatAnim, {
-            toValue: 1,
-            duration: 3000,
-            useNativeDriver: true,
-          }),
-          Animated.timing(floatAnim, {
-            toValue: 0,
-            duration: 3000,
-            useNativeDriver: true,
-          }),
-        ]),
-      );
-
-      Animated.parallel([
-        createWaveAnimation(pulseAnim),
-        createWaveAnimation(pulseRing1, 500),
-        createWaveAnimation(pulseRing2, 1000),
-        floatAnimation,
-      ]).start();
-    } else {
-      Animated.parallel([
-        Animated.timing(fadeAnim, {
-          toValue: 0,
-          duration: 300,
-          useNativeDriver: true,
-        }),
-        Animated.timing(scaleAnim, {
-          toValue: 0.8,
-          duration: 300,
-          useNativeDriver: true,
-        }),
-      ]).start();
-    }
-  }, [visible, isCallNotification]);
-
-  if (!visible || !isCallNotification || !notificationData) {
-    return null;
-  }
-
-  const translateY = floatAnim.interpolate({
-    inputRange: [0, 1],
-    outputRange: [0, -8],
-  });
-
-  return (
-    <Modal
-      visible={visible}
-      transparent
-      animationType="none"
-      onRequestClose={onDecline}
-      statusBarTranslucent>
-      <Animated.View
-        style={[
-          styles.modalBackground,
-          {
-            opacity: fadeAnim,
-          },
-        ]}>
-        <Animated.View
-          style={[
-            styles.modalContainer,
-            styles.callModalContainer,
-            {
-              transform: [{scale: scaleAnim}, {translateY}],
-            },
-          ]}>
-          {/* Travel-themed background with gradient */}
-          <LinearGradient
-            colors={['#E0F7FA', '#F0FFFE', '#FFFFFF']}
-            style={styles.modalHeaderBackground}
-          />
-
-          {/* Floating wave animations */}
-          <View style={styles.waveContainer}>
-            <Animated.View
-              style={[
-                styles.waveRing,
-                styles.wave1,
-                {
-                  transform: [{scale: pulseRing2}],
-                  opacity: pulseRing2.interpolate({
-                    inputRange: [1, 1.4],
-                    outputRange: [0.3, 0],
-                  }),
-                },
-              ]}
-            />
-            <Animated.View
-              style={[
-                styles.waveRing,
-                styles.wave2,
-                {
-                  transform: [{scale: pulseRing1}],
-                  opacity: pulseRing1.interpolate({
-                    inputRange: [1, 1.4],
-                    outputRange: [0.4, 0],
-                  }),
-                },
-              ]}
-            />
-            <Animated.View
-              style={[
-                styles.waveRing,
-                styles.wave3,
-                {
-                  transform: [{scale: pulseAnim}],
-                  opacity: pulseAnim.interpolate({
-                    inputRange: [1, 1.4],
-                    outputRange: [0.5, 0],
-                  }),
-                },
-              ]}
-            />
-          </View>
-
-          {/* Header with travel icon */}
-          <View style={styles.modalHeader}>
-            <View style={styles.headerIconContainer}>
-              <Animated.View
-                style={[
-                  styles.iconContainer,
-                  {
-                    transform: [{scale: pulseAnim}],
-                  },
-                ]}>
-                <LinearGradient
-                  colors={['#4AC6D0', '#36B7C1', '#2AA8B3']}
-                  style={styles.iconGradient}>
-                  <Icon
-                    name={notificationData?.isVideoCall ? 'videocam' : 'phone'}
-                    size={36}
-                    color="#FFFFFF"
-                  />
-                </LinearGradient>
-
-                {/* Travel-themed status indicator */}
-                <View style={styles.statusIndicator}>
-                  <Icon name="flight" size={12} color="#FFFFFF" />
-                </View>
-              </Animated.View>
-            </View>
-
-            <View style={styles.headerTextContainer}>
-              <Text style={styles.modalTitle}>
-                {`${
-                  notificationData?.isVideoCall ? 'Video' : 'Audio'
-                } Connection`}
-              </Text>
-              <Text style={styles.modalSubtitle}>Ready to Connect</Text>
-              {notificationData?.callerName && (
-                <View style={styles.callerContainer}>
-                  <Icon name="person" size={16} color="#4AC6D0" />
-                  <Text style={styles.callerName}>
-                    {notificationData.callerName}
-                  </Text>
-                </View>
-              )}
-            </View>
-          </View>
-
-          {/* Content with travel-friendly message */}
-          <View style={styles.modalContent}>
-            <View style={styles.messageContainer}>
-              <Icon name="explore" size={24} color="#4AC6D0" />
-              <Text style={styles.modalBody}>
-                Someone wants to connect with you for a conversation
-              </Text>
-            </View>
-
-            {/* Travel-themed action buttons */}
-            <View style={styles.buttonContainer}>
-              {/* Accept call button */}
-              <TouchableOpacity
-                style={styles.acceptButton}
-                onPress={onAccept}
-                activeOpacity={0.9}>
-                <LinearGradient
-                  colors={['#4AC6D0', '#36B7C1']}
-                  style={styles.acceptButtonGradient}>
-                  <Icon name="check-circle" size={24} color="#FFFFFF" />
-                  <Text style={styles.acceptButtonText}>Join</Text>
-                </LinearGradient>
-              </TouchableOpacity>
-
-              {/* Decline call button */}
-              <TouchableOpacity
-                style={styles.declineButton}
-                onPress={onDecline}
-                activeOpacity={0.9}>
-                <View style={styles.declineButtonContainer}>
-                  <Icon name="cancel" size={24} color="#9CA3AF" />
-                  <Text style={styles.declineButtonText}>Maybe Later</Text>
-                </View>
-              </TouchableOpacity>
-            </View>
-          </View>
-
-          {/* Decorative travel elements */}
-          <View style={styles.decorativeElements}>
-            <Icon
-              name="language"
-              size={16}
-              color="#4AC6D0"
-              style={styles.decorIcon1}
-            />
-            <Icon
-              name="public"
-              size={14}
-              color="#7DD3FC"
-              style={styles.decorIcon2}
-            />
-            <Icon
-              name="connect-without-contact"
-              size={12}
-              color="#A5F3FC"
-              style={styles.decorIcon3}
-            />
-          </View>
-        </Animated.View>
-      </Animated.View>
-    </Modal>
-  );
-};
-
-export default function SocketClient() {
-  const navigation = useNavigation();
-  const {user} = useAuth();
-  const [meetingID, setMeetingId] = useState<string | null>(null);
-  const [modalCalledOK, setModalCalledOK] = useState(false);
-
-  const dingRef = useRef<Sound | null>(null);
-
-  // State for different notification types
-  const [inAppNotificationVisible, setInAppNotificationVisible] =
-    useState(false);
-  const [callModalVisible, setCallModalVisible] = useState(false);
-  const [notificationData, setNotificationData] = useState<{
-    title?: string;
-    body?: string;
-    meetingId?: string;
-    type?: string;
-    callerName?: string;
-    isVideoCall?: boolean;
-    chatId?: string;
-    senderId?: string;
-  } | null>(null);
-
-  // Animation values
-  const fadeAnim = useRef(new Animated.Value(0)).current;
-  const scaleAnim = useRef(new Animated.Value(0.8)).current;
-  const pulseAnim = useRef(new Animated.Value(1)).current;
-  const slideAnim = useRef(new Animated.Value(50)).current;
-
-  // Request audio permissions for Android 12+
-  const requestAudioPermissions = async () => {
-    if (Platform.OS === 'android' && Platform.Version >= 31) {
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
       try {
-        const granted = await PermissionsAndroid.request(
-          PermissionsAndroid.PERMISSIONS.RECORD_AUDIO,
-          {
-            title: 'Audio Permission',
-            message:
-              'This app needs access to audio to play notification sounds.',
-            buttonNeutral: 'Ask Me Later',
-            buttonNegative: 'Cancel',
-            buttonPositive: 'OK',
-          },
-        );
-        return granted === PermissionsAndroid.RESULTS.GRANTED;
-      } catch (err) {
-        console.warn('Permission request failed:', err);
-        return false;
+        return await fn(...args);
+      } catch (error) {
+        lastError = error as Error;
+
+        if (attempt === maxRetries) {
+          throw lastError;
+        }
+
+        const retryDelay = delay * Math.pow(2, attempt);
+        await new Promise(resolve => setTimeout(resolve, retryDelay));
       }
     }
-    return true;
-  };
 
-  // Initialize sound with better Android 12+ support
-  const initializeSound = async () => {
-    try {
-      const hasPermission = await requestAudioPermissions();
-      if (!hasPermission) {
-        console.warn('Audio permission denied');
+    throw lastError!;
+  };
+};
+
+// Custom hooks
+const useStableRefs = () => {
+  const refs = useRef({
+    notificationTimeouts: new Map<string, NodeJS.Timeout>(),
+    appStateSubscription: null as any,
+    lastNotificationTime: 0,
+    notificationQueue: [] as NotificationData[],
+    isProcessingQueue: false,
+    currentlyPlayingTrack: null as string | null,
+    playbackLoopInterval: null as NodeJS.Timeout | null,
+  });
+
+  return refs.current;
+};
+
+const useAnimationValues = () => {
+  return useMemo(
+    () => ({
+      fadeAnim: new Animated.Value(0),
+      scaleAnim: new Animated.Value(0.8),
+      pulseAnim: new Animated.Value(1),
+      slideAnim: new Animated.Value(50),
+    }),
+    [],
+  );
+};
+
+// Enhanced TrackPlayer Sound Manager
+const useSoundManager = () => {
+  const refs = useStableRefs();
+
+  // Play notification sound with TrackPlayer (đã được khởi tạo ở index.js)
+  const playNotificationSound = useCallback(
+    async (type: SoundType = SoundType.DEFAULT): Promise<void> => {
+      const config = SOUND_CONFIG[type];
+      if (!config.enabled) {
+        console.log('🔇 Sound disabled for type:', type);
         return;
       }
 
-      if (Platform.OS === 'android') {
-        Sound.setCategory('Playback', false);
-        Sound.setActive(true);
-      } else {
-        Sound.setCategory('Playback', true);
-      }
+      try {
+        // Stop any currently playing track
+        await TrackPlayer.stop();
+        await TrackPlayer.reset();
 
-      console.log('Loading notification sound...');
+        const track = NOTIFICATION_TRACKS[type];
 
-      const soundFile =
-        Platform.OS === 'android'
-          ? 'ringtone.mp3'
-          : require('../assets/sounds/ringtone.mp3');
+        // Add track and configure
+        await TrackPlayer.add(track);
+        await TrackPlayer.setVolume(config.volume);
 
-      const basePath =
-        Platform.OS === 'android' ? Sound.MAIN_BUNDLE : undefined;
-
-      dingRef.current = new Sound(soundFile, basePath, error => {
-        if (error) {
-          console.log('❌ Sound load error:', error);
-          dingRef.current = new Sound(
-            require('../assets/sounds/ringtone.mp3'),
-            undefined,
-            fallbackError => {
-              if (fallbackError) {
-                console.log('❌ Fallback sound load error:', fallbackError);
-              } else {
-                console.log('✅ Fallback sound loaded successfully');
-                setupSound();
-              }
-            },
-          );
-          return;
+        // Set repeat mode
+        if (config.numberOfLoops === -1) {
+          await TrackPlayer.setRepeatMode(RepeatMode.Track);
+        } else {
+          await TrackPlayer.setRepeatMode(RepeatMode.Off);
         }
 
-        console.log('✅ Sound loaded successfully');
-        setupSound();
-      });
+        refs.currentlyPlayingTrack = track.id;
+
+        // Start playback
+        await TrackPlayer.play();
+        console.log(`✅ Playing sound: ${type}`);
+
+        // Handle finite loops
+        if (config.numberOfLoops > 0 && config.numberOfLoops !== -1) {
+          let playCount = 0;
+          const maxPlays = config.numberOfLoops;
+
+          const checkPlayback = async () => {
+            try {
+              const state = await TrackPlayer.getState();
+
+              if (state === State.Stopped && playCount < maxPlays) {
+                playCount++;
+                await TrackPlayer.seekTo(0);
+                await TrackPlayer.play();
+
+                if (playCount < maxPlays) {
+                  refs.playbackLoopInterval = setTimeout(
+                    checkPlayback,
+                    config.duration,
+                  );
+                } else {
+                  refs.currentlyPlayingTrack = null;
+                }
+              }
+            } catch (error) {
+              console.error('❌ Error in playback loop:', error);
+              refs.currentlyPlayingTrack = null;
+            }
+          };
+
+          refs.playbackLoopInterval = setTimeout(
+            checkPlayback,
+            config.duration,
+          );
+        }
+
+        // Auto-stop for infinite loops after duration (for calls)
+        if (config.numberOfLoops === -1 && config.duration > 0) {
+          setTimeout(async () => {
+            try {
+              await TrackPlayer.stop();
+              refs.currentlyPlayingTrack = null;
+            } catch (error) {
+              console.error('❌ Error auto-stopping sound:', error);
+            }
+          }, config.duration);
+        }
+      } catch (error) {
+        console.error('❌ Error playing notification sound:', error);
+      }
+    },
+    [refs],
+  );
+
+  // Stop notification sound
+  const stopNotificationSound = useCallback(async (): Promise<void> => {
+    try {
+      if (refs.playbackLoopInterval) {
+        clearTimeout(refs.playbackLoopInterval);
+        refs.playbackLoopInterval = null;
+      }
+
+      await TrackPlayer.stop();
+      refs.currentlyPlayingTrack = null;
+      console.log('🔇 Notification sound stopped');
     } catch (error) {
-      console.error('Error initializing sound:', error);
+      console.error('❌ Error stopping sound:', error);
     }
-  };
+  }, [refs]);
 
-  const setupSound = () => {
-    if (dingRef.current) {
-      dingRef.current.setVolume(0.8);
+  // Cleanup function
+  const cleanupSound = useCallback((): void => {
+    console.log('🧹 Cleaning up sound manager...');
+
+    if (refs.playbackLoopInterval) {
+      clearTimeout(refs.playbackLoopInterval);
+      refs.playbackLoopInterval = null;
     }
-  };
 
-  const playNotificationSound = (type: string = 'default') => {
-    if (!dingRef.current?.isLoaded()) {
-      console.warn('Sound not loaded yet');
+    refs.currentlyPlayingTrack = null;
+  }, [refs]);
+
+  return {
+    playNotificationSound,
+    stopNotificationSound,
+    cleanupSound,
+  };
+};
+
+const useNotificationManager = () => {
+  const refs = useStableRefs();
+
+  // Process notification queue
+  const processNotificationQueue = useCallback(async (): Promise<void> => {
+    if (refs.isProcessingQueue || refs.notificationQueue.length === 0) {
       return;
     }
 
-    try {
-      dingRef.current.stop(() => {
-        dingRef.current?.setCurrentTime(0);
+    refs.isProcessingQueue = true;
 
-        if (type === 'call' || type === 'video_call') {
-          dingRef.current?.setNumberOfLoops(-1); // Infinite loop for calls
-        } else {
-          dingRef.current?.setNumberOfLoops(2); // Short loop for messages
+    try {
+      while (refs.notificationQueue.length > 0) {
+        const notification = refs.notificationQueue.shift();
+        if (!notification) {
+          continue;
         }
 
-        dingRef.current?.play(success => {
-          if (success) {
-            console.log('✅ Sound played successfully');
-          } else {
-            console.log('❌ Sound playback failed');
-          }
-        });
-      });
-    } catch (error) {
-      console.error('Error playing sound:', error);
-    }
-  };
+        const isExpired =
+          Date.now() - notification.timestamp > NOTIFICATION_TIMEOUT;
+        if (isExpired) {
+          console.log('⏰ Notification expired:', notification.title);
+          continue;
+        }
 
-  const stopNotificationSound = () => {
-    if (dingRef.current?.isLoaded()) {
-      dingRef.current.stop(() => {
-        dingRef.current?.setCurrentTime(0);
-      });
-    }
-  };
+        console.log('📱 Processing notification:', notification.title);
 
-  useEffect(() => {
-    initializeSound();
+        const notificationId = `${notification.type}_${notification.timestamp}`;
+        const timeoutId = setTimeout(() => {
+          refs.notificationTimeouts.delete(notificationId);
+        }, NOTIFICATION_TIMEOUT);
 
-    return () => {
-      if (dingRef.current) {
-        dingRef.current.stop(() => {
-          dingRef.current?.release();
-          dingRef.current = null;
-        });
+        refs.notificationTimeouts.set(notificationId, timeoutId);
+
+        await new Promise(resolve => setTimeout(resolve, 500));
       }
-    };
-  }, []);
-
-  // Handle different notification types
-  const showNotification = (data: any) => {
-    const notificationInfo = {
-      title: data.title,
-      body: data.body,
-      meetingId: data.meetingId,
-      type: data.type || 'default',
-      callerName: data.callerName,
-      isVideoCall: data.isVideoCall === 'true',
-      chatId: data.chatId,
-      senderId: data.senderId,
-    };
-
-    setNotificationData(notificationInfo);
-
-    if (
-      notificationInfo.type === 'call' ||
-      notificationInfo.type === 'video_call'
-    ) {
-      // Show call modal for calls
-      setCallModalVisible(true);
-      playNotificationSound(notificationInfo.type);
-    } else if (notificationInfo.type === 'message') {
-      // Show in-app notification for messages
-      setInAppNotificationVisible(true);
-      playNotificationSound('message');
+    } catch (error) {
+      console.error('❌ Error processing notification queue:', error);
+    } finally {
+      refs.isProcessingQueue = false;
     }
-  };
+  }, [refs]);
 
-  // Handle foreground notifications
-  useEffect(() => {
-    const unsubscribe = messaging().onMessage(async remoteMessage => {
-      const title = remoteMessage.notification?.title ?? 'Thông báo';
-      const body = remoteMessage.notification?.body ?? '';
-      const data = remoteMessage.data || {};
+  // Queue notification
+  const queueNotification = useCallback(
+    (data: NotificationData): void => {
+      const currentTime = Date.now();
 
-      console.log('📱 Notification received in foreground:', remoteMessage);
+      if (currentTime - refs.lastNotificationTime < 1000) {
+        console.log('🚫 Notification debounced');
+        return;
+      }
 
-      showNotification({
-        title,
-        body,
+      refs.lastNotificationTime = currentTime;
+      refs.notificationQueue.push({
         ...data,
+        timestamp: currentTime,
       });
+
+      processNotificationQueue();
+    },
+    [refs, processNotificationQueue],
+  );
+
+  // Clear notification timeouts
+  const clearNotificationTimeouts = useCallback((): void => {
+    refs.notificationTimeouts.forEach(timeoutId => {
+      clearTimeout(timeoutId);
     });
+    refs.notificationTimeouts.clear();
+  }, [refs]);
 
-    return unsubscribe;
-  }, []);
+  return {
+    queueNotification,
+    processNotificationQueue,
+    clearNotificationTimeouts,
+  };
+};
 
-  // Handle background/killed app notifications
-  useEffect(() => {
-    const unsubscribeBackground = messaging().onNotificationOpenedApp(
-      remoteMessage => {
-        const meetingId = remoteMessage.data?.meetingId;
-        const chatId = remoteMessage.data?.chatId;
+// Main component
+export default function SocketClient() {
+  const navigation = useNavigation<NavigationProp<any>>();
+  const {user} = useAuth();
+  const refs = useStableRefs();
+  const animationValues = useAnimationValues();
+  const soundManager = useSoundManager();
+  const notificationManager = useNotificationManager();
 
-        if (meetingId) {
-          setModalCalledOK(true);
-          setMeetingId(meetingId);
-        } else if (chatId) {
-          // Navigate to chat screen
-          navigation.navigate('Chat', {
-            chatId: chatId,
-            // Add other required params
-          });
+  // State management
+  const [meetingID, setMeetingId] = useState<string | null>(null);
+  const [modalCalledOK, setModalCalledOK] = useState(false);
+  const [inAppNotificationVisible, setInAppNotificationVisible] =
+    useState(false);
+  const [callModalVisible, setCallModalVisible] = useState(false);
+  const [notificationData, setNotificationData] =
+    useState<NotificationData | null>(null);
+  const [backgroundNotifications, setBackgroundNotifications] = useState<
+    NotificationData[]
+  >([]);
+
+  const [config] = useState<NotificationConfig>(DEFAULT_NOTIFICATION_CONFIG);
+
+  // Helpers
+  const helpers = useMemo(
+    () => ({
+      createNotificationData: (
+        remoteMessage: FirebaseMessagingTypes.RemoteMessage,
+      ): NotificationData => {
+        const data = remoteMessage.data || {};
+        return {
+          title: remoteMessage.notification?.title ?? 'Notification',
+          body: remoteMessage.notification?.body ?? '',
+          meetingId: data.meetingId as string,
+          type: (data.type as NotificationType) || NotificationType.DEFAULT,
+          callerName: data.callerName as string,
+          isVideoCall: data.isVideoCall === 'true',
+          chatId: data.chatId as string,
+          senderId: data.senderId as string,
+          timestamp: Date.now(),
+        };
+      },
+
+      shouldShowNotification: (type: NotificationType): boolean => {
+        if (!config.inAppEnabled) {
+          return false;
+        }
+
+        switch (type) {
+          case NotificationType.CALL:
+          case NotificationType.VIDEO_CALL:
+            return true;
+          case NotificationType.MESSAGE:
+            return AppState.currentState === 'active';
+          default:
+            return true;
         }
       },
-    );
 
-    messaging()
-      .getInitialNotification()
-      .then(remoteMessage => {
-        if (remoteMessage) {
-          const meetingId = remoteMessage.data?.meetingId;
-          const chatId = remoteMessage.data?.chatId;
-
-          if (meetingId) {
-            setModalCalledOK(true);
-            setMeetingId(meetingId);
-          } else if (chatId) {
-            navigation.navigate('Chat', {
-              chatId: chatId,
-            });
-          }
+      getSoundType: (notificationType: NotificationType): SoundType => {
+        switch (notificationType) {
+          case NotificationType.CALL:
+            return SoundType.CALL;
+          case NotificationType.VIDEO_CALL:
+            return SoundType.VIDEO_CALL;
+          case NotificationType.MESSAGE:
+            return SoundType.MESSAGE;
+          default:
+            return SoundType.DEFAULT;
         }
-      });
+      },
+    }),
+    [config],
+  );
 
-    return unsubscribeBackground;
-  }, [navigation]);
+  // Show notification
+  const showNotification = useCallback(
+    (data: NotificationData): void => {
+      console.log('📱 Showing notification:', data);
 
-  // Handle in-app message notification press
-  const handleInAppNotificationPress = () => {
-    setInAppNotificationVisible(false);
-    stopNotificationSound();
+      if (!helpers.shouldShowNotification(data.type)) {
+        console.log('🚫 Notification blocked by configuration');
+        return;
+      }
 
-    if (notificationData?.chatId) {
-      navigation.navigate('Chat', {
-        chatId: notificationData.chatId,
-        // Add other required params
-      });
-    }
-  };
+      setNotificationData(data);
 
-  // Handle in-app notification dismiss
-  const handleInAppNotificationDismiss = () => {
-    setInAppNotificationVisible(false);
-    stopNotificationSound();
-  };
+      if (
+        data.type === NotificationType.CALL ||
+        data.type === NotificationType.VIDEO_CALL
+      ) {
+        setCallModalVisible(true);
+      } else if (data.type === NotificationType.MESSAGE) {
+        setInAppNotificationVisible(true);
+      }
 
-  // Handle call modal accept
-  const onCallModalAccept = async () => {
-    setCallModalVisible(false);
-    stopNotificationSound();
+      if (config.soundEnabled) {
+        const soundType = helpers.getSoundType(data.type);
+        soundManager.playNotificationSound(soundType);
+      }
+    },
+    [config.soundEnabled, helpers, soundManager],
+  );
 
-    if (notificationData?.meetingId) {
+  // Update meeting document
+  const updateMeetingDocument = useCallback(
+    async (meetingId: string): Promise<void> => {
+      if (!user?.uid) {
+        throw new Error('User not authenticated');
+      }
+
       const updatedUser: Member = {
         uid: user.uid || user._user?.uid || '',
         email: user.email || user._user?.email || '',
@@ -686,61 +514,207 @@ export default function SocketClient() {
         role: 'member',
       };
 
-      const meetingRef = firestore()
-        .collection('meetings')
-        .doc(notificationData.meetingId);
+      const meetingRef = firestore().collection('meetings').doc(meetingId);
 
-      try {
-        const doc = await meetingRef.get();
+      await firestore().runTransaction(async transaction => {
+        const doc = await transaction.get(meetingRef);
+
         if (!doc.exists) {
           updatedUser.role = 'admin';
-          await meetingRef.set(
-            {
-              createdAt: firestore.Timestamp.now(),
-              createdBy: updatedUser.uid,
-              members: [updatedUser],
-            },
-            {merge: true},
-          );
+          transaction.set(meetingRef, {
+            createdAt: firestore.Timestamp.now(),
+            createdBy: updatedUser.uid,
+            members: [updatedUser],
+            updatedAt: Date.now(),
+          });
         } else {
           const currentMembers = doc.data()?.members || [];
-          const alreadyExists = currentMembers.find(
+          const existingMemberIndex = currentMembers.findIndex(
             (m: Member) => m.uid === updatedUser.uid,
           );
 
           let updatedMembers: Member[];
-          if (alreadyExists) {
-            updatedMembers = currentMembers.map((m: Member) =>
-              m.uid === updatedUser.uid ? updatedUser : m,
-            );
+          if (existingMemberIndex >= 0) {
+            updatedMembers = [...currentMembers];
+            updatedMembers[existingMemberIndex] = updatedUser;
           } else {
             updatedMembers = [...currentMembers, updatedUser];
           }
-          await meetingRef.update({members: updatedMembers});
-        }
 
-        await meetingRef.set(
-          {
+          transaction.update(meetingRef, {
+            members: updatedMembers,
             updatedAt: Date.now(),
-          },
-          {merge: true},
-        );
-      } catch (err) {
-        console.error('Error updating Firestore:', err);
-      }
+          });
+        }
+      });
 
+      console.log('✅ Meeting document updated');
+    },
+    [user],
+  );
+
+  // Event handlers
+  const handleInAppNotificationPress = useCallback((): void => {
+    setInAppNotificationVisible(false);
+    soundManager.stopNotificationSound();
+
+    if (notificationData?.chatId) {
+      navigation.navigate('Chat', {
+        chatId: notificationData.chatId,
+      });
+    }
+  }, [notificationData, navigation, soundManager]);
+
+  const handleInAppNotificationDismiss = useCallback((): void => {
+    setInAppNotificationVisible(false);
+    soundManager.stopNotificationSound();
+  }, [soundManager]);
+
+  const onCallModalAccept = useCallback(async (): Promise<void> => {
+    setCallModalVisible(false);
+    soundManager.stopNotificationSound();
+
+    if (!notificationData?.meetingId) {
+      console.warn('⚠️ No meeting ID provided');
+      return;
+    }
+
+    try {
+      const retryableUpdate = createRetryableFunction(
+        () => updateMeetingDocument(notificationData.meetingId!),
+        3,
+        1000,
+      );
+
+      await retryableUpdate();
       setModalCalledOK(true);
       setMeetingId(notificationData.meetingId);
+    } catch (error) {
+      console.error('❌ Error accepting call:', error);
     }
-  };
+  }, [notificationData, soundManager, updateMeetingDocument]);
 
-  // Handle call modal decline
-  const onCallModalDecline = () => {
+  const onCallModalDecline = useCallback((): void => {
     setCallModalVisible(false);
-    stopNotificationSound();
-  };
+    soundManager.stopNotificationSound();
+  }, [soundManager]);
 
-  if (modalCalledOK) {
+  const handleBackgroundNotificationOpen = useCallback(
+    (remoteMessage: FirebaseMessagingTypes.RemoteMessage): void => {
+      const meetingId = remoteMessage.data?.meetingId as string;
+      const chatId = remoteMessage.data?.chatId as string;
+
+      if (meetingId) {
+        setModalCalledOK(true);
+        setMeetingId(meetingId);
+      } else if (chatId) {
+        navigation.navigate('Chat', {chatId});
+      }
+    },
+    [navigation],
+  );
+
+  // Effects
+  useEffect(() => {
+    const handleAppStateChange = (nextAppState: AppStateStatus): void => {
+      console.log('📱 App state changed to:', nextAppState);
+
+      if (nextAppState === 'background') {
+        soundManager.stopNotificationSound();
+      } else if (nextAppState === 'active') {
+        // Process any queued background notifications
+        notificationManager.processNotificationQueue();
+
+        // Check for any background notifications that need to be displayed
+        checkBackgroundNotifications();
+      }
+    };
+
+    refs.appStateSubscription = AppState.addEventListener(
+      'change',
+      handleAppStateChange,
+    );
+
+    return () => {
+      refs.appStateSubscription?.remove();
+    };
+  }, [refs, soundManager, notificationManager]);
+
+  // Trong SocketClient component
+  const checkBackgroundNotifications = useCallback(async () => {
+    try {
+      console.log('🔍 Checking for background notifications...');
+      const backgroundNotifications = await getBackgroundNotifications();
+
+      if (backgroundNotifications.length > 0) {
+        console.log(
+          `📱 Found ${backgroundNotifications.length} background notifications`,
+        );
+
+        // Process each background notification
+        for (const bgNotification of backgroundNotifications) {
+          if (!bgNotification.processed) {
+            const notificationData = helpers.createNotificationData({
+              notification: {
+                title: bgNotification.title,
+                body: bgNotification.body,
+              },
+              data: bgNotification.data,
+            });
+
+            // Show notification in app
+            showNotification(notificationData);
+          }
+
+          // Clear processed notifications
+          await clearProcessedNotifications();
+        }
+      }
+    } catch (error) {
+      console.error('❌ Error checking background notifications:', error);
+    }
+  }, [helpers, showNotification]);
+  useEffect(() => {
+    const unsubscribe = messaging().onMessage(async remoteMessage => {
+      console.log('📱 Foreground notification:', remoteMessage);
+
+      const notificationData = helpers.createNotificationData(remoteMessage);
+      notificationManager.queueNotification(notificationData);
+      showNotification(notificationData);
+    });
+
+    return unsubscribe;
+  }, [helpers, notificationManager, showNotification]);
+
+  useEffect(() => {
+    const unsubscribeBackground = messaging().onNotificationOpenedApp(
+      handleBackgroundNotificationOpen,
+    );
+
+    messaging()
+      .getInitialNotification()
+      .then(remoteMessage => {
+        if (remoteMessage) {
+          console.log('📱 App launched from notification:', remoteMessage);
+          handleBackgroundNotificationOpen(remoteMessage);
+        }
+      })
+      .catch(error => {
+        console.error('❌ Error getting initial notification:', error);
+      });
+
+    return unsubscribeBackground;
+  }, [handleBackgroundNotificationOpen]);
+
+  useEffect(() => {
+    return () => {
+      notificationManager.clearNotificationTimeouts();
+      soundManager.cleanupSound();
+    };
+  }, [notificationManager, soundManager]);
+
+  // Render
+  if (modalCalledOK && meetingID) {
     return (
       <LanguageModal
         visible={modalCalledOK}
@@ -753,326 +727,24 @@ export default function SocketClient() {
 
   return (
     <>
-      {/* In-App Message Notification */}
       <InAppMessageNotification
         visible={inAppNotificationVisible}
         notificationData={notificationData}
         onPress={handleInAppNotificationPress}
         onDismiss={handleInAppNotificationDismiss}
-        fadeAnim={fadeAnim}
-        slideAnim={slideAnim}
+        fadeAnim={animationValues.fadeAnim}
+        slideAnim={animationValues.slideAnim}
       />
 
-      {/* Call Modal Notification */}
       <CallModalNotification
         visible={callModalVisible}
         notificationData={notificationData}
         onAccept={onCallModalAccept}
         onDecline={onCallModalDecline}
-        fadeAnim={fadeAnim}
-        scaleAnim={scaleAnim}
-        pulseAnim={pulseAnim}
+        fadeAnim={animationValues.fadeAnim}
+        scaleAnim={animationValues.scaleAnim}
+        pulseAnim={animationValues.pulseAnim}
       />
     </>
   );
 }
-const styles = StyleSheet.create({
-  // In-App Notification Styles - Improved
-  inAppNotificationContainer: {
-    position: 'absolute',
-    top: StatusBar.currentHeight || 44,
-    left: 12,
-    right: 12,
-    zIndex: 9999,
-    elevation: 25,
-  },
-  inAppNotification: {
-    borderRadius: 20,
-    overflow: 'hidden',
-    elevation: 15,
-    shadowColor: '#000',
-    shadowOffset: {width: 0, height: 6},
-    shadowOpacity: 0.25,
-    shadowRadius: 12,
-    // Glassmorphism effect
-    backgroundColor: 'rgba(255,255,255,0.95)',
-    backdropFilter: 'blur(20px)',
-  },
-  inAppNotificationGradient: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 20,
-    paddingVertical: 16,
-    minHeight: 80,
-    backgroundColor: 'transparent',
-  },
-  inAppAvatar: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    backgroundColor: '#4AC6D0',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginRight: 16,
-    elevation: 4,
-    shadowColor: '#4AC6D0',
-    shadowOffset: {width: 0, height: 2},
-    shadowOpacity: 0.3,
-    shadowRadius: 4,
-  },
-  inAppContent: {
-    flex: 1,
-    marginRight: 12,
-  },
-  inAppTitle: {
-    fontSize: 17,
-    fontWeight: '700',
-    color: '#fff',
-    marginBottom: 6,
-    letterSpacing: -0.3,
-  },
-  inAppBody: {
-    fontSize: 15,
-    color: '#fff',
-    lineHeight: 20,
-    fontWeight: '500',
-  },
-  inAppCloseButton: {
-    padding: 1,
-    borderRadius: 20,
-    backgroundColor: 'red',
-    borderWidth: 1,
-    borderColor: '#E5E7EB',
-  },
-
-  // Call Modal Styles - Completely redesigned
-  modalBackground: {
-    flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.75)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingHorizontal: 24,
-  },
-  modalContainer: {
-    width: '100%',
-    maxWidth: 360,
-    backgroundColor: '#FFFFFF',
-    borderRadius: 24,
-    overflow: 'hidden',
-    elevation: 20,
-    shadowColor: '#4AC6D0',
-    shadowOffset: {width: 0, height: 10},
-    shadowOpacity: 0.3,
-    shadowRadius: 20,
-  },
-  callModalContainer: {
-    borderWidth: 0,
-  },
-  modalHeaderBackground: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    height: 180,
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
-  },
-  waveContainer: {
-    position: 'absolute',
-    top: 60,
-    alignSelf: 'center',
-    width: 120,
-    height: 120,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  waveRing: {
-    position: 'absolute',
-    borderRadius: 60,
-    borderWidth: 2,
-  },
-  wave1: {
-    width: 120,
-    height: 120,
-    borderColor: 'rgba(74, 198, 208, 0.2)',
-  },
-  wave2: {
-    width: 100,
-    height: 100,
-    borderColor: 'rgba(74, 198, 208, 0.3)',
-  },
-  wave3: {
-    width: 80,
-    height: 80,
-    borderColor: 'rgba(74, 198, 208, 0.4)',
-  },
-  modalHeader: {
-    alignItems: 'center',
-    paddingHorizontal: 32,
-    paddingTop: 40,
-    paddingBottom: 24,
-    backgroundColor: 'transparent',
-    position: 'relative',
-    zIndex: 1,
-  },
-  headerIconContainer: {
-    marginBottom: 20,
-  },
-  iconContainer: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
-    overflow: 'hidden',
-    elevation: 8,
-    shadowColor: '#4AC6D0',
-    shadowOffset: {width: 0, height: 4},
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-  },
-  iconGradient: {
-    width: '100%',
-    height: '100%',
-    justifyContent: 'center',
-    alignItems: 'center',
-    borderRadius: 40,
-  },
-  statusIndicator: {
-    position: 'absolute',
-    top: -4,
-    right: -4,
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    backgroundColor: '#10B981',
-    borderWidth: 3,
-    borderColor: '#FFFFFF',
-    justifyContent: 'center',
-    alignItems: 'center',
-    elevation: 4,
-  },
-  headerTextContainer: {
-    alignItems: 'center',
-  },
-  modalTitle: {
-    fontSize: 24,
-    fontWeight: '700',
-    color: '#1F2937',
-    marginBottom: 4,
-    letterSpacing: -0.3,
-    textAlign: 'center',
-  },
-  modalSubtitle: {
-    fontSize: 16,
-    color: '#4AC6D0',
-    fontWeight: '600',
-    marginBottom: 12,
-    textAlign: 'center',
-  },
-  callerContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: 'rgba(74, 198, 208, 0.1)',
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 20,
-    gap: 8,
-  },
-  callerName: {
-    fontSize: 16,
-    color: '#1F2937',
-    fontWeight: '600',
-  },
-  modalContent: {
-    paddingHorizontal: 32,
-    paddingBottom: 32,
-    backgroundColor: '#FFFFFF',
-  },
-  messageContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#F0FFFE',
-    paddingHorizontal: 20,
-    paddingVertical: 16,
-    borderRadius: 16,
-    marginBottom: 32,
-    gap: 12,
-  },
-  modalBody: {
-    flex: 1,
-    fontSize: 16,
-    color: '#4B5563',
-    lineHeight: 22,
-    fontWeight: '500',
-  },
-  buttonContainer: {
-    gap: 16,
-  },
-  acceptButton: {
-    borderRadius: 16,
-    elevation: 4,
-    shadowColor: '#4AC6D0',
-    shadowOffset: {width: 0, height: 2},
-    shadowOpacity: 0.2,
-    shadowRadius: 6,
-  },
-  acceptButtonGradient: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 16,
-    paddingHorizontal: 24,
-    borderRadius: 16,
-    gap: 12,
-  },
-  acceptButtonText: {
-    color: '#FFFFFF',
-    fontSize: 18,
-    fontWeight: '700',
-    letterSpacing: -0.2,
-  },
-  declineButton: {
-    borderRadius: 16,
-  },
-  declineButtonContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 16,
-    paddingHorizontal: 24,
-    borderRadius: 16,
-    backgroundColor: '#F9FAFB',
-    borderWidth: 1,
-    borderColor: '#E5E7EB',
-    gap: 12,
-  },
-  declineButtonText: {
-    color: '#6B7280',
-    fontSize: 16,
-    fontWeight: '600',
-    letterSpacing: -0.2,
-  },
-  decorativeElements: {
-    position: 'absolute',
-    width: '100%',
-    height: '100%',
-    pointerEvents: 'none',
-  },
-  decorIcon1: {
-    position: 'absolute',
-    top: 30,
-    right: 30,
-    opacity: 0.6,
-  },
-  decorIcon2: {
-    position: 'absolute',
-    top: 50,
-    left: 30,
-    opacity: 0.4,
-  },
-  decorIcon3: {
-    position: 'absolute',
-    bottom: 40,
-    right: 40,
-    opacity: 0.3,
-  },
-});
