@@ -242,9 +242,9 @@ export const TranslationProvider: React.FC<TranslationProviderProps> = memo(
     // Enhanced initialization with retry logic
     const initializeTranslationService = useCallback(
       createRetryableFunction(async () => {
-        console.log('🌐 Initializing Translation Service...');
-        console.log('🔑 Azure Key:', azureKey?.substring(0, 8) + '...');
-        console.log('🌍 Azure Region:', azureRegion);
+        // console.log('🌐 Initializing Translation Service...');
+        // console.log('🔑 Azure Key:', azureKey?.substring(0, 8) + '...');
+        // console.log('🌍 Azure Region:', azureRegion);
 
         // Validate inputs
         if (!azureKey || !azureRegion) {
@@ -283,9 +283,9 @@ export const TranslationProvider: React.FC<TranslationProviderProps> = memo(
           },
         });
 
-        console.log('✅ Translation Service initialized successfully');
-        console.log('📱 First launch:', firstLaunch);
-        console.log('🗣️ Current language:', currentLang);
+        // console.log('✅ Translation Service initialized successfully');
+        // console.log('📱 First launch:', firstLaunch);
+        // console.log('🗣️ Current language:', currentLang);
 
         refs.isInitialized = true;
         refs.retryCount = 0;
@@ -322,7 +322,7 @@ export const TranslationProvider: React.FC<TranslationProviderProps> = memo(
     const setLanguage = useCallback(
       async (lang: string): Promise<void> => {
         if (lang === state.currentLanguage) {
-          console.log('🔄 Language already set to:', lang);
+          // console.log('🔄 Language already set to:', lang);
           return;
         }
 
@@ -342,7 +342,7 @@ export const TranslationProvider: React.FC<TranslationProviderProps> = memo(
           clearCache();
 
           dispatch({type: 'LANGUAGE_CHANGED', payload: lang});
-          console.log('✅ Language changed to:', lang);
+          // console.log('✅ Language changed to:', lang);
         } catch (error) {
           console.error('❌ Error changing language:', error);
 
@@ -374,7 +374,7 @@ export const TranslationProvider: React.FC<TranslationProviderProps> = memo(
           clearCache();
 
           dispatch({type: 'FIRST_LAUNCH_COMPLETED', payload: lang});
-          console.log('✅ First launch completed with language:', lang);
+          // console.log('✅ First launch completed with language:', lang);
         } catch (error) {
           console.error('❌ Error completing first launch:', error);
           dispatch({type: 'SET_ERROR', payload: (error as Error).message});
@@ -460,7 +460,7 @@ export const TranslationProvider: React.FC<TranslationProviderProps> = memo(
     useEffect(() => {
       const credentialsHash = `${azureKey}-${azureRegion}`;
       if (refs.lastLanguageHash && refs.lastLanguageHash !== credentialsHash) {
-        console.log('🔄 Azure credentials changed, reinitializing...');
+        // console.log('🔄 Azure credentials changed, reinitializing...');
         refs.isInitialized = false;
         refs.initializationPromise = null;
         refs.retryCount = 0;

@@ -15,6 +15,7 @@ import {combinedLanguages} from '../contains/lan_code';
 import firestore from '@react-native-firebase/firestore';
 import {useAuth} from '../contexts/AuthContext';
 import {useSocket} from '../contexts/SocketContext';
+import {useTranslation} from '../contexts/TranslationContext'; // ✅ Thêm hook translation
 import {Member} from '../contains/type';
 import {useNavigation} from '@react-navigation/native';
 import Icon from 'react-native-vector-icons/MaterialIcons';
@@ -99,11 +100,13 @@ const LanguageModal = ({
 }) => {
   const {user} = useAuth();
   const {isConnected, emit, waitForConnection} = useSocket();
+  const {t} = useTranslation();
   const navigation = useNavigation();
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedLang, setSelectedLang] = useState(null);
   const [isProcessing, setIsProcessing] = useState(false);
   const [hasScrolledToSelected, setHasScrolledToSelected] = useState(false);
+  const [error, setError] = useState(null); // ✅ Thêm error state
   const flatListRef = useRef(null);
   const fadeAnim = useRef(new Animated.Value(0)).current;
 
@@ -115,7 +118,8 @@ const LanguageModal = ({
         duration: 300,
         useNativeDriver: true,
       }).start();
-      setHasScrolledToSelected(false); // Reset scroll state when modal opens
+      setHasScrolledToSelected(false);
+      setError(null);
     } else {
       fadeAnim.setValue(0);
     }
@@ -162,38 +166,44 @@ const LanguageModal = ({
     const unsubscribe = firestore()
       .collection('users')
       .doc(user.uid)
-      .onSnapshot(doc => {
-        const data = doc.data();
-        if (data && data.language) {
-          const foundLang = combinedLanguages.find(
-            lang => lang.code === data.language,
-          );
-          if (foundLang) {
-            setSelectedLang({
-              code: data.language,
-              transCode: data.translateCode || data.language,
-              name: foundLang.name,
-              flag: foundLang.flag,
-            });
+      .onSnapshot(
+        doc => {
+          const data = doc.data();
+          if (data && data.language) {
+            const foundLang = combinedLanguages.find(
+              lang => lang.code === data.language,
+            );
+            if (foundLang) {
+              setSelectedLang({
+                code: data.language,
+                transCode: data.translateCode || data.language,
+                name: foundLang.name,
+                flag: foundLang.flag,
+              });
+            }
+          } else {
+            // Set default to English if no language is set
+            const defaultLang = combinedLanguages.find(
+              lang => lang.code === 'en',
+            );
+            if (defaultLang) {
+              setSelectedLang({
+                code: 'en',
+                transCode: 'en',
+                name: defaultLang.name,
+                flag: defaultLang.flag,
+              });
+            }
           }
-        } else {
-          // Set default to English if no language is set
-          const defaultLang = combinedLanguages.find(
-            lang => lang.code === 'en',
-          );
-          if (defaultLang) {
-            setSelectedLang({
-              code: 'en',
-              transCode: 'en',
-              name: defaultLang.name,
-              flag: defaultLang.flag,
-            });
-          }
-        }
-      });
+        },
+        error => {
+          console.error('Error loading user language:', error);
+          setError(t('lanSelect.networkError'));
+        },
+      );
 
     return () => unsubscribe();
-  }, [visible, user?.uid]);
+  }, [visible, user?.uid, t]);
 
   const handleSearchChange = useCallback(text => {
     setSearchQuery(text);
@@ -204,6 +214,7 @@ const LanguageModal = ({
     setSelectedLang(null);
     setSearchQuery('');
     setHasScrolledToSelected(false);
+    setError(null);
     onDone(null);
   }, [onDone]);
 
@@ -277,32 +288,37 @@ const LanguageModal = ({
     scrollToSelectedLanguage,
   ]);
 
-  const getChatMembers = useCallback(async meetingId => {
-    try {
-      const chatRef = firestore().collection('chats').doc(meetingId);
-      const chatDoc = await chatRef.get();
+  const getChatMembers = useCallback(
+    async meetingId => {
+      try {
+        const chatRef = firestore().collection('chats').doc(meetingId);
+        const chatDoc = await chatRef.get();
 
-      if (!chatDoc.exists) {
-        console.warn('Chat not found:', meetingId);
-        return [];
+        if (!chatDoc.exists) {
+          console.warn('Chat not found:', meetingId);
+          return [];
+        }
+
+        const chatData = chatDoc.data();
+        const members = chatData?.members || [];
+        return members;
+      } catch (error) {
+        console.error('Error fetching chat members:', error);
+        throw new Error(t('lanSelect.networkError'));
       }
-
-      const chatData = chatDoc.data();
-      const members = chatData?.members || [];
-      return members;
-    } catch (error) {
-      console.error('Error fetching chat members:', error);
-      return [];
-    }
-  }, []);
+    },
+    [t],
+  );
 
   const confirmLanguageAndNavigate = useCallback(async () => {
     if (!selectedLang) {
+      setError(t('lanSelect.languageRequired'));
       return;
     }
 
     setIsProcessing(true);
     setLoading(true);
+    setError(null);
 
     try {
       const updatedUser: Member = {
@@ -360,15 +376,34 @@ const LanguageModal = ({
           {merge: true},
         ),
       ]);
+      console.log('Language updated successfully:', selectedLang);
 
       const socketReady = await waitForConnection(5000);
-
+      console.log('Socket ready:', socketReady);
       if (socketReady) {
+        console.log(
+          'user lang and transCode',
+          selectedLang.code,
+          selectedLang.transCode,
+        );
         emit('start_call', {
           meetingId: chatId,
           fromUserId: user.uid,
           memberIds: chatMembers.filter(uid => uid !== user.uid),
+          user: {
+            uid: user.uid,
+            language: selectedLang.code, // 'vi-Vn'
+            translateCode: selectedLang.transCode, // 'vi'
+          },
         });
+        // emit('join_meeting', {
+        //   meetingId: chatId,
+        //   user: {
+        //     uid: user.uid,
+        //     language: selectedLang.code, // 'vi-VN'
+        //     translateCode: selectedLang.transCode, // 'en-US'
+        //   },
+        // });
       }
 
       navigation.navigate('VoiceCall', {
@@ -378,6 +413,7 @@ const LanguageModal = ({
       onDone(false);
     } catch (err) {
       console.error('Error updating language:', err);
+      setError(t('lanSelect.failedToStartCall'));
     } finally {
       setIsProcessing(false);
       setLoading(false);
@@ -392,6 +428,7 @@ const LanguageModal = ({
     onDone,
     waitForConnection,
     emit,
+    t,
   ]);
 
   const handleConfirm = useCallback(() => {
@@ -419,6 +456,30 @@ const LanguageModal = ({
     },
     [filteredLanguages.length],
   );
+
+  // ✅ Render empty state
+  const renderEmptyState = () => (
+    <View style={styles.emptyState}>
+      <Icon name="search-off" size={48} color="#9CA3AF" />
+      <Text style={styles.emptyStateText}>
+        {t('lanSelect.noLanguagesFound')}
+      </Text>
+    </View>
+  );
+
+  // ✅ Render error state
+  const renderError = () => {
+    if (!error) {
+      return null;
+    }
+
+    return (
+      <View style={styles.errorContainer}>
+        <Icon name="error-outline" size={20} color="#EF4444" />
+        <Text style={styles.errorText}>{error}</Text>
+      </View>
+    );
+  };
 
   if (!visible) {
     return null;
@@ -449,11 +510,12 @@ const LanguageModal = ({
               style={styles.modalIcon}>
               <Icon name="translate" size={24} color="#fff" />
             </LinearGradient>
-            <Text style={styles.modalTitle}>Select Language</Text>
-            <Text style={styles.modalSubtitle}>
-              Choose your preferred language for voice translation
-            </Text>
+            <Text style={styles.modalTitle}>{t('lanSelect.title')}</Text>
+            <Text style={styles.modalSubtitle}>{t('lanSelect.subtitle')}</Text>
           </View>
+
+          {/* Error Display */}
+          {renderError()}
 
           {/* Search Input */}
           <View style={styles.searchContainer}>
@@ -466,12 +528,13 @@ const LanguageModal = ({
             <TextInput
               style={styles.searchInput}
               placeholderTextColor="#9CA3AF"
-              placeholder="Search languages..."
+              placeholder={t('lanSelect.searchPlaceholder')}
               value={searchQuery}
               onChangeText={handleSearchChange}
               clearButtonMode="while-editing"
               autoCorrect={false}
               autoCapitalize="none"
+              editable={!isProcessing}
             />
           </View>
 
@@ -490,15 +553,26 @@ const LanguageModal = ({
             windowSize={10}
             initialNumToRender={15}
             onScrollToIndexFailed={handleScrollToIndexFailed}
+            ListEmptyComponent={renderEmptyState}
+            scrollEnabled={!isProcessing}
           />
 
           {/* Buttons */}
           <View style={styles.buttonContainer}>
             <TouchableOpacity
               onPress={handleCancel}
-              style={styles.cancelButton}
+              style={[
+                styles.cancelButton,
+                isProcessing && styles.disabledButton,
+              ]}
               disabled={isProcessing}>
-              <Text style={styles.cancelButtonText}>Cancel</Text>
+              <Text
+                style={[
+                  styles.cancelButtonText,
+                  isProcessing && styles.disabledButtonText,
+                ]}>
+                {t('lanSelect.cancel')}
+              </Text>
             </TouchableOpacity>
 
             <TouchableOpacity
@@ -516,7 +590,12 @@ const LanguageModal = ({
                 }
                 style={styles.confirmButtonGradient}>
                 {isProcessing ? (
-                  <ActivityIndicator color="#fff" size="small" />
+                  <>
+                    <ActivityIndicator color="#fff" size="small" />
+                    <Text style={styles.confirmButtonText}>
+                      {t('lanSelect.processing')}
+                    </Text>
+                  </>
                 ) : (
                   <>
                     <Icon
@@ -525,12 +604,23 @@ const LanguageModal = ({
                       color="#fff"
                       style={styles.buttonIcon}
                     />
-                    <Text style={styles.confirmButtonText}>Start Call</Text>
+                    <Text style={styles.confirmButtonText}>
+                      {t('lanSelect.startCall')}
+                    </Text>
                   </>
                 )}
               </LinearGradient>
             </TouchableOpacity>
           </View>
+
+          {/* Processing Status */}
+          {isProcessing && (
+            <View style={styles.processingContainer}>
+              <Text style={styles.processingText}>
+                {t('lanSelect.preparingCall')}
+              </Text>
+            </View>
+          )}
         </Animated.View>
       </View>
     </Modal>
@@ -580,6 +670,23 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     lineHeight: 20,
   },
+  // ✅ Thêm styles cho error
+  errorContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FEF2F2',
+    borderColor: '#FECACA',
+    borderWidth: 1,
+    borderRadius: 8,
+    padding: 12,
+    marginBottom: 16,
+  },
+  errorText: {
+    fontSize: 14,
+    color: '#DC2626',
+    marginLeft: 8,
+    flex: 1,
+  },
   searchContainer: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -588,7 +695,6 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#E2E8F0',
     paddingHorizontal: 16,
-    // paddingVertical: 12,
     marginBottom: 16,
   },
   searchIcon: {
@@ -598,6 +704,7 @@ const styles = StyleSheet.create({
     flex: 1,
     fontSize: 14,
     color: '#1E293B',
+    paddingVertical: 12,
   },
   languageList: {
     marginBottom: 20,
@@ -607,10 +714,8 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    // padding: 12,
     paddingHorizontal: 12,
     paddingVertical: 6,
-
     borderRadius: 12,
     marginBottom: 8,
     elevation: 1,
@@ -640,6 +745,18 @@ const styles = StyleSheet.create({
   checkIcon: {
     marginLeft: 8,
   },
+  // ✅ Thêm styles cho empty state
+  emptyState: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 40,
+  },
+  emptyStateText: {
+    fontSize: 16,
+    color: '#6B7280',
+    marginTop: 12,
+    textAlign: 'center',
+  },
   buttonContainer: {
     flexDirection: 'row',
     gap: 12,
@@ -648,7 +765,6 @@ const styles = StyleSheet.create({
   cancelButton: {
     flex: 1,
     backgroundColor: '#F8FAFC',
-    // paddingHorizontal: 8,
     paddingVertical: 12,
     borderRadius: 12,
     borderWidth: 1,
@@ -686,8 +802,22 @@ const styles = StyleSheet.create({
   disabledButton: {
     opacity: 0.6,
   },
+  // ✅ Thêm styles cho disabled button text
+  disabledButtonText: {
+    color: '#9CA3AF',
+  },
   buttonIcon: {
     marginRight: 4,
+  },
+  // ✅ Thêm styles cho processing container
+  processingContainer: {
+    alignItems: 'center',
+    marginTop: 12,
+  },
+  processingText: {
+    fontSize: 14,
+    color: '#6B7280',
+    fontStyle: 'italic',
   },
 });
 

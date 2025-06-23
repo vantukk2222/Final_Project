@@ -35,7 +35,7 @@ const TabNavigation: React.FC<TabNavigationProps> = ({
                 style={[styles.tabButton, styles.tabButtonActive]}>
                 <View style={styles.tabContent}>
                   <View style={styles.activeIconContainer}>
-                    <Icon name={tab.icon} size={18} color="#fff" />
+                    <Icon name={tab.icon} size={14} color="#fff" />
                   </View>
                   <Text style={styles.tabButtonTextActive}>{tab.label}</Text>
                 </View>
@@ -43,7 +43,7 @@ const TabNavigation: React.FC<TabNavigationProps> = ({
             ) : (
               <View style={styles.tabButton}>
                 <View style={styles.tabContent}>
-                  <Icon name={tab.icon} size={16} color="#64748B" />
+                  <Icon name={tab.icon} size={14} color="#64748B" />
                   <Text style={styles.tabButtonText}>{tab.label}</Text>
                 </View>
               </View>

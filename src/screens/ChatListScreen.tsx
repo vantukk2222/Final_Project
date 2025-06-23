@@ -69,10 +69,12 @@ type StateAction =
   | {type: 'SET_SEARCH_VISIBLE'; payload: boolean}
   | {type: 'SET_MODAL_VISIBLE'; payload: boolean}
   | {type: 'SET_GROUP_MODAL_VISIBLE'; payload: boolean}
+  | {type: 'SET_JOIN_CHAT_CODE_MODAL_VISIBLE'; payload: boolean}
   | {type: 'SET_SELECTED_CHAT'; payload: ChatData | null}
   | {type: 'SET_ACTIVE_TAB'; payload: ChatTabType}
   | {type: 'SET_GROUP_NAME'; payload: string}
   | {type: 'SET_INPUT_EMAILS'; payload: string}
+  | {type: 'SET_BUBBLE_MENU_VISIBLE'; payload: boolean}
   | {type: 'RESET_FORM'};
 
 interface ChatListState {
@@ -87,10 +89,12 @@ interface ChatListState {
   searchVisible: boolean;
   modalVisible: boolean;
   groupModalVisible: boolean;
+  joinChatCodeModalVisible: boolean;
   selectedChat: ChatData | null;
   activeTab: ChatTabType;
   groupName: string;
   inputEmails: string;
+  bubbleMenuVisible: boolean;
 }
 
 const initialState: ChatListState = {
@@ -105,10 +109,12 @@ const initialState: ChatListState = {
   searchVisible: false,
   modalVisible: false,
   groupModalVisible: false,
+  joinChatCodeModalVisible: false,
   selectedChat: null,
   activeTab: 'groups',
   groupName: '',
   inputEmails: '',
+  bubbleMenuVisible: false,
 };
 
 // Atomic state reducer
@@ -139,6 +145,8 @@ const chatListReducer = (
       return {...state, modalVisible: action.payload};
     case 'SET_GROUP_MODAL_VISIBLE':
       return {...state, groupModalVisible: action.payload};
+    case 'SET_JOIN_CHAT_CODE_MODAL_VISIBLE':
+      return {...state, joinChatCodeModalVisible: action.payload};
     case 'SET_SELECTED_CHAT':
       return {...state, selectedChat: action.payload};
     case 'SET_ACTIVE_TAB':
@@ -147,12 +155,15 @@ const chatListReducer = (
       return {...state, groupName: action.payload};
     case 'SET_INPUT_EMAILS':
       return {...state, inputEmails: action.payload};
+    case 'SET_BUBBLE_MENU_VISIBLE':
+      return {...state, bubbleMenuVisible: action.payload};
     case 'RESET_FORM':
       return {
         ...state,
         groupName: '',
         inputEmails: '',
         groupModalVisible: false,
+        joinChatCodeModalVisible: false,
       };
     default:
       return state;
@@ -854,6 +865,144 @@ const CreateChatModal = memo(
     );
   },
 );
+const JoinChatByCodeModal = memo(
+  ({
+    visible,
+    onClose,
+    onJoin,
+    t,
+  }: {
+    visible: boolean;
+    onClose: () => void;
+    onJoin: (code: string) => void;
+    t: (key: string) => string;
+  }) => {
+    const [code, setCode] = useState('');
+
+    return (
+      <Modal visible={visible} transparent animationType="fade">
+        <View style={styles.modalOverlay}>
+          <Animated.View style={styles.modalContainer}>
+            <LinearGradient
+              colors={['#4AC6D0', '#3BB8C3']}
+              style={styles.modalHeader}>
+              <Icon name="code" size={24} color="#FFF" />
+              <Text style={styles.modalHeaderText}>
+                {t('chat.usecodetojoin')}
+              </Text>
+            </LinearGradient>
+
+            <View style={styles.modalContent}>
+              <View style={styles.inputWrapper}>
+                <Icon name="vpn-key" size={20} color="#4AC6D0" />
+                <TextInput
+                  placeholder={t('chat.enterChatCode')}
+                  value={code}
+                  onChangeText={setCode}
+                  style={styles.inputField}
+                  placeholderTextColor="#94A3B8"
+                />
+              </View>
+
+              <View style={styles.buttonContainer}>
+                <TouchableOpacity
+                  style={styles.cancelButton}
+                  onPress={() => {
+                    onClose();
+                    setCode('');
+                  }}>
+                  <Text style={styles.cancelButtonText}>
+                    {t('common.cancel')}
+                  </Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={styles.confirmButton}
+                  onPress={() => {
+                    if (code.trim() === '') {
+                      Alert.alert(t('common.error'), t('chat.enterChatCode'));
+                      return;
+                    }
+                    onJoin(code.trim());
+                    setCode('');
+                  }}>
+                  <LinearGradient
+                    colors={['#4AC6D0', '#3BB8C3']}
+                    style={styles.confirmButtonGradient}>
+                    <Icon name="check" size={18} color="#FFF" />
+                    <Text style={styles.confirmButtonText}>
+                      {t('call.join')}
+                    </Text>
+                  </LinearGradient>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </Animated.View>
+        </View>
+      </Modal>
+    );
+  },
+);
+
+// Bubble menu component
+const BubbleMenu = memo(
+  ({
+    visible,
+    onCreateGroup,
+    onTourManagement,
+    onClose,
+    t,
+  }: {
+    visible: boolean;
+    onCreateGroup: () => void;
+    onTourManagement: () => void;
+    onClose: () => void;
+    t: (key: string) => string;
+  }) => {
+    if (!visible) {
+      return null;
+    }
+
+    return (
+      <>
+        <TouchableOpacity
+          style={styles.bubbleOverlay}
+          onPress={onClose}
+          activeOpacity={1}
+        />
+        <Animated.View style={styles.bubbleMenu}>
+          <TouchableOpacity
+            style={styles.bubbleOption}
+            onPress={onCreateGroup}
+            activeOpacity={0.8}>
+            <LinearGradient
+              colors={['#4AC6D0', '#3BB8C3']}
+              style={styles.bubbleOptionGradient}>
+              <Icon name="group-add" size={20} color="#FFF" />
+              <Text style={styles.bubbleOptionText}>
+                {t('chat.createGroup')}
+              </Text>
+            </LinearGradient>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={styles.bubbleOption}
+            onPress={onTourManagement}
+            activeOpacity={0.8}>
+            <LinearGradient
+              colors={['#10B981', '#059669']}
+              style={styles.bubbleOptionGradient}>
+              <Icon name="tour" size={20} color="#FFF" />
+              <Text style={styles.bubbleOptionText}>
+                {t('tour.management.title')}
+              </Text>
+            </LinearGradient>
+          </TouchableOpacity>
+        </Animated.View>
+      </>
+    );
+  },
+);
 
 // Main Component
 const ChatListScreen: React.FC = () => {
@@ -928,13 +1077,116 @@ const ChatListScreen: React.FC = () => {
           type: 'SET_GROUP_MODAL_VISIBLE',
           payload: !state.groupModalVisible,
         }),
+      handleJoinChatCodeModalToggle: () =>
+        dispatch({
+          type: 'SET_JOIN_CHAT_CODE_MODAL_VISIBLE',
+          payload: !state.joinChatCodeModalVisible,
+        }),
+      handleFabPress: () => {
+        dispatch({
+          type: 'SET_BUBBLE_MENU_VISIBLE',
+          payload: !state.bubbleMenuVisible,
+        });
+      },
+      handleBubbleMenuClose: () => {
+        dispatch({type: 'SET_BUBBLE_MENU_VISIBLE', payload: false});
+      },
+      handleCreateGroupFromBubble: () => {
+        dispatch({type: 'SET_BUBBLE_MENU_VISIBLE', payload: false});
+        dispatch({type: 'SET_GROUP_MODAL_VISIBLE', payload: true});
+      },
+      handleTourManagement: () => {
+        dispatch({type: 'SET_BUBBLE_MENU_VISIBLE', payload: false});
+        navigation.navigate('TourManagement');
+      },
+      handleJoinChatByCode: async (code: string) => {
+        dispatch({type: 'SET_LOADING', payload: true});
+        try {
+          if (!code) {
+            dispatch({type: 'SET_LOADING', payload: false});
+            Alert.alert(t('common.error'), t('chat.enterChatCode'));
+            return;
+          }
+          // chats là 1 collections, và mỗi chat là 1 document trong collection đó, trong đó mỗi document có field  là code,
+          // và code này là duy nhất cho mỗi chat
+          const chatDoc = await firestore().collection('codes').doc(code).get();
+          if (!chatDoc || !chatDoc.exists) {
+            dispatch({type: 'SET_LOADING', payload: false});
+            Alert.alert(t('common.error'), t('chat.chatNotFound'));
+            return;
+          }
+          // Check if chat exists and user is not already a member
+
+          if (!chatDoc.exists) {
+            Alert.alert(t('common.error'), t('chat.chatNotFound'));
+            return;
+          }
+
+          const codeData = chatDoc.data();
+          if (!codeData) {
+            Alert.alert(t('common.error'), t('chat.chatNotFound'));
+            return;
+          }
+
+          const chatId = codeData.chatId || '';
+          if (chatId === '') {
+            Alert.alert(t('common.error'), t('chat.chatNotFound'));
+            return;
+          }
+          const chatSnapshot = await firestore()
+            .collection('chats')
+            .doc(chatId)
+            .get();
+          if (!chatSnapshot.exists) {
+            Alert.alert(t('common.error'), t('chat.chatNotFound'));
+            return;
+          }
+          const chatData = chatSnapshot.data() as ChatData;
+
+          // Add user to chat members
+          const memberIds = chatData.members || [];
+          if (memberIds.includes(user?.uid)) {
+            dispatch({type: 'SET_LOADING', payload: false});
+            Alert.alert(t('common.error'), t('chat.alreadyMember'));
+            return;
+          }
+
+          memberIds.push(user?.uid);
+          await firestore()
+            .collection('chats')
+            .doc(chatId)
+            .update({
+              members: memberIds,
+              roles: {
+                ...chatData.roles,
+                [user?.uid]: 'member',
+              },
+            });
+
+          dispatch({type: 'SET_LOADING', payload: false});
+          dispatch({type: 'SET_JOIN_CHAT_CODE_MODAL_VISIBLE', payload: false});
+        } catch (error) {
+          console.error('Error joining chat by code:', error);
+          dispatch({type: 'SET_LOADING', payload: false});
+          Alert.alert(t('common.error'), t('chat.joinChatError'));
+        } finally {
+          dispatch({type: 'RESET_FORM'});
+        }
+      },
       handleModalClose: () => dispatch({type: 'RESET_FORM'}),
       handleGroupNameChange: (text: string) =>
         dispatch({type: 'SET_GROUP_NAME', payload: text}),
       handleEmailsChange: (text: string) =>
         dispatch({type: 'SET_INPUT_EMAILS', payload: text}),
     }),
-    [state.groupModalVisible],
+    [
+      state.groupModalVisible,
+      state.joinChatCodeModalVisible,
+      state.bubbleMenuVisible,
+      user?.uid,
+      navigation,
+      t,
+    ],
   );
 
   // Chat interaction handlers - memoized
@@ -1054,8 +1306,8 @@ const ChatListScreen: React.FC = () => {
           const notFound = emails.filter(email => !foundEmails.includes(email));
 
           if (notFound.length > 0) {
-            dispatch({type: 'RESET_FORM'});
-            dispatch({type: 'SET_LOADING', payload: false});
+            // dispatch({type: 'RESET_FORM'});
+            // dispatch({type: 'SET_LOADING', payload: false});
             Alert.alert(
               t('common.error'),
               `${t('chat.emailsNotFound')}: ${notFound.join(', ')}`,
@@ -1414,17 +1666,50 @@ const ChatListScreen: React.FC = () => {
       </View>
 
       {computedValues.canCreateChat && (
+        <>
+          <TouchableOpacity
+            style={styles.fab}
+            onPress={formHandlers.handleFabPress}
+            activeOpacity={0.8}>
+            <LinearGradient
+              colors={['#4AC6D0', '#3BB8C3']}
+              style={styles.fabGradient}>
+              <Icon
+                name={state.bubbleMenuVisible ? 'close' : 'add'}
+                size={24}
+                color="#FFF"
+              />
+            </LinearGradient>
+          </TouchableOpacity>
+
+          <BubbleMenu
+            visible={state.bubbleMenuVisible}
+            onCreateGroup={formHandlers.handleCreateGroupFromBubble}
+            onTourManagement={formHandlers.handleTourManagement}
+            onClose={formHandlers.handleBubbleMenuClose}
+            t={t}
+          />
+        </>
+      )}
+      {!computedValues.canCreateChat && (
         <TouchableOpacity
           style={styles.fab}
-          onPress={formHandlers.handleModalToggle}
+          onPress={formHandlers.handleJoinChatCodeModalToggle}
           activeOpacity={0.8}>
           <LinearGradient
             colors={['#4AC6D0', '#3BB8C3']}
             style={styles.fabGradient}>
-            <Icon name="add" size={24} color="#FFF" />
+            <Icon name="back-hand" size={24} color="#FFF" />
           </LinearGradient>
         </TouchableOpacity>
       )}
+
+      <JoinChatByCodeModal
+        visible={state.joinChatCodeModalVisible}
+        onClose={formHandlers.handleJoinChatCodeModalToggle}
+        onJoin={formHandlers.handleJoinChatByCode}
+        t={t}
+      />
 
       <CreateChatModal
         visible={state.groupModalVisible}
@@ -1874,6 +2159,16 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     marginLeft: 8,
   },
+  fabTour: {
+    position: 'absolute',
+    bottom: 24,
+    right: 92,
+    elevation: 8,
+    shadowColor: '#4AC6D0',
+    shadowOffset: {width: 0, height: 4},
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+  },
   fab: {
     position: 'absolute',
     bottom: 24,
@@ -1983,6 +2278,52 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     fontSize: 16,
     marginLeft: 6,
+  },
+  bubbleOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'transparent',
+  },
+  bubbleMenu: {
+    position: 'absolute',
+    bottom: 95,
+    right: 24,
+    backgroundColor: '#FFF',
+    borderRadius: 16,
+    padding: 8,
+    elevation: 12,
+    shadowColor: '#4AC6D0',
+    shadowOffset: {width: 0, height: 6},
+    shadowOpacity: 0.25,
+    shadowRadius: 12,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    minWidth: 180,
+  },
+  bubbleOption: {
+    marginVertical: 4,
+    borderRadius: 12,
+    overflow: 'hidden',
+    elevation: 2,
+    shadowColor: '#000',
+    shadowOffset: {width: 0, height: 2},
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+  },
+  bubbleOptionGradient: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+  },
+  bubbleOptionText: {
+    color: '#FFF',
+    fontSize: 14,
+    fontWeight: '600',
+    marginLeft: 10,
   },
 });
 

@@ -36,6 +36,7 @@ import {translateTextAzure} from '../api/TranslateAPI';
 import Sound from 'react-native-sound';
 import LinearGradient from 'react-native-linear-gradient';
 import moment from 'moment';
+import RNFS from 'react-native-fs';
 
 const {width, height} = Dimensions.get('window');
 
@@ -64,6 +65,25 @@ const VoiceCallScreen = ({route}) => {
   const micWaveAnim = useRef(new Animated.Value(0)).current;
   const modalFadeAnim = useRef(new Animated.Value(0)).current;
 
+  const processedTranslations = useRef(new Set());
+  // ✅ Thêm refs để tránh stale closure
+  const participantsRef = useRef(participants);
+  const userRef = useRef(user);
+  const emitRef = useRef(emit);
+
+  // ✅ Update refs khi values change
+  useEffect(() => {
+    participantsRef.current = participants;
+  }, [participants]);
+
+  useEffect(() => {
+    userRef.current = user;
+  }, [user]);
+
+  useEffect(() => {
+    emitRef.current = emit;
+  }, [emit]);
+
   const playbackTimeoutRef = useRef(null);
   const recognizerRef = useRef(null);
   const initializedRef = useRef(false);
@@ -79,6 +99,120 @@ const VoiceCallScreen = ({route}) => {
   const sentenceTimeoutRef = useRef(null);
   const SENTENCE_DELAY = 2000; // 2 giây
   const MIN_WORDS = 5; // Tối thiểu 5 từ
+  const audioQueueRef = useRef([]); // Hàng đợi chứa các đường dẫn file âm thanh
+
+  const processAudioQueue = useCallback(async () => {
+    if (isPlayingRef.current || audioQueueRef.current.length === 0) {
+      return;
+    }
+
+    isPlayingRef.current = true;
+
+    const path = audioQueueRef.current.shift();
+
+    if (!path) {
+      isPlayingRef.current = false;
+      return;
+    }
+
+    console.log(`🔊 [Queue] Playing: ${path}`);
+
+    const sound = new Sound(path, '', error => {
+      if (error) {
+        console.error('❌ [Queue] Failed to load sound:', error);
+        isPlayingRef.current = false; // Mở khóa
+        RNFS.unlink(path).catch(e =>
+          console.error('Failed to delete temp file', e),
+        );
+        processAudioQueue();
+        return;
+      }
+
+      sound.play(success => {
+        if (!success) {
+          console.error('❌ [Queue] Playback failed');
+        }
+
+        sound.release();
+        RNFS.unlink(path).catch(e =>
+          console.error('Failed to delete temp file', e),
+        );
+        isPlayingRef.current = false;
+
+        processAudioQueue();
+      });
+    });
+  }, []);
+
+  // Call duration timer
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setCallDuration(Date.now() - startTime);
+    }, 1000);
+
+    return () => clearInterval(timer);
+  }, [startTime]);
+  // Fetch participants from Firestore
+  useEffect(() => {
+    const unsubscribe = firestore()
+      .collection('meetings')
+      .doc(meetingId)
+      .onSnapshot(
+        async doc => {
+          if (doc.exists) {
+            console.log('VoiceCall: Meeting data updated for:', meetingId);
+            const data = doc.data();
+            const uids = data.members?.flatMap(m => m.uid) || [];
+
+            console.log('VoiceCall: Other participants UIDs:', uids);
+
+            if (uids.length === 0) {
+              setParticipants([]);
+              return;
+            }
+
+            const batchSize = 10;
+            const batches = [];
+
+            for (let i = 0; i < uids.length; i += batchSize) {
+              const batch = uids.slice(i, i + batchSize);
+              const query = firestore()
+                .collection('users')
+                .where(firestore.FieldPath.documentId(), 'in', batch)
+                .get();
+              batches.push(query);
+            }
+
+            try {
+              const snapshots = await Promise.all(batches);
+              const users = snapshots.flatMap(snap =>
+                snap.docs.map(doc => ({
+                  uid: doc.id,
+                  ...doc.data(),
+                })),
+              );
+              console.log(
+                'VoiceCall: Fetched participants:',
+                users.map(u => u.name || u.email),
+              );
+
+              setParticipants(users);
+              console.log('VoiceCall: Participants updated:', users.length);
+            } catch (error) {
+              console.error('VoiceCall: Error fetching users:', error);
+            }
+          } else {
+            console.warn('VoiceCall: Meeting document does not exist.');
+            setParticipants([]);
+          }
+        },
+        error => {
+          console.error('VoiceCall: Firestore listener error:', error);
+        },
+      );
+
+    return () => unsubscribe();
+  }, [meetingId, user.uid]);
 
   // ✅ DI CHUYỂN CÁC HELPER FUNCTIONS RA NGOÀI
   const isCompleteSentence = useCallback(text => {
@@ -102,16 +236,20 @@ const VoiceCallScreen = ({route}) => {
 
       console.log(`${isFinal ? '🎯' : '📤'} Sending translation:`, text);
 
-      participants
-        .filter(m => m.uid !== user.uid)
+      const currentParticipants = participantsRef.current;
+      const currentUser = userRef.current;
+      const currentEmit = emitRef.current;
+
+      currentParticipants
+        .filter(m => m.uid !== currentUser.uid)
         .forEach(m => {
           try {
             const translated = recognizerRef.current?.lastTranslations?.get(
               m.translateCode,
             );
             if (translated && translated.trim()) {
-              emit('send_translation', {
-                fromUserId: user.uid,
+              currentEmit('send_translation', {
+                fromUserId: currentUser.uid,
                 toUserId: m.uid,
                 text: translated,
                 lang: m.translateCode,
@@ -124,17 +262,663 @@ const VoiceCallScreen = ({route}) => {
           }
         });
     },
-    [participants, user.uid, emit],
+    [], // ✅ Empty deps vì dùng refs
   );
+  // Audio queue management
+  const playNextAudio = useCallback(async () => {
+    if (isPlayingRef.current || audioQueue.current.length === 0) {
+      return;
+    }
 
-  // Call duration timer
+    isPlayingRef.current = true;
+    const path = audioQueue.current.shift();
+
+    if (!path) {
+      isPlayingRef.current = false;
+      return;
+    }
+
+    const sound = new Sound(path, '', error => {
+      if (error) {
+        console.error('VoiceCall: Sound load error:', error);
+        isPlayingRef.current = false;
+        playNextAudio();
+        return;
+      }
+
+      sound.play(success => {
+        sound.release();
+        isPlayingRef.current = false;
+        playNextAudio();
+      });
+    });
+  }, []);
+  // Setup socket event listeners
+
   useEffect(() => {
-    const timer = setInterval(() => {
-      setCallDuration(Date.now() - startTime);
-    }, 1000);
+    // ✅ Enhanced playTranslationAudio with better state management
+    const handleReceiveTranslation = async ({
+      text,
+      lang,
+      isFinal,
+      confidence,
+      fromUserId,
+    }) => {
+      console.log('VoiceCall: Received translation:', {
+        text,
+        lang,
+        isFinal,
+        confidence,
+        fromUserId,
+      });
+      if ([',', '.', ':', ';', '!', '?'].includes(text.trim())) {
+        return;
+      }
 
-    return () => clearInterval(timer);
-  }, [startTime]);
+      // ✅ Create unique key để tránh duplicate
+      const translationKey = `${fromUserId}_${text}_${isFinal}_${Date.now()}`;
+
+      // ✅ Check if already processed
+      if (processedTranslations.current.has(translationKey)) {
+        console.log('⚠️ Duplicate translation blocked:', text.substring(0, 30));
+        return;
+      }
+
+      // ✅ Mark as processed
+      processedTranslations.current.add(translationKey);
+
+      // ✅ Cleanup old processed keys (keep only last 10)
+      if (processedTranslations.current.size > 10) {
+        const keysArray = Array.from(processedTranslations.current);
+        const toDelete = keysArray.slice(0, keysArray.length - 10);
+        toDelete.forEach(key => processedTranslations.current.delete(key));
+      }
+
+      // ✅ Check if audio is currently playing
+      const isCurrentlyPlaying = window.AUDIO_PLAYING;
+
+      if (isCurrentlyPlaying && !isFinal) {
+        console.log('⚠️ Audio is playing, queuing intermediate translation');
+        // Queue the translation but don't interrupt current audio
+        setTimeout(() => {
+          if (!window.AUDIO_PLAYING) {
+            setText(text);
+            currentText.current = text;
+            playTranslationAudio(text, lang, translationKey);
+          }
+        }, 1000);
+        return;
+      }
+
+      // ✅ Only update UI if not interrupting audio, or if it's final
+      if (!isCurrentlyPlaying || isFinal) {
+        setText(text);
+        currentText.current = text;
+      }
+
+      // Clear previous timeout
+      if (playbackTimeoutRef.current) {
+        clearTimeout(playbackTimeoutRef.current);
+        playbackTimeoutRef.current = null;
+      }
+
+      if (isFinal) {
+        // ✅ Final translation - wait for current audio to finish if playing
+        if (isCurrentlyPlaying) {
+          console.log(
+            '🎯 Final translation - waiting for current audio to finish',
+          );
+          const waitForAudioFinish = () => {
+            if (!window.AUDIO_PLAYING) {
+              setText(text);
+              currentText.current = text;
+              playTranslationAudio(text, lang, translationKey);
+            } else {
+              setTimeout(waitForAudioFinish, 200);
+            }
+          };
+          waitForAudioFinish();
+        } else {
+          console.log('🎯 Playing final translation immediately');
+          await playTranslationAudio(text, lang, translationKey);
+        }
+      } else {
+        // Intermediate translation - play sau delay if not currently playing
+        const delay = confidence === 'high' ? 1500 : 2500;
+
+        playbackTimeoutRef.current = setTimeout(async () => {
+          // ✅ Double check if audio is still not playing
+          if (
+            !window.AUDIO_PLAYING &&
+            currentText.current === text &&
+            text.trim() !== '.' &&
+            text.trim().toLowerCase() !== 'comma.'
+          ) {
+            console.log(
+              `⏰ Playing intermediate translation (confidence: ${confidence})`,
+            );
+            await playTranslationAudio(text, lang, translationKey);
+          } else {
+            console.log(
+              '⚠️ Skipping intermediate - audio is playing or text changed',
+            );
+          }
+        }, delay);
+      }
+    };
+
+    // ✅ Enhanced playTranslationAudio with better audio management
+    const playTranslationAudio = async (text, lang, playbackId) => {
+      // ✅ Add stricter audio lock check
+      if (window.AUDIO_PLAYING) {
+        console.log(
+          '⚠️ Audio already playing, skipping:',
+          text.substring(0, 30),
+        );
+        return;
+      }
+
+      try {
+        window.AUDIO_PLAYING = true;
+        console.log(
+          `🔊 Starting audio playback (ID: ${playbackId.substring(0, 20)}...)`,
+        );
+
+        const result = await speakTranslation(text, key, region, lang);
+
+        if (result === 'trackplayer_played' || result === 'temp_played') {
+          console.log('✅ Audio played:', result);
+        } else if (
+          result &&
+          typeof result === 'string' &&
+          result.includes('/')
+        ) {
+          audioQueue.current.push(result);
+          console.log('✅ Audio queued:', result);
+          playNextAudio();
+        }
+      } catch (error) {
+        console.error('❌ TTS error:', error);
+      } finally {
+        // ✅ Always release audio lock with proper delay
+        setTimeout(() => {
+          window.AUDIO_PLAYING = false;
+          console.log('🔓 Audio lock released');
+        }, 300); // Reduced delay for better responsiveness
+      }
+    };
+
+    const handleUserJoined = data => {
+      console.log('VoiceCall: User joined:', data);
+    };
+
+    const handleUserLeft = data => {
+      console.log('VoiceCall: User left:', data);
+    };
+
+    const handleCallEnded = data => {
+      console.log('VoiceCall: Call ended:', data);
+      Alert.alert(
+        'Call Ended',
+        'The call has been ended by another participant.',
+        [
+          {
+            text: 'OK',
+            onPress: handleExitScreen,
+          },
+        ],
+      );
+    };
+    const handleReceiveTranslatedAudio = ({audio, language}) => {
+      try {
+        console.log('🔊 Received audio base64, processing...');
+
+        // Convert base64 to temporary file path
+        const tempFilePath = `${
+          RNFS.CachesDirectoryPath
+        }/temp_audio_${Date.now()}.wav`;
+
+        // Write base64 audio to temporary file
+        RNFS.writeFile(tempFilePath, audio, 'base64')
+          .then(() => {
+            console.log('✅ Audio file written to:', tempFilePath);
+
+            // Create Sound object from file path
+            const sound = new Sound(tempFilePath, '', error => {
+              if (error) {
+                console.error('❌ [Audio] Failed to load audio file:', error);
+                // Clean up temp file on error
+                RNFS.unlink(tempFilePath).catch(e =>
+                  console.error('Failed to delete temp file:', e),
+                );
+                return;
+              }
+
+              // Play the audio
+              sound.play(success => {
+                if (success) {
+                  console.log('✅ Audio played successfully');
+                } else {
+                  console.error('❌ Audio playback failed');
+                }
+
+                // Clean up
+                sound.release();
+                RNFS.unlink(tempFilePath).catch(e =>
+                  console.error('Failed to delete temp file:', e),
+                );
+              });
+            });
+          })
+          .catch(error => {
+            console.error('❌ Failed to write audio file:', error);
+          });
+      } catch (error) {
+        console.error('❌ Failed to process audio base64:', error);
+      }
+    };
+
+    const handleReceiveTranslatingSubtitle = ({text, lang}) => {
+      console.log('VoiceCall: Received translating subtitle:', {text, lang});
+      // Hiển thị phụ đề lên UI
+      setText(text);
+    };
+    const handleReceiveFinalSubtitle = ({text, lang}) => {
+      console.log('VoiceCall: Received final subtitle:', {text, lang});
+      // Hiển thị phụ đề lên UI
+      setText(text);
+    };
+
+    // ✅ Add socket listeners
+    on('receive_translation', handleReceiveTranslation);
+    on('receive_translating_subtitle', handleReceiveTranslatingSubtitle);
+    on('receive_final_subtitle', handleReceiveFinalSubtitle);
+    on('user_joined', handleUserJoined);
+    on('user_left', handleUserLeft);
+    on('call_ended', handleCallEnded);
+    on('receive_translated_audio', handleReceiveTranslatedAudio);
+
+    return () => {
+      // Cleanup
+      if (playbackTimeoutRef.current) {
+        clearTimeout(playbackTimeoutRef.current);
+        playbackTimeoutRef.current = null;
+      }
+
+      // ✅ Release audio lock
+      window.AUDIO_PLAYING = false;
+
+      // ✅ Clear processed translations
+      processedTranslations.current.clear();
+
+      // Remove listeners on cleanup
+      off('receive_translated_audio', handleReceiveTranslatedAudio);
+      off('receive_translating_subtitle', handleReceiveTranslatingSubtitle);
+      off('receive_final_subtitle', handleReceiveFinalSubtitle);
+      off('receive_translation', handleReceiveTranslation);
+      off('user_joined', handleUserJoined);
+      off('user_left', handleUserLeft);
+      off('call_ended', handleCallEnded);
+    };
+  }, [on, off]); //  Empty dependency array - chỉ setup một lần
+
+  // Permission check
+  const checkPermissions = async () => {
+    if (Platform.OS === 'android') {
+      const grants = await PermissionsAndroid.requestMultiple([
+        PermissionsAndroid.PERMISSIONS.WRITE_EXTERNAL_STORAGE,
+        PermissionsAndroid.PERMISSIONS.READ_EXTERNAL_STORAGE,
+        PermissionsAndroid.PERMISSIONS.RECORD_AUDIO,
+      ]);
+      return Object.values(grants).every(
+        g => g === PermissionsAndroid.RESULTS.GRANTED,
+      );
+    }
+    return true;
+  };
+
+  const initializeAudio = async () => {
+    try {
+      if (!(await checkPermissions()) || initializedRef.current) {
+        return;
+      }
+
+      setIsListening(true);
+      emit('start_speaking', {user: user, meetingId: meetingId});
+      // Hàm kiểm tra câu hoàn chỉnh
+      try {
+        const pushStream = AudioInputStream.createPushStream();
+
+        AudioRecord.init({
+          sampleRate,
+          channels,
+          bitsPerChannel,
+          audioSource: 7,
+        });
+
+        AudioRecord.on('data', data => {
+          try {
+            pushStream.write(Buffer.from(data, 'base64'));
+            emit('send_audio_chunk', {
+              meetingId: meetingId,
+              audioChunk: Buffer.from(data, 'base64'),
+            });
+          } catch (audioError) {
+            console.error('VoiceCall: Error writing audio data:', audioError);
+          }
+        });
+        console.log('VoiceCall: AudioRecord initialized successfully');
+
+        AudioRecord.start();
+
+        // const config = SpeechTranslationConfig.fromSubscription(key, region);
+        // config.speechRecognitionLanguage = user.language;
+
+        // (participants || [])
+        //   .filter(m => m.uid !== user.uid)
+        //   .forEach(m => {
+        //     if (m.translateCode) {
+        //       try {
+        //         config.addTargetLanguage(m.translateCode);
+        //       } catch (langError) {
+        //         console.error(
+        //           'VoiceCall: Error adding target language:',
+        //           langError,
+        //         );
+        //       }
+        //     }
+        //   });
+
+        // if (!config.targetLanguages || config.targetLanguages.length === 0) {
+        //   config.addTargetLanguage('en');
+        // }
+
+        // const recognizer = new TranslationRecognizer(
+        //   config,
+        //   AudioConfig.fromStreamInput(pushStream),
+        // );
+
+        // recognizerRef.current = recognizer;
+
+        // // IMPROVED: Smart recognizing với sentence detection
+        // recognizer.recognizing = (s, e) => {
+        //   const currentText = e.result.text.trim();
+        //   console.log('Recognizing:', currentText);
+        //   setText(currentText);
+        //   sendTranslation(currentText, false);
+
+        //   // Lưu translations để sử dụng sau
+        //   recognizerRef.current.lastTranslations = e.result.translations;
+
+        //   // Clear timeout cũ
+        //   if (sentenceTimeoutRef.current) {
+        //     clearTimeout(sentenceTimeoutRef.current);
+        //   }
+
+        //   // Kiểm tra nếu có câu hoàn chỉnh
+        //   if (
+        //     isCompleteSentence(currentText) &&
+        //     currentText !== lastSentText.current
+        //   ) {
+        //     console.log('✅ Complete sentence detected:', currentText);
+        //     sendTranslation(currentText, false);
+        //     lastSentText.current = currentText;
+        //   } else {
+        //     // Set timeout để gửi sau 2 giây nếu không có câu hoàn chỉnh
+        //     wordBuffer.current = currentText;
+
+        //     sentenceTimeoutRef.current = setTimeout(() => {
+        //       const bufferedText = wordBuffer.current.trim();
+        //       const words = bufferedText.split(/\s+/);
+
+        //       // Chỉ gửi nếu đủ từ và khác với lần trước
+        //       if (
+        //         words.length >= MIN_WORDS &&
+        //         bufferedText !== lastSentText.current &&
+        //         bufferedText.length >= 20
+        //       ) {
+        //         console.log(
+        //           '⏰ Timeout - sending buffered text:',
+        //           bufferedText,
+        //         );
+        //         sendTranslation(bufferedText, true);
+        //         lastSentText.current = bufferedText;
+        //       }
+        //     }, SENTENCE_DELAY);
+        //   }
+        // };
+
+        // // IMPROVED: Recognized với cleanup
+        // recognizer.recognized = (s, e) => {
+        //   // Clear timeout
+        //   if (sentenceTimeoutRef.current) {
+        //     clearTimeout(sentenceTimeoutRef.current);
+        //   }
+
+        //   const finalText = e.result.text.trim();
+        //   if ([',', '.', ':', ';', '!', '?'].includes(finalText.trim())) {
+        //     return;
+        //   }
+
+        //   console.log('🎯 Final recognition:', finalText);
+
+        //   if (finalText && finalText.length > 0) {
+        //     try {
+        //       console.log(
+        //         'participants:',
+        //         participants.map(m => m.uid),
+        //       );
+
+        //       participants
+        //         .filter(m => m.uid !== user.uid)
+        //         .forEach(m => {
+        //           try {
+        //             console.log('Translating for:', m.uid, m.translateCode);
+        //             const translated = e.result.translations.get(
+        //               m.translateCode,
+        //             );
+        //             console.log('translated:', translated);
+        //             if (translated && translated.trim()) {
+        //               emit('send_translation', {
+        //                 fromUserId: user.uid,
+        //                 toUserId: m.uid,
+        //                 text: translated,
+        //                 lang: m.translateCode,
+        //                 isFinal: true,
+        //                 confidence: 'high',
+        //               });
+        //             }
+        //           } catch (translationError) {
+        //             console.error('Final translation error:', translationError);
+        //           }
+        //         });
+        //     } catch (recognizedError) {
+        //       console.error(
+        //         'Error in final recognizer callback:',
+        //         recognizedError,
+        //       );
+        //     }
+        //   }
+
+        //   // Reset buffers
+        //   wordBuffer.current = '';
+        //   lastSentText.current = '';
+        // };
+
+        // recognizer.startContinuousRecognitionAsync();
+        // initializedRef.current = true;
+      } catch (setupError) {
+        console.error(
+          'VoiceCall: Error setting up audio recognition:',
+          setupError,
+        );
+        setIsListening(false);
+        Alert.alert(
+          'Audio Error',
+          'Failed to initialize speech recognition. Please try again.',
+        );
+      }
+    } catch (error) {
+      console.error('VoiceCall: Fatal error in initializeAudio:', error);
+      setIsListening(false);
+      Alert.alert(
+        'Error',
+        'Something went wrong. Please check your internet connection and try again.',
+      );
+    }
+  };
+  const stopAudio = useCallback(() => {
+    console.log('VoiceCall: Stopping audio recognition');
+    setIsListening(false);
+    emit('stop_speaking', {meetingId: meetingId});
+    AudioRecord.stop();
+
+    // // ✅ Cleanup timeout khi stop
+    // if (sentenceTimeoutRef.current) {
+    //   clearTimeout(sentenceTimeoutRef.current);
+    //   sentenceTimeoutRef.current = null;
+    // }
+
+    // if (recognizerRef.current) {
+    //   recognizerRef.current.stopContinuousRecognitionAsync();
+    //   recognizerRef.current.close();
+    //   recognizerRef.current = null;
+    //   initializedRef.current = false;
+    // }
+
+    // // Reset buffers
+    // wordBuffer.current = '';
+    // lastSentText.current = '';
+  }, []);
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      if (isListening) {
+        stopAudio();
+      }
+    };
+  }, [isListening, stopAudio]);
+
+  // Stop audio recognition
+  // const stopAudio = useCallback(() => {
+  //   console.log('VoiceCall: Stopping audio recognition');
+  //   setIsListening(false);
+  //   AudioRecord.stop();
+
+  //   if (recognizerRef.current) {
+  //     recognizerRef.current.stopContinuousRecognitionAsync();
+  //     recognizerRef.current.close();
+  //     recognizerRef.current = null;
+  //     initializedRef.current = false;
+  //   }
+  // }, []);
+  // Stop audio recognition
+
+  // Remove member from meeting
+  const removeMemberFromMeeting = useCallback(async (meetingId, userId) => {
+    try {
+      console.log('VoiceCall: Removing member from meeting:', userId);
+      const meetingRef = firestore().collection('meetings').doc(meetingId);
+      const meetingDoc = await meetingRef.get();
+
+      if (!meetingDoc.exists) {
+        console.warn('VoiceCall: Meeting not found:', meetingId);
+        return;
+      }
+
+      const meetingData = meetingDoc.data();
+      const members = meetingData?.members || [];
+      const updatedMembers = members.filter(member => member.uid !== userId);
+
+      await meetingRef.update({
+        members: updatedMembers,
+      });
+
+      console.log('VoiceCall: Successfully removed user from meeting');
+    } catch (error) {
+      console.error('VoiceCall: Error removing member:', error);
+    }
+  }, []);
+
+  // Handle exit screen
+  const handleExitScreen = useCallback(() => {
+    console.log('VoiceCall: Exiting screen');
+
+    if (isListening) {
+      stopAudio();
+    }
+
+    // Notify other users that call ended
+    if (isConnected) {
+      emit('leave_call', {
+        meetingId,
+        userId: user.uid,
+      });
+    }
+
+    // Remove member from meeting
+    removeMemberFromMeeting(meetingId, user.uid);
+    navigation.goBack();
+  }, [
+    isListening,
+    stopAudio,
+    isConnected,
+    emit,
+    meetingId,
+    user.uid,
+    removeMemberFromMeeting,
+    navigation,
+  ]);
+
+  // Handle back press
+  const handleBackPress = useCallback(() => {
+    Alert.alert(
+      'Exit Meeting',
+      'Are you sure you want to exit the meeting?',
+      [
+        {text: 'Cancel', style: 'cancel'},
+        {text: 'OK', onPress: handleExitScreen},
+      ],
+      {cancelable: false},
+    );
+    return true;
+  }, [handleExitScreen]);
+
+  // Setup back handler
+  useEffect(() => {
+    const backHandler = BackHandler.addEventListener(
+      'hardwareBackPress',
+      handleBackPress,
+    );
+    return () => backHandler.remove();
+  }, [handleBackPress]);
+
+  // Render participant item
+  const renderParticipantItem = ({item}) => (
+    <View style={styles.participantItem}>
+      <View style={styles.smallAvatar}>
+        <Image
+          source={
+            item.avatar
+              ? {uri: item?.avatar?.url || item?.avatar}
+              : require('../assets/default-avatar.png')
+          }
+          style={styles.smallAvatarImage}
+        />
+      </View>
+      <View style={styles.participantInfo}>
+        <Text style={styles.participantItemName}>{item.name}</Text>
+        <Text style={styles.participantLanguage}>
+          {item.language?.toUpperCase() || 'EN'}
+        </Text>
+      </View>
+      <View style={styles.participantStatusContainer}>
+        <View style={[styles.onlineIndicator, {backgroundColor: '#10B981'}]} />
+        <Icon name="mic" size={16} color="#4AC6D0" />
+      </View>
+    </View>
+  );
 
   // Animate entrance
   useEffect(() => {
@@ -214,554 +998,6 @@ const VoiceCallScreen = ({route}) => {
     }
     return `${minutes}:${seconds.toString().padStart(2, '0')}`;
   };
-
-  // Setup socket event listeners
-
-  useEffect(() => {
-    const handleReceiveTranslation = async ({
-      text,
-      lang,
-      isFinal,
-      confidence,
-    }) => {
-      console.log('VoiceCall: Received translation:', {
-        text,
-        lang,
-        isFinal,
-        confidence,
-      });
-
-      // Update UI ngay lập tức
-      setText(text);
-      currentText.current = text;
-
-      // Clear previous timeout
-      if (playbackTimeoutRef.current) {
-        clearTimeout(playbackTimeoutRef.current);
-      }
-
-      if (isFinal) {
-        // Final translation - play immediately
-        console.log('🎯 Playing final translation');
-        await playTranslationAudio(text, lang);
-      } else {
-        // Intermediate translation - play sau delay dựa trên confidence
-        const delay = confidence === 'high' ? 1500 : 2500;
-
-        playbackTimeoutRef.current = setTimeout(async () => {
-          // Chỉ play nếu text vẫn giống (không bị thay thế bởi final)
-          if (
-            currentText.current === text &&
-            text.trim() !== '.' &&
-            text.trim().toLowerCase() !== 'comma.'
-          ) {
-            console.log(
-              `⏰ Playing intermediate translation (confidence: ${confidence})`,
-            );
-            await playTranslationAudio(text, lang);
-          }
-        }, delay);
-      }
-    };
-
-    const playTranslationAudio = async (text, lang) => {
-      try {
-        const result = await speakTranslation(text, key, region, lang);
-
-        if (result === 'trackplayer_played' || result === 'temp_played') {
-          console.log('✅ Audio played:', result);
-        } else if (
-          result &&
-          typeof result === 'string' &&
-          result.includes('/')
-        ) {
-          audioQueue.current.push(result);
-          playNextAudio();
-        }
-      } catch (error) {
-        console.error('❌ TTS error:', error);
-      }
-    };
-
-    // ... rest of socket listeners (unchanged)
-    const handleUserJoined = data => {
-      console.log('VoiceCall: User joined:', data);
-    };
-
-    const handleUserLeft = data => {
-      console.log('VoiceCall: User left:', data);
-    };
-
-    const handleCallEnded = data => {
-      console.log('VoiceCall: Call ended:', data);
-      Alert.alert(
-        'Call Ended',
-        'The call has been ended by another participant.',
-        [
-          {
-            text: 'OK',
-            onPress: handleExitScreen,
-          },
-        ],
-      );
-    };
-
-    // Add socket listeners
-    on('receive_translation', handleReceiveTranslation);
-    on('user_joined', handleUserJoined);
-    on('user_left', handleUserLeft);
-    on('call_ended', handleCallEnded);
-
-    return () => {
-      // Cleanup
-      if (playbackTimeoutRef.current) {
-        clearTimeout(playbackTimeoutRef.current);
-      }
-
-      // Remove listeners on cleanup
-      off('receive_translation', handleReceiveTranslation);
-      off('user_joined', handleUserJoined);
-      off('user_left', handleUserLeft);
-      off('call_ended', handleCallEnded);
-    };
-  }, [on, off]);
-  // Fetch participants from Firestore
-  useEffect(() => {
-    const unsubscribe = firestore()
-      .collection('meetings')
-      .doc(meetingId)
-      .onSnapshot(
-        async doc => {
-          if (doc.exists) {
-            console.log('VoiceCall: Meeting data updated for:', meetingId);
-            const data = doc.data();
-            const uids = data.members?.flatMap(m => m.uid) || [];
-
-            console.log('VoiceCall: Other participants UIDs:', uids);
-
-            if (uids.length === 0) {
-              setParticipants([]);
-              return;
-            }
-
-            const batchSize = 10;
-            const batches = [];
-
-            for (let i = 0; i < uids.length; i += batchSize) {
-              const batch = uids.slice(i, i + batchSize);
-              const query = firestore()
-                .collection('users')
-                .where(firestore.FieldPath.documentId(), 'in', batch)
-                .get();
-              batches.push(query);
-            }
-
-            try {
-              const snapshots = await Promise.all(batches);
-              const users = snapshots.flatMap(snap =>
-                snap.docs.map(doc => ({
-                  uid: doc.id,
-                  ...doc.data(),
-                })),
-              );
-              console.log(
-                'VoiceCall: Fetched participants:',
-                users.map(u => u.name || u.email),
-              );
-
-              setParticipants(users);
-              console.log('VoiceCall: Participants updated:', users.length);
-            } catch (error) {
-              console.error('VoiceCall: Error fetching users:', error);
-            }
-          } else {
-            console.warn('VoiceCall: Meeting document does not exist.');
-            setParticipants([]);
-          }
-        },
-        error => {
-          console.error('VoiceCall: Firestore listener error:', error);
-        },
-      );
-
-    return () => unsubscribe();
-  }, [meetingId, user.uid]);
-
-  // Audio queue management
-  const playNextAudio = useCallback(async () => {
-    if (isPlayingRef.current || audioQueue.current.length === 0) {
-      return;
-    }
-
-    isPlayingRef.current = true;
-    const path = audioQueue.current.shift();
-
-    if (!path) {
-      isPlayingRef.current = false;
-      return;
-    }
-
-    const sound = new Sound(path, '', error => {
-      if (error) {
-        console.error('VoiceCall: Sound load error:', error);
-        isPlayingRef.current = false;
-        playNextAudio();
-        return;
-      }
-
-      sound.play(success => {
-        sound.release();
-        isPlayingRef.current = false;
-        playNextAudio();
-      });
-    });
-  }, []);
-
-  // Permission check
-  const checkPermissions = async () => {
-    if (Platform.OS === 'android') {
-      const grants = await PermissionsAndroid.requestMultiple([
-        PermissionsAndroid.PERMISSIONS.WRITE_EXTERNAL_STORAGE,
-        PermissionsAndroid.PERMISSIONS.READ_EXTERNAL_STORAGE,
-        PermissionsAndroid.PERMISSIONS.RECORD_AUDIO,
-      ]);
-      return Object.values(grants).every(
-        g => g === PermissionsAndroid.RESULTS.GRANTED,
-      );
-    }
-    return true;
-  };
-
-  const initializeAudio = async () => {
-    try {
-      if (!(await checkPermissions()) || initializedRef.current) {
-        return;
-      }
-
-      setIsListening(true);
-      // Hàm kiểm tra câu hoàn chỉnh
-      try {
-        const pushStream = AudioInputStream.createPushStream();
-
-        AudioRecord.init({
-          sampleRate,
-          channels,
-          bitsPerChannel,
-          audioSource: 7,
-        });
-        AudioRecord.on('data', data => {
-          try {
-            pushStream.write(Buffer.from(data, 'base64'));
-          } catch (audioError) {
-            console.error('VoiceCall: Error writing audio data:', audioError);
-          }
-        });
-
-        AudioRecord.start();
-
-        const config = SpeechTranslationConfig.fromSubscription(key, region);
-        config.speechRecognitionLanguage = user.language;
-
-        (participants || [])
-          .filter(m => m.uid !== user.uid)
-          .forEach(m => {
-            if (m.translateCode) {
-              try {
-                config.addTargetLanguage(m.translateCode);
-              } catch (langError) {
-                console.error(
-                  'VoiceCall: Error adding target language:',
-                  langError,
-                );
-              }
-            }
-          });
-
-        if (!config.targetLanguages || config.targetLanguages.length === 0) {
-          config.addTargetLanguage('en');
-        }
-
-        const recognizer = new TranslationRecognizer(
-          config,
-          AudioConfig.fromStreamInput(pushStream),
-        );
-
-        recognizerRef.current = recognizer;
-
-        // IMPROVED: Smart recognizing với sentence detection
-        recognizer.recognizing = (s, e) => {
-          const currentText = e.result.text.trim();
-          console.log('Recognizing:', currentText);
-          setText(currentText);
-
-          // Lưu translations để sử dụng sau
-          recognizerRef.current.lastTranslations = e.result.translations;
-
-          // Clear timeout cũ
-          if (sentenceTimeoutRef.current) {
-            clearTimeout(sentenceTimeoutRef.current);
-          }
-
-          // Kiểm tra nếu có câu hoàn chỉnh
-          if (
-            isCompleteSentence(currentText) &&
-            currentText !== lastSentText.current
-          ) {
-            console.log('✅ Complete sentence detected:', currentText);
-            sendTranslation(currentText, false);
-            lastSentText.current = currentText;
-          } else {
-            // Set timeout để gửi sau 2 giây nếu không có câu hoàn chỉnh
-            wordBuffer.current = currentText;
-
-            sentenceTimeoutRef.current = setTimeout(() => {
-              const bufferedText = wordBuffer.current.trim();
-              const words = bufferedText.split(/\s+/);
-
-              // Chỉ gửi nếu đủ từ và khác với lần trước
-              if (
-                words.length >= MIN_WORDS &&
-                bufferedText !== lastSentText.current &&
-                bufferedText.length >= 20
-              ) {
-                console.log(
-                  '⏰ Timeout - sending buffered text:',
-                  bufferedText,
-                );
-                sendTranslation(bufferedText, false);
-                lastSentText.current = bufferedText;
-              }
-            }, SENTENCE_DELAY);
-          }
-        };
-
-        // IMPROVED: Recognized với cleanup
-        recognizer.recognized = (s, e) => {
-          // Clear timeout
-          if (sentenceTimeoutRef.current) {
-            clearTimeout(sentenceTimeoutRef.current);
-          }
-
-          const finalText = e.result.text.trim();
-          console.log('🎯 Final recognition:', finalText);
-
-          if (finalText && finalText.length > 0) {
-            try {
-              console.log(
-                'participants:',
-                participants.map(m => m.uid),
-              );
-
-              participants
-                .filter(m => m.uid !== user.uid)
-                .forEach(m => {
-                  try {
-                    console.log('Translating for:', m.uid, m.translateCode);
-                    const translated = e.result.translations.get(
-                      m.translateCode,
-                    );
-                    console.log('translated:', translated);
-                    if (translated && translated.trim()) {
-                      emit('send_translation', {
-                        fromUserId: user.uid,
-                        toUserId: m.uid,
-                        text: translated,
-                        lang: m.translateCode,
-                        isFinal: true,
-                        confidence: 'high',
-                      });
-                    }
-                  } catch (translationError) {
-                    console.error('Final translation error:', translationError);
-                  }
-                });
-            } catch (recognizedError) {
-              console.error(
-                'Error in final recognizer callback:',
-                recognizedError,
-              );
-            }
-          }
-
-          // Reset buffers
-          wordBuffer.current = '';
-          lastSentText.current = '';
-        };
-
-        recognizer.startContinuousRecognitionAsync();
-        initializedRef.current = true;
-      } catch (setupError) {
-        console.error(
-          'VoiceCall: Error setting up audio recognition:',
-          setupError,
-        );
-        setIsListening(false);
-        Alert.alert(
-          'Audio Error',
-          'Failed to initialize speech recognition. Please try again.',
-        );
-      }
-    } catch (error) {
-      console.error('VoiceCall: Fatal error in initializeAudio:', error);
-      setIsListening(false);
-      Alert.alert(
-        'Error',
-        'Something went wrong. Please check your internet connection and try again.',
-      );
-    }
-  };
-
-  // Stop audio recognition
-  // const stopAudio = useCallback(() => {
-  //   console.log('VoiceCall: Stopping audio recognition');
-  //   setIsListening(false);
-  //   AudioRecord.stop();
-
-  //   if (recognizerRef.current) {
-  //     recognizerRef.current.stopContinuousRecognitionAsync();
-  //     recognizerRef.current.close();
-  //     recognizerRef.current = null;
-  //     initializedRef.current = false;
-  //   }
-  // }, []);
-  // Stop audio recognition
-  const stopAudio = useCallback(() => {
-    console.log('VoiceCall: Stopping audio recognition');
-    setIsListening(false);
-    AudioRecord.stop();
-
-    // ✅ Cleanup timeout khi stop
-    if (sentenceTimeoutRef.current) {
-      clearTimeout(sentenceTimeoutRef.current);
-      sentenceTimeoutRef.current = null;
-    }
-
-    if (recognizerRef.current) {
-      recognizerRef.current.stopContinuousRecognitionAsync();
-      recognizerRef.current.close();
-      recognizerRef.current = null;
-      initializedRef.current = false;
-    }
-
-    // Reset buffers
-    wordBuffer.current = '';
-    lastSentText.current = '';
-  }, []);
-
-  // Remove member from meeting
-  const removeMemberFromMeeting = useCallback(async (meetingId, userId) => {
-    try {
-      console.log('VoiceCall: Removing member from meeting:', userId);
-      const meetingRef = firestore().collection('meetings').doc(meetingId);
-      const meetingDoc = await meetingRef.get();
-
-      if (!meetingDoc.exists) {
-        console.warn('VoiceCall: Meeting not found:', meetingId);
-        return;
-      }
-
-      const meetingData = meetingDoc.data();
-      const members = meetingData?.members || [];
-      const updatedMembers = members.filter(member => member.uid !== userId);
-
-      await meetingRef.update({
-        members: updatedMembers,
-      });
-
-      console.log('VoiceCall: Successfully removed user from meeting');
-    } catch (error) {
-      console.error('VoiceCall: Error removing member:', error);
-    }
-  }, []);
-
-  // Handle exit screen
-  const handleExitScreen = useCallback(() => {
-    console.log('VoiceCall: Exiting screen');
-
-    if (isListening) {
-      stopAudio();
-    }
-
-    // Notify other users that call ended
-    if (isConnected) {
-      emit('end_call', {
-        meetingId,
-        userId: user.uid,
-      });
-    }
-
-    // Remove member from meeting
-    removeMemberFromMeeting(meetingId, user.uid);
-    navigation.goBack();
-  }, [
-    isListening,
-    stopAudio,
-    isConnected,
-    emit,
-    meetingId,
-    user.uid,
-    removeMemberFromMeeting,
-    navigation,
-  ]);
-
-  // Handle back press
-  const handleBackPress = useCallback(() => {
-    Alert.alert(
-      'Exit Meeting',
-      'Are you sure you want to exit the meeting?',
-      [
-        {text: 'Cancel', style: 'cancel'},
-        {text: 'OK', onPress: handleExitScreen},
-      ],
-      {cancelable: false},
-    );
-    return true;
-  }, [handleExitScreen]);
-
-  // Setup back handler
-  useEffect(() => {
-    const backHandler = BackHandler.addEventListener(
-      'hardwareBackPress',
-      handleBackPress,
-    );
-    return () => backHandler.remove();
-  }, [handleBackPress]);
-
-  // Cleanup on unmount
-  useEffect(() => {
-    return () => {
-      if (isListening) {
-        stopAudio();
-      }
-    };
-  }, [isListening, stopAudio]);
-
-  // Render participant item
-  const renderParticipantItem = ({item}) => (
-    <View style={styles.participantItem}>
-      <View style={styles.smallAvatar}>
-        <Image
-          source={
-            item.avatar
-              ? {uri: item?.avatar?.url || item?.avatar}
-              : require('../assets/default-avatar.png')
-          }
-          style={styles.smallAvatarImage}
-        />
-      </View>
-      <View style={styles.participantInfo}>
-        <Text style={styles.participantItemName}>{item.name}</Text>
-        <Text style={styles.participantLanguage}>
-          {item.language?.toUpperCase() || 'EN'}
-        </Text>
-      </View>
-      <View style={styles.participantStatusContainer}>
-        <View style={[styles.onlineIndicator, {backgroundColor: '#10B981'}]} />
-        <Icon name="mic" size={16} color="#4AC6D0" />
-      </View>
-    </View>
-  );
-
   // Render mic waves
   const renderMicWaves = () => {
     if (!isListening) {

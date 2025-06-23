@@ -1,4 +1,4 @@
-import React, {useCallback, useEffect, useMemo, useRef} from 'react';
+import React, {useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {
   View,
   Text,
@@ -7,7 +7,6 @@ import {
   ActivityIndicator,
   Alert,
   StyleSheet,
-  Image,
   ScrollView,
   StatusBar,
   Animated,
@@ -22,34 +21,31 @@ import {useNavigation} from '@react-navigation/native';
 import Icon from 'react-native-vector-icons/FontAwesome5';
 import LinearGradient from 'react-native-linear-gradient';
 import {useTranslation} from '../contexts/TranslationContext';
-import {useAuth} from '../contexts/AuthContext';
 
 // Types
-interface LoginFormData {
+interface ForgotPasswordFormData {
   email: string;
-  password: string;
 }
 
 interface AnimationRefs {
   fadeAnim: Animated.Value;
   slideAnim: Animated.Value;
-  logoAnim: Animated.Value;
+  iconAnim: Animated.Value;
 }
 
 // Constants
 const {width, height} = Dimensions.get('window');
-const HEADER_HEIGHT = height * 0.4;
-const LOGO_SIZE = 90;
+const HEADER_HEIGHT = height * 0.35;
+const ICON_SIZE = 80;
 
 // Validation patterns
 const EMAIL_REGEX = /^[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}$/i;
-const MIN_PASSWORD_LENGTH = 6;
 
 // Custom hooks
 const useAnimations = (): AnimationRefs => {
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const slideAnim = useRef(new Animated.Value(50)).current;
-  const logoAnim = useRef(new Animated.Value(0)).current;
+  const iconAnim = useRef(new Animated.Value(0)).current;
 
   const startAnimations = useCallback(() => {
     Animated.sequence([
@@ -64,20 +60,20 @@ const useAnimations = (): AnimationRefs => {
           duration: 600,
           useNativeDriver: true,
         }),
-        Animated.timing(logoAnim, {
+        Animated.timing(iconAnim, {
           toValue: 1,
           duration: 800,
           useNativeDriver: true,
         }),
       ]),
     ]).start();
-  }, [fadeAnim, slideAnim, logoAnim]);
+  }, [fadeAnim, slideAnim, iconAnim]);
 
   useEffect(() => {
     startAnimations();
   }, [startAnimations]);
 
-  return {fadeAnim, slideAnim, logoAnim};
+  return {fadeAnim, slideAnim, iconAnim};
 };
 
 const useKeyboardHandler = () => {
@@ -127,51 +123,39 @@ const DecorativeElements = React.memo(() => (
   </>
 ));
 
-const BannerImage = React.memo(({logoAnim}: {logoAnim: Animated.Value}) => (
-  <Animated.View
-    style={[
-      styles.bannerContainer,
-      {
-        opacity: logoAnim,
-        transform: [
-          {
-            scale: logoAnim.interpolate({
-              inputRange: [0, 1],
-              outputRange: [0.8, 1],
-            }),
-          },
-        ],
-      },
-    ]}>
-    <Image
-      source={{
-        uri: 'https://images.unsplash.com/photo-1503220317375-aaad61436b1b?ixlib=rb-1.2.1&auto=format&fit=crop&w=750&q=80',
-      }}
-      style={styles.bannerImage}
-      resizeMode="cover"
-      // Performance optimization
-      loadingIndicatorSource={{
-        uri: 'data:image/gif;base64,R0lGODlhAQABAIAAAP///wAAACH5BAEAAAAALAAAAAABAAEAAAICRAEAOw==',
-      }}
-      fadeDuration={300}
-    />
-    <AppLogo />
-  </Animated.View>
-));
-
-const AppLogo = React.memo(() => {
+const HeaderIcon = React.memo(({iconAnim}: {iconAnim: Animated.Value}) => {
   const {t} = useTranslation();
 
   return (
-    <View style={styles.bannerOverlay}>
-      <View style={styles.logoContainer}>
-        <View style={styles.logoCircle}>
-          <Icon name="globe-americas" size={50} color="#fff" solid />
-        </View>
-        <Text style={styles.appTitle}>{t('app.name')}</Text>
-        <Text style={styles.appSubtitle}>{t('app.subtitle')}</Text>
+    <Animated.View
+      style={[
+        styles.headerIconContainer,
+        {
+          opacity: iconAnim,
+          transform: [
+            {
+              scale: iconAnim.interpolate({
+                inputRange: [0, 1],
+                outputRange: [0.8, 1],
+              }),
+            },
+            {
+              rotate: iconAnim.interpolate({
+                inputRange: [0, 1],
+                outputRange: ['0deg', '360deg'],
+              }),
+            },
+          ],
+        },
+      ]}>
+      <View style={styles.iconCircle}>
+        <Icon name="key" size={40} color="#fff" solid />
       </View>
-    </View>
+      <Text style={styles.headerTitle}>{t('auth.resetPassword')}</Text>
+      <Text style={styles.headerSubtitle}>
+        {t('auth.resetPasswordSubtitle')}
+      </Text>
+    </Animated.View>
   );
 });
 
@@ -182,14 +166,10 @@ const CustomInput = React.memo(
     rules,
     placeholder,
     iconName,
-    secureTextEntry = false,
     keyboardType = 'default',
     autoCapitalize = 'none',
     autoComplete,
     error,
-    showPasswordToggle = false,
-    onTogglePassword,
-    showPassword,
   }: any) => (
     <View style={styles.inputWrapper}>
       <Text style={styles.inputLabel}>{placeholder}</Text>
@@ -208,29 +188,14 @@ const CustomInput = React.memo(
               style={styles.input}
               onChangeText={onChange}
               value={value}
-              secureTextEntry={secureTextEntry && !showPassword}
               keyboardType={keyboardType}
               autoCapitalize={autoCapitalize}
               autoComplete={autoComplete}
               autoCorrect={false}
-              textContentType={
-                name === 'password' ? 'password' : 'emailAddress'
-              }
+              textContentType="emailAddress"
             />
           )}
         />
-        {showPasswordToggle && (
-          <TouchableOpacity
-            style={styles.passwordToggle}
-            onPress={onTogglePassword}
-            hitSlop={{top: 10, bottom: 10, left: 10, right: 10}}>
-            <Icon
-              name={showPassword ? 'eye-slash' : 'eye'}
-              size={16}
-              color="#64748B"
-            />
-          </TouchableOpacity>
-        )}
       </View>
       {error && (
         <Animated.View style={styles.errorContainer}>
@@ -242,9 +207,9 @@ const CustomInput = React.memo(
   ),
 );
 
-const LoginButton = React.memo(({onPress, loading, t}: any) => (
+const ResetButton = React.memo(({onPress, loading, t}: any) => (
   <TouchableOpacity
-    style={[styles.loginButton, loading && styles.loginButtonDisabled]}
+    style={[styles.resetButton, loading && styles.resetButtonDisabled]}
     onPress={onPress}
     disabled={loading}
     activeOpacity={0.8}>
@@ -252,50 +217,121 @@ const LoginButton = React.memo(({onPress, loading, t}: any) => (
       colors={
         loading ? ['#94A3B8', '#64748B'] : ['#4AC6D0', '#3BB8C3', '#2DA5B0']
       }
-      style={styles.loginButtonGradient}>
+      style={styles.resetButtonGradient}>
       {loading ? (
         <View style={styles.loadingContainer}>
           <ActivityIndicator color="#fff" size="small" />
-          <Text style={styles.loadingText}>{t('auth.signingIn')}</Text>
+          <Text style={styles.loadingText}>{t('auth.sending')}</Text>
         </View>
       ) : (
         <View style={styles.buttonContent}>
-          <Text style={styles.loginButtonText}>{t('auth.signIn')}</Text>
-          <Icon name="arrow-right" size={16} color="#fff" />
+          <Text style={styles.resetButtonText}>{t('auth.sendResetEmail')}</Text>
+          <Icon name="paper-plane" size={16} color="#fff" />
         </View>
       )}
     </LinearGradient>
   </TouchableOpacity>
 ));
 
-const SocialLoginSection = React.memo(({t}: {t: (key: string) => string}) => (
-  <>
-    <View style={styles.dividerContainer}>
-      <View style={styles.dividerLine} />
-      <Text style={styles.dividerText}>{t('common.or')}</Text>
-      <View style={styles.dividerLine} />
+const InstructionCard = React.memo(({t}: {t: (key: string) => string}) => (
+  <View style={styles.instructionCard}>
+    <View style={styles.instructionHeader}>
+      <Icon name="info-circle" size={20} color="#4AC6D0" />
+      <Text style={styles.instructionTitle}>{t('auth.howItWorks')}</Text>
     </View>
-    {/* Commented out social login for now */}
-    {/* <View style={styles.socialContainer}>
-      <TouchableOpacity style={styles.socialButton} activeOpacity={0.8}>
-        <Icon name="google" size={20} color="#DB4437" />
-        <Text style={styles.socialButtonText}>{t('social.google')}</Text>
-      </TouchableOpacity>
-      <TouchableOpacity style={styles.socialButton} activeOpacity={0.8}>
-        <Icon name="facebook-f" size={20} color="#4267B2" />
-        <Text style={styles.socialButtonText}>{t('social.facebook')}</Text>
-      </TouchableOpacity>
-    </View> */}
-  </>
+    <View style={styles.instructionSteps}>
+      <View style={styles.instructionStep}>
+        <View style={styles.stepNumber}>
+          <Text style={styles.stepNumberText}>1</Text>
+        </View>
+        <Text style={styles.stepText}>{t('auth.step1')}</Text>
+      </View>
+      <View style={styles.instructionStep}>
+        <View style={styles.stepNumber}>
+          <Text style={styles.stepNumberText}>2</Text>
+        </View>
+        <Text style={styles.stepText}>{t('auth.step2')}</Text>
+      </View>
+      <View style={styles.instructionStep}>
+        <View style={styles.stepNumber}>
+          <Text style={styles.stepNumberText}>3</Text>
+        </View>
+        <Text style={styles.stepText}>{t('auth.step3')}</Text>
+      </View>
+    </View>
+  </View>
 ));
 
+const SuccessModal = React.memo(({visible, onClose, email, t}: any) => {
+  const [modalAnim] = useState(new Animated.Value(0));
+
+  useEffect(() => {
+    if (visible) {
+      Animated.spring(modalAnim, {
+        toValue: 1,
+        useNativeDriver: true,
+        tension: 50,
+        friction: 8,
+      }).start();
+    } else {
+      Animated.timing(modalAnim, {
+        toValue: 0,
+        duration: 200,
+        useNativeDriver: true,
+      }).start();
+    }
+  }, [visible, modalAnim]);
+
+  if (!visible) {
+    return null;
+  }
+
+  return (
+    <View style={styles.modalOverlay}>
+      <Animated.View
+        style={[
+          styles.modalContainer,
+          {
+            opacity: modalAnim,
+            transform: [
+              {
+                scale: modalAnim.interpolate({
+                  inputRange: [0, 1],
+                  outputRange: [0.8, 1],
+                }),
+              },
+            ],
+          },
+        ]}>
+        <View style={styles.modalIconContainer}>
+          <Icon name="check-circle" size={60} color="#10B981" />
+        </View>
+        <Text style={styles.modalTitle}>{t('auth.emailSent')}</Text>
+        <Text style={styles.modalMessage}>
+          {t('auth.resetEmailSentTo')} {email}
+        </Text>
+        <Text style={styles.modalSubMessage}>{t('auth.checkSpamFolder')}</Text>
+        <TouchableOpacity
+          style={styles.modalButton}
+          onPress={onClose}
+          activeOpacity={0.8}>
+          <LinearGradient
+            colors={['#4AC6D0', '#3BB8C3']}
+            style={styles.modalButtonGradient}>
+            <Text style={styles.modalButtonText}>{t('common.ok')}</Text>
+          </LinearGradient>
+        </TouchableOpacity>
+      </Animated.View>
+    </View>
+  );
+});
+
 // Main Component
-const LoginScreen: React.FC = () => {
+const ForgotPasswordScreen: React.FC = () => {
   const {t} = useTranslation();
   const navigation = useNavigation<any>();
-  const {fadeAnim, slideAnim, logoAnim} = useAnimations();
+  const {fadeAnim, slideAnim, iconAnim} = useAnimations();
   const keyboardHeight = useKeyboardHandler();
-  const {signIn} = useAuth();
 
   // Form handling
   const {
@@ -304,16 +340,16 @@ const LoginScreen: React.FC = () => {
     formState: {errors, isSubmitting},
     setError,
     clearErrors,
-  } = useForm<LoginFormData>({
+    getValues,
+  } = useForm<ForgotPasswordFormData>({
     mode: 'onChange',
     defaultValues: {
       email: '',
-      password: '',
     },
   });
 
   // State
-  const [showPassword, setShowPassword] = React.useState(false);
+  const [showSuccessModal, setShowSuccessModal] = useState(false);
   const loadingRef = useRef(false);
 
   // Validation rules (memoized for performance)
@@ -326,32 +362,21 @@ const LoginScreen: React.FC = () => {
           message: t('auth.invalidEmailAddress'),
         },
       },
-      password: {
-        required: t('auth.passwordRequired'),
-        minLength: {
-          value: MIN_PASSWORD_LENGTH,
-          message: t('auth.passwordMinLength'),
-        },
-      },
     }),
     [t],
   );
 
   // Handlers
-  const handleTogglePassword = useCallback(() => {
-    setShowPassword(prev => !prev);
-  }, []);
-
-  const handleForgotPassword = useCallback(() => {
-    navigation.navigate('ForgotPassword');
+  const handleBack = useCallback(() => {
+    navigation.goBack();
   }, [navigation]);
 
-  const handleRegister = useCallback(() => {
-    navigation.navigate('Register');
+  const handleGoToLogin = useCallback(() => {
+    navigation.navigate('Login');
   }, [navigation]);
 
   const onSubmit = useCallback(
-    async (data: LoginFormData) => {
+    async (data: ForgotPasswordFormData) => {
       if (loadingRef.current) {
         return;
       }
@@ -359,31 +384,22 @@ const LoginScreen: React.FC = () => {
       loadingRef.current = true;
       clearErrors();
 
-      console.log('Login data:', data);
       try {
-        await auth().signInWithEmailAndPassword(
-          data.email.trim(),
-          data.password,
-        );
-        // signIn(data.email.trim(), data.password);
-        // Navigation will be handled by AuthContext
+        await auth().sendPasswordResetEmail(data.email.trim());
+        setShowSuccessModal(true);
       } catch (error: any) {
-        console.error('Login error:', error);
+        console.error('Password reset error:', error);
 
         // Handle specific Firebase errors
-        let errorMessage = t('auth.loginError');
+        let errorMessage = t('auth.resetPasswordError');
 
         switch (error.code) {
           case 'auth/user-not-found':
-          case 'auth/wrong-password':
-            errorMessage = t('auth.invalidCredentials');
-            break;
+            setError('email', {message: t('auth.emailNotFound')});
+            return;
           case 'auth/invalid-email':
             setError('email', {message: t('auth.invalidEmailAddress')});
             return;
-          case 'auth/user-disabled':
-            errorMessage = t('auth.accountDisabled');
-            break;
           case 'auth/too-many-requests':
             errorMessage = t('auth.tooManyRequests');
             break;
@@ -391,16 +407,21 @@ const LoginScreen: React.FC = () => {
             errorMessage = t('errors.networkError');
             break;
           default:
-            errorMessage = error.message || t('auth.loginError');
+            errorMessage = error.message || t('auth.resetPasswordError');
         }
 
-        Alert.alert(t('auth.loginFailed'), t('auth.loginError'));
+        Alert.alert(t('common.error'), errorMessage);
       } finally {
         loadingRef.current = false;
       }
     },
     [t, clearErrors, setError],
   );
+
+  const handleSuccessModalClose = useCallback(() => {
+    setShowSuccessModal(false);
+    navigation.goBack();
+  }, [navigation]);
 
   // Render
   return (
@@ -427,8 +448,16 @@ const LoginScreen: React.FC = () => {
               style={styles.headerGradient}>
               <Animated.View
                 style={[styles.headerOverlay, {opacity: fadeAnim}]}>
+                {/* Back Button */}
+                <TouchableOpacity
+                  style={styles.backButton}
+                  onPress={handleBack}
+                  activeOpacity={0.8}>
+                  <Icon name="arrow-left" size={20} color="#fff" />
+                </TouchableOpacity>
+
                 <DecorativeElements />
-                <BannerImage logoAnim={logoAnim} />
+                <HeaderIcon iconAnim={iconAnim} />
               </Animated.View>
             </LinearGradient>
 
@@ -443,9 +472,11 @@ const LoginScreen: React.FC = () => {
               ]}>
               {/* Welcome Section */}
               <View style={styles.welcomeSection}>
-                <Text style={styles.welcomeTitle}>{t('auth.welcomeBack')}</Text>
+                <Text style={styles.welcomeTitle}>
+                  {t('auth.forgotPassword')}
+                </Text>
                 <Text style={styles.welcomeSubtitle}>
-                  {t('auth.signInToContinue')}
+                  {t('auth.enterEmailToReset')}
                 </Text>
               </View>
 
@@ -463,66 +494,46 @@ const LoginScreen: React.FC = () => {
                   error={errors.email}
                 />
 
-                {/* Password Input */}
-                <CustomInput
-                  control={control}
-                  name="password"
-                  rules={validationRules.password}
-                  placeholder={t('auth.password')}
-                  iconName="lock"
-                  secureTextEntry
-                  autoComplete="password"
-                  error={errors.password}
-                  showPasswordToggle
-                  onTogglePassword={handleTogglePassword}
-                  showPassword={showPassword}
-                />
-
-                {/* Forgot Password */}
-                <TouchableOpacity
-                  style={styles.forgotPasswordContainer}
-                  onPress={handleForgotPassword}
-                  activeOpacity={0.7}
-                  hitSlop={{top: 10, bottom: 10, left: 10, right: 10}}>
-                  <Text style={styles.forgotPasswordText}>
-                    {t('auth.forgotYourPassword')}
-                  </Text>
-                </TouchableOpacity>
-
-                {/* Login Button */}
-                <LoginButton
+                {/* Reset Button */}
+                <ResetButton
                   onPress={handleSubmit(onSubmit)}
                   loading={isSubmitting}
                   t={t}
                 />
 
-                {/* Social Login Section */}
-                <SocialLoginSection t={t} />
+                {/* Instruction Card */}
+                <InstructionCard t={t} />
               </View>
 
               {/* Footer */}
               <View style={styles.footer}>
                 <Text style={styles.footerText}>
-                  {t('auth.dontHaveAccount')}{' '}
+                  {t('auth.rememberPassword')}{' '}
                 </Text>
                 <TouchableOpacity
-                  onPress={handleRegister}
+                  onPress={handleGoToLogin}
                   activeOpacity={0.7}
                   hitSlop={{top: 10, bottom: 10, left: 10, right: 10}}>
-                  <Text style={styles.registerText}>
-                    {t('auth.createAccount')}
-                  </Text>
+                  <Text style={styles.loginText}>{t('auth.backToLogin')}</Text>
                 </TouchableOpacity>
               </View>
             </Animated.View>
           </ScrollView>
         </Animated.View>
+
+        {/* Success Modal */}
+        <SuccessModal
+          visible={showSuccessModal}
+          onClose={handleSuccessModalClose}
+          email={getValues('email')}
+          t={t}
+        />
       </KeyboardAvoidingView>
     </>
   );
 };
 
-// Optimized StyleSheet (same styles as before but organized better)
+// StyleSheet
 const styles = StyleSheet.create({
   // Container styles
   container: {
@@ -544,6 +555,20 @@ const styles = StyleSheet.create({
   headerOverlay: {
     flex: 1,
     position: 'relative',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  backButton: {
+    position: 'absolute',
+    top: 50,
+    left: 20,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 10,
   },
   decorativeCircle1: {
     position: 'absolute',
@@ -572,35 +597,14 @@ const styles = StyleSheet.create({
     borderRadius: 40,
     backgroundColor: 'rgba(255, 255, 255, 0.1)',
   },
-  bannerContainer: {
-    flex: 1,
-    margin: 20,
-    borderRadius: 20,
-    overflow: 'hidden',
-    elevation: 8,
-    shadowColor: '#000',
-    shadowOffset: {width: 0, height: 4},
-    shadowOpacity: 0.2,
-    shadowRadius: 8,
-  },
-  bannerImage: {
-    width: '100%',
-    height: '100%',
-  },
-  bannerOverlay: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(0, 0, 0, 0.4)',
-    justifyContent: 'center',
+  headerIconContainer: {
     alignItems: 'center',
   },
-  logoContainer: {
-    alignItems: 'center',
-  },
-  logoCircle: {
-    width: LOGO_SIZE,
-    height: LOGO_SIZE,
-    borderRadius: LOGO_SIZE / 2,
-    backgroundColor: 'rgba(74, 198, 208, 0.9)',
+  iconCircle: {
+    width: ICON_SIZE,
+    height: ICON_SIZE,
+    borderRadius: ICON_SIZE / 2,
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
     justifyContent: 'center',
     alignItems: 'center',
     marginBottom: 16,
@@ -610,8 +614,8 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.3,
     shadowRadius: 4,
   },
-  appTitle: {
-    fontSize: 28,
+  headerTitle: {
+    fontSize: 24,
     fontWeight: '800',
     color: '#fff',
     marginBottom: 8,
@@ -619,11 +623,12 @@ const styles = StyleSheet.create({
     textShadowOffset: {width: 0, height: 2},
     textShadowRadius: 4,
   },
-  appSubtitle: {
-    fontSize: 16,
+  headerSubtitle: {
+    fontSize: 14,
     color: 'rgba(255, 255, 255, 0.9)',
     textAlign: 'center',
     fontWeight: '500',
+    paddingHorizontal: 40,
   },
 
   // Content styles
@@ -655,11 +660,12 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: '#64748B',
     textAlign: 'center',
+    paddingHorizontal: 20,
   },
 
   // Form styles
   formContainer: {
-    gap: 20,
+    gap: 24,
   },
   inputWrapper: {
     gap: 8,
@@ -704,9 +710,6 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '500',
   },
-  passwordToggle: {
-    padding: 8,
-  },
   errorContainer: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -720,17 +723,7 @@ const styles = StyleSheet.create({
   },
 
   // Button styles
-  forgotPasswordContainer: {
-    alignSelf: 'flex-end',
-    marginTop: -8,
-    paddingVertical: 8,
-  },
-  forgotPasswordText: {
-    color: '#4AC6D0',
-    fontSize: 14,
-    fontWeight: '600',
-  },
-  loginButton: {
+  resetButton: {
     borderRadius: 16,
     elevation: 4,
     shadowColor: '#4AC6D0',
@@ -739,11 +732,11 @@ const styles = StyleSheet.create({
     shadowRadius: 8,
     marginTop: 8,
   },
-  loginButtonDisabled: {
+  resetButtonDisabled: {
     elevation: 2,
     shadowOpacity: 0.1,
   },
-  loginButtonGradient: {
+  resetButtonGradient: {
     borderRadius: 16,
     paddingVertical: 16,
     paddingHorizontal: 24,
@@ -756,7 +749,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 8,
   },
-  loginButtonText: {
+  resetButtonText: {
     color: '#fff',
     fontSize: 18,
     fontWeight: '700',
@@ -772,22 +765,122 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
 
-  // Divider & Social styles
-  dividerContainer: {
+  // Instruction Card styles
+  instructionCard: {
+    backgroundColor: '#fff',
+    borderRadius: 16,
+    padding: 20,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    shadowColor: '#000',
+    shadowOffset: {width: 0, height: 2},
+    shadowOpacity: 0.05,
+    shadowRadius: 8,
+    elevation: 2,
+  },
+  instructionHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginVertical: 2,
+    marginBottom: 16,
+    gap: 8,
   },
-  dividerLine: {
+  instructionTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#1E293B',
+  },
+  instructionSteps: {
+    gap: 12,
+  },
+  instructionStep: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 12,
+  },
+  stepNumber: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: '#4AC6D0',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginTop: 2,
+  },
+  stepNumberText: {
+    color: '#fff',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  stepText: {
     flex: 1,
-    height: 1,
-    backgroundColor: '#E2E8F0',
-  },
-  dividerText: {
-    paddingHorizontal: 16,
-    color: '#64748B',
     fontSize: 14,
-    fontWeight: '500',
+    color: '#64748B',
+    lineHeight: 20,
+  },
+
+  // Modal styles
+  modalOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 24,
+  },
+  modalContainer: {
+    backgroundColor: '#fff',
+    borderRadius: 20,
+    padding: 32,
+    alignItems: 'center',
+    maxWidth: width - 48,
+    width: '100%',
+    shadowColor: '#000',
+    shadowOffset: {width: 0, height: 8},
+    shadowOpacity: 0.25,
+    shadowRadius: 16,
+    elevation: 8,
+  },
+  modalIconContainer: {
+    marginBottom: 20,
+  },
+  modalTitle: {
+    fontSize: 24,
+    fontWeight: '700',
+    color: '#1E293B',
+    marginBottom: 12,
+    textAlign: 'center',
+  },
+  modalMessage: {
+    fontSize: 16,
+    color: '#64748B',
+    textAlign: 'center',
+    marginBottom: 8,
+    lineHeight: 24,
+  },
+  modalSubMessage: {
+    fontSize: 14,
+    color: '#94A3B8',
+    textAlign: 'center',
+    marginBottom: 24,
+    lineHeight: 20,
+  },
+  modalButton: {
+    borderRadius: 12,
+    minWidth: 120,
+  },
+  modalButtonGradient: {
+    borderRadius: 12,
+    paddingVertical: 12,
+    paddingHorizontal: 24,
+    alignItems: 'center',
+  },
+  modalButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '700',
   },
 
   // Footer styles
@@ -795,7 +888,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'center',
     alignItems: 'center',
-    marginTop: 12,
+    marginTop: 32,
     marginBottom: 24,
     paddingVertical: 8,
   },
@@ -803,11 +896,11 @@ const styles = StyleSheet.create({
     color: '#64748B',
     fontSize: 16,
   },
-  registerText: {
+  loginText: {
     color: '#4AC6D0',
     fontSize: 16,
     fontWeight: '700',
   },
 });
 
-export default React.memo(LoginScreen);
+export default React.memo(ForgotPasswordScreen);

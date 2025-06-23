@@ -33,6 +33,7 @@ import moment from 'moment';
 import {useAuth} from '../contexts/AuthContext';
 import {launchImageLibrary, launchCamera} from 'react-native-image-picker';
 import {useTranslation} from '../contexts/TranslationContext';
+import DatePicker from 'react-native-date-picker'; // npm install react-native-date-picker
 
 // Types
 interface ViewUserProfileProps {
@@ -41,7 +42,7 @@ interface ViewUserProfileProps {
   onClose?: () => void;
   showAsModal?: boolean;
 }
-
+// Types
 interface UserData {
   id: string;
   name: string;
@@ -58,9 +59,12 @@ interface UserData {
     lastSeen: any;
     isOnline: boolean;
   };
+  // ✅ New fields
+  address?: string;
+  birthdate?: any; // Firestore Timestamp or Date
 }
 
-// State reducer for atomic updates
+// State reducer actions
 type StateAction =
   | {type: 'SET_LOADING'; payload: boolean}
   | {type: 'SET_USER_DATA'; payload: UserData | null}
@@ -71,6 +75,9 @@ type StateAction =
   | {type: 'SET_EDIT_BIO'; payload: string}
   | {type: 'SET_EDIT_PASSWORD'; payload: string}
   | {type: 'SET_EDIT_AVATAR'; payload: any}
+  // ✅ New edit actions
+  | {type: 'SET_EDIT_ADDRESS'; payload: string}
+  | {type: 'SET_EDIT_BIRTHDATE'; payload: Date | null}
   | {type: 'SET_GROUP_COUNT'; payload: number}
   | {type: 'SET_LOADING_STATS'; payload: boolean}
   | {type: 'RESET_EDIT_FORM'}
@@ -84,6 +91,9 @@ interface ProfileState {
   editBio: string;
   editPassword: string;
   editAvatar: any;
+  // ✅ New edit fields
+  editAddress: string;
+  editBirthdate: Date | null;
   uploading: boolean;
   groupCount: number;
   loadingStats: boolean;
@@ -97,11 +107,15 @@ const initialState: ProfileState = {
   editBio: '',
   editPassword: '',
   editAvatar: null,
+  // ✅ Initialize new fields
+  editAddress: '',
+  editBirthdate: null,
   uploading: false,
   groupCount: 0,
   loadingStats: false,
 };
 
+// Atomic state reducer
 // Atomic state reducer
 const profileReducer = (
   state: ProfileState,
@@ -117,6 +131,13 @@ const profileReducer = (
         editName: action.payload?.name || '',
         editBio: action.payload?.bio || '',
         editAvatar: action.payload?.avatar || null,
+        // ✅ Initialize edit fields from user data
+        editAddress: action.payload?.address || '',
+        editBirthdate: action.payload?.birthdate
+          ? action.payload.birthdate.toDate
+            ? action.payload.birthdate.toDate()
+            : new Date(action.payload.birthdate)
+          : null,
       };
     case 'SET_EDITING':
       return {...state, isEditing: action.payload};
@@ -137,6 +158,11 @@ const profileReducer = (
       return {...state, editPassword: action.payload};
     case 'SET_EDIT_AVATAR':
       return {...state, editAvatar: action.payload};
+    // ✅ New edit handlers
+    case 'SET_EDIT_ADDRESS':
+      return {...state, editAddress: action.payload};
+    case 'SET_EDIT_BIRTHDATE':
+      return {...state, editBirthdate: action.payload};
     case 'SET_GROUP_COUNT':
       return {...state, groupCount: action.payload};
     case 'SET_LOADING_STATS':
@@ -149,6 +175,13 @@ const profileReducer = (
         editName: state.userData?.name || '',
         editBio: state.userData?.bio || '',
         editAvatar: state.userData?.avatar || null,
+        // ✅ Reset new fields
+        editAddress: state.userData?.address || '',
+        editBirthdate: state.userData?.birthdate
+          ? state.userData.birthdate.toDate
+            ? state.userData.birthdate.toDate()
+            : new Date(state.userData.birthdate)
+          : null,
       };
     case 'UPDATE_USER_FIELD':
       if (!state.userData) {
@@ -205,6 +238,25 @@ const formatJoinDate = (createdAt: any, t: (key: string) => string): string => {
   }
   const joinDate = createdAt.toDate ? createdAt.toDate() : new Date(createdAt);
   return moment(joinDate).format('MMMM YYYY');
+};
+// ✅ Add date formatting utilities
+const formatBirthdate = (
+  birthdate: any,
+  t: (key: string) => string,
+): string => {
+  if (!birthdate) {
+    return t('viewUserProfile.notSpecified');
+  }
+  const birthDate = birthdate.toDate ? birthdate.toDate() : new Date(birthdate);
+  return moment(birthDate).format('DD/MM/YYYY');
+};
+
+const calculateAge = (birthdate: any): number | null => {
+  if (!birthdate) {
+    return null;
+  }
+  const birthDate = birthdate.toDate ? birthdate.toDate() : new Date(birthdate);
+  return moment().diff(moment(birthDate), 'years');
 };
 
 // Status utility functions - memoized
@@ -457,10 +509,14 @@ const EditForm = memo(
     editBio,
     editPassword,
     editAvatar,
+    editAddress,
+    editBirthdate,
     uploading,
     onNameChange,
     onBioChange,
     onPasswordChange,
+    onAddressChange,
+    onBirthdateChange,
     onImagePicker,
     onCancel,
     onSave,
@@ -470,15 +526,20 @@ const EditForm = memo(
     editBio: string;
     editPassword: string;
     editAvatar: any;
+    editAddress: string;
+    editBirthdate: Date | null;
     uploading: boolean;
     onNameChange: (text: string) => void;
     onBioChange: (text: string) => void;
     onPasswordChange: (text: string) => void;
+    onAddressChange: (text: string) => void;
+    onBirthdateChange: (date: Date | null) => void;
     onImagePicker: () => void;
     onCancel: () => void;
     onSave: () => void;
     t: (key: string) => string;
   }) => {
+    const [showDatePicker, setShowDatePicker] = useState(false);
     const canSave = editName.trim() !== '' && !uploading;
 
     return (
@@ -515,6 +576,51 @@ const EditForm = memo(
             textAlignVertical="top"
             editable={!uploading}
           />
+        </View>
+
+        {/* ✅ Address Field */}
+        <View style={styles.editField}>
+          <Text style={styles.editLabel}>{t('viewUserProfile.address')}</Text>
+          <TextInput
+            style={[styles.editInput, styles.editTextArea]}
+            value={editAddress}
+            onChangeText={onAddressChange}
+            placeholder={t('viewUserProfile.enterAddress')}
+            placeholderTextColor="#9CA3AF"
+            multiline
+            numberOfLines={3}
+            textAlignVertical="top"
+            editable={!uploading}
+          />
+        </View>
+
+        {/* ✅ Birthdate Field */}
+        <View style={styles.editField}>
+          <Text style={styles.editLabel}>{t('viewUserProfile.birthdate')}</Text>
+          <TouchableOpacity
+            style={[styles.editInput, styles.datePickerButton]}
+            onPress={() => setShowDatePicker(true)}
+            disabled={uploading}>
+            <View style={styles.datePickerContent}>
+              <Icon name="event" size={20} color="#6B7280" />
+              <Text
+                style={[
+                  styles.datePickerText,
+                  !editBirthdate && styles.datePickerPlaceholder,
+                ]}>
+                {editBirthdate
+                  ? moment(editBirthdate).format('DD/MM/YYYY')
+                  : t('viewUserProfile.selectBirthdate')}
+              </Text>
+              {editBirthdate && (
+                <TouchableOpacity
+                  onPress={() => onBirthdateChange(null)}
+                  style={styles.clearDateButton}>
+                  <Icon name="clear" size={16} color="#EF4444" />
+                </TouchableOpacity>
+              )}
+            </View>
+          </TouchableOpacity>
         </View>
 
         <View style={styles.editField}>
@@ -558,6 +664,26 @@ const EditForm = memo(
             </LinearGradient>
           </TouchableOpacity>
         </View>
+
+        {/* ✅ Date Picker Modal */}
+        <DatePicker
+          modal
+          open={showDatePicker}
+          date={editBirthdate || new Date()}
+          mode="date"
+          maximumDate={new Date()}
+          minimumDate={new Date(1900, 0, 1)}
+          title={t('viewUserProfile.selectBirthdate')}
+          confirmText={t('common.confirm')}
+          cancelText={t('common.cancel')}
+          onConfirm={date => {
+            setShowDatePicker(false);
+            onBirthdateChange(date);
+          }}
+          onCancel={() => {
+            setShowDatePicker(false);
+          }}
+        />
       </View>
     );
   },
@@ -566,6 +692,9 @@ const EditForm = memo(
       prevProps.editName === nextProps.editName &&
       prevProps.editBio === nextProps.editBio &&
       prevProps.editPassword === nextProps.editPassword &&
+      prevProps.editAddress === nextProps.editAddress &&
+      prevProps.editBirthdate?.getTime() ===
+        nextProps.editBirthdate?.getTime() &&
       prevProps.uploading === nextProps.uploading &&
       prevProps.editAvatar?.secure_url === nextProps.editAvatar?.secure_url
     );
@@ -595,6 +724,17 @@ const InfoSection = memo(
       [userData.createdAt, t],
     );
 
+    const birthdateDisplay = useMemo(() => {
+      if (!userData.birthdate) {
+        return t('viewUserProfile.notSpecified');
+      }
+      const age = calculateAge(userData.birthdate);
+      const dateStr = formatBirthdate(userData.birthdate, t);
+      return age
+        ? `${dateStr} (${age} ${t('viewUserProfile.yearsOld')})`
+        : dateStr;
+    }, [userData.birthdate, t]);
+
     return (
       <View style={styles.infoSection}>
         {userData.bio ? (
@@ -607,10 +747,35 @@ const InfoSection = memo(
           </View>
         ) : null}
 
+        {/* ✅ Personal Information Card */}
         <View style={styles.infoCard}>
           <View style={styles.cardHeader}>
             <Icon name="person" size={20} color="#4AC6D0" />
-            <Text style={styles.cardTitle}>{t('viewUserProfile.details')}</Text>
+            <Text style={styles.cardTitle}>
+              {t('viewUserProfile.personalInfo')}
+            </Text>
+          </View>
+
+          {/* ✅ Birthdate */}
+          <View style={styles.detailRow}>
+            <Icon name="cake" size={18} color="#6B7280" />
+            <Text style={styles.detailLabel}>
+              {t('viewUserProfile.birthdate')}:
+            </Text>
+            <Text style={styles.detailValue}>{birthdateDisplay}</Text>
+          </View>
+
+          {/* ✅ Address */}
+          <View style={styles.detailRow}>
+            <Icon name="location-on" size={18} color="#6B7280" />
+            <Text style={styles.detailLabel}>
+              {t('viewUserProfile.address')}:
+            </Text>
+            <Text
+              style={[styles.detailValue, styles.addressText]}
+              numberOfLines={2}>
+              {userData.address}
+            </Text>
           </View>
 
           <View style={styles.detailRow}>
@@ -680,6 +845,9 @@ const InfoSection = memo(
       prevProps.userData.bio === nextProps.userData.bio &&
       prevProps.userData.role === nextProps.userData.role &&
       prevProps.userData.language === nextProps.userData.language &&
+      prevProps.userData.address === nextProps.userData.address &&
+      JSON.stringify(prevProps.userData.birthdate) ===
+        JSON.stringify(nextProps.userData.birthdate) &&
       prevProps.groupCount === nextProps.groupCount &&
       prevProps.loadingStats === nextProps.loadingStats &&
       prevProps.isAdmin === nextProps.isAdmin &&
@@ -730,6 +898,7 @@ const ViewUserProfile: React.FC<ViewUserProfileProps> = ({
   );
 
   // Form handlers - memoized
+  // Form handlers - memoized
   const formHandlers = useMemo(
     () => ({
       handleNameChange: (text: string) =>
@@ -738,6 +907,11 @@ const ViewUserProfile: React.FC<ViewUserProfileProps> = ({
         dispatch({type: 'SET_EDIT_BIO', payload: text}),
       handlePasswordChange: (text: string) =>
         dispatch({type: 'SET_EDIT_PASSWORD', payload: text}),
+      // ✅ New handlers for address and birthdate
+      handleAddressChange: (text: string) =>
+        dispatch({type: 'SET_EDIT_ADDRESS', payload: text}),
+      handleBirthdateChange: (date: Date | null) =>
+        dispatch({type: 'SET_EDIT_BIRTHDATE', payload: date}),
       handleEditToggle: () => {
         if (state.isEditing) {
           dispatch({type: 'RESET_EDIT_FORM'});
@@ -876,8 +1050,19 @@ const ViewUserProfile: React.FC<ViewUserProfileProps> = ({
           const updateData: any = {
             name: state.editName.trim(),
             bio: state.editBio.trim(),
+            // ✅ Include new fields
+            address: state.editAddress.trim(),
             updatedAt: firestore.FieldValue.serverTimestamp(),
           };
+
+          // ✅ Handle birthdate
+          if (state.editBirthdate) {
+            updateData.birthdate = firestore.Timestamp.fromDate(
+              state.editBirthdate,
+            );
+          } else {
+            updateData.birthdate = firestore.FieldValue.delete();
+          }
 
           if (state.editAvatar) {
             updateData.avatar = state.editAvatar;
@@ -901,6 +1086,15 @@ const ViewUserProfile: React.FC<ViewUserProfileProps> = ({
             type: 'UPDATE_USER_FIELD',
             payload: {field: 'bio', value: state.editBio.trim()},
           });
+          dispatch({
+            type: 'UPDATE_USER_FIELD',
+            payload: {field: 'address', value: state.editAddress.trim()},
+          });
+          dispatch({
+            type: 'UPDATE_USER_FIELD',
+            payload: {field: 'birthdate', value: state.editBirthdate},
+          });
+
           if (state.editAvatar) {
             dispatch({
               type: 'UPDATE_USER_FIELD',
@@ -999,6 +1193,9 @@ const ViewUserProfile: React.FC<ViewUserProfileProps> = ({
           translateCode: data?.translateCode || 'en',
           createdAt: data?.createdAt,
           lastActive: data?.lastActive,
+          // ✅ Include new fields
+          address: data?.address || '',
+          birthdate: data?.birthdate || null,
           userStatus: data?.userStatus || {
             status: 'offline',
             lastSeen: null,
@@ -1028,7 +1225,6 @@ const ViewUserProfile: React.FC<ViewUserProfileProps> = ({
       dispatch({type: 'SET_LOADING', payload: false});
     }
   }, [userId, t, onClose, refs]);
-
   const loadTourGuideStats = useCallback(async () => {
     if (!userId || !computedValues.isAdmin) {
       return;
@@ -1098,10 +1294,14 @@ const ViewUserProfile: React.FC<ViewUserProfileProps> = ({
                 editBio={state.editBio}
                 editPassword={state.editPassword}
                 editAvatar={state.editAvatar}
+                editAddress={state.editAddress}
+                editBirthdate={state.editBirthdate}
                 uploading={state.uploading}
                 onNameChange={formHandlers.handleNameChange}
                 onBioChange={formHandlers.handleBioChange}
                 onPasswordChange={formHandlers.handlePasswordChange}
+                onAddressChange={formHandlers.handleAddressChange}
+                onBirthdateChange={formHandlers.handleBirthdateChange}
                 onImagePicker={imageHandlers.handleImagePicker}
                 onCancel={formHandlers.handleCancel}
                 onSave={businessHandlers.handleSaveChanges}
@@ -1163,6 +1363,40 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#F8FAFC',
   },
+  datePickerButton: {
+    justifyContent: 'center',
+    paddingVertical: 16,
+  },
+  datePickerContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  datePickerText: {
+    fontSize: 16,
+    color: '#1F2937',
+    marginLeft: 12,
+    flex: 1,
+  },
+  datePickerPlaceholder: {
+    color: '#9CA3AF',
+  },
+  clearDateButton: {
+    padding: 4,
+    borderRadius: 12,
+    backgroundColor: '#FEE2E2',
+  },
+  addressText: {
+    textAlign: 'right',
+    flexShrink: 1,
+  },
+  detailRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start', // Changed to flex-start for address
+    paddingVertical: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F1F5F9',
+  },
+
   header: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1373,7 +1607,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#F9FAFB',
   },
   editTextArea: {
-    height: 100,
+    height: 60,
     textAlignVertical: 'top',
   },
   editHint: {

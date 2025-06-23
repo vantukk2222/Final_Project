@@ -38,6 +38,7 @@ import LinearGradient from 'react-native-linear-gradient';
 import {useSocket} from '../contexts/SocketContext';
 import {useTranslation} from '../contexts/TranslationContext';
 import {translationTextService as translationService} from '../services/translationText';
+import {TourItinerary} from '../types/tour';
 
 // Types
 interface Message {
@@ -66,6 +67,15 @@ interface UserData {
     name: string;
     avatar: string;
   };
+}
+
+interface TourData {
+  id: string;
+  title: string;
+  location: string;
+  price: number;
+  image?: string;
+  status: string;
 }
 
 // Constants
@@ -494,6 +504,109 @@ const MessageInput = memo(
   },
 );
 
+// Pinned Tour Banner Component
+const PinnedTourBanner = memo(
+  ({
+    tour,
+    userRole,
+    onTourPress,
+    onClose,
+    t,
+  }: {
+    tour: TourItinerary;
+    userRole: string;
+    onTourPress: (tourId: string) => void;
+    onClose: () => void;
+    t: (key: string) => string;
+  }) => {
+    const handleTourPress = useCallback(() => {
+      onTourPress(tour.id);
+    }, [tour.id, onTourPress]);
+
+    return (
+      <View style={styles.pinnedTourContainer}>
+        <LinearGradient
+          colors={['rgba(74, 198, 208, 0.1)', 'rgba(74, 198, 208, 0.05)']}
+          style={styles.pinnedTourGradient}>
+          <View style={styles.pinnedTourHeader}>
+            <View style={styles.pinnedTourIconContainer}>
+              <Icon name="push-pin" size={16} color="#4AC6D0" />
+            </View>
+            <Text style={styles.pinnedTourHeaderText}>
+              {t('chatScreen.associatedTour')}
+            </Text>
+            <TouchableOpacity
+              style={styles.pinnedTourCloseButton}
+              onPress={onClose}>
+              <Icon name="close" size={16} color="#64748B" />
+            </TouchableOpacity>
+          </View>
+
+          <TouchableOpacity
+            style={styles.pinnedTourContent}
+            onPress={handleTourPress}
+            activeOpacity={0.7}>
+            <View style={styles.tourImageContainer}>
+              {tour.images ? (
+                <Image
+                  source={{uri: tour.images[0]}}
+                  style={styles.tourImage}
+                />
+              ) : (
+                <View style={styles.tourImagePlaceholder}>
+                  <Icon name="landscape" size={24} color="#4AC6D0" />
+                </View>
+              )}
+            </View>
+
+            <View style={styles.tourInfo}>
+              <Text style={styles.tourTitle} numberOfLines={1}>
+                {tour.title}
+              </Text>
+              <View style={styles.tourDetails}>
+                <Icon name="location-on" size={14} color="#64748B" />
+                <Text style={styles.tourLocation} numberOfLines={1}>
+                  {tour?.stops[0]?.destination?.address}
+                </Text>
+              </View>
+              <View style={styles.tourMeta}>
+                <Text style={styles.tourPrice}>${tour.price?.adult}</Text>
+                <View
+                  style={[
+                    styles.tourStatusBadge,
+                    tour.status === 'active' && styles.tourStatusActive,
+                    tour.status === 'completed' && styles.tourStatusCompleted,
+                  ]}>
+                  <Text
+                    style={[
+                      styles.tourStatusText,
+                      tour.status === 'active' && styles.tourStatusTextActive,
+                      tour.status === 'completed' &&
+                        styles.tourStatusTextCompleted,
+                    ]}>
+                    {t(`tour.management.${tour.status}`)}
+                  </Text>
+                </View>
+              </View>
+            </View>
+
+            <View style={styles.tourAction}>
+              <Icon
+                name={userRole === 'tour_guide' ? 'edit' : 'visibility'}
+                size={20}
+                color="#4AC6D0"
+              />
+              {/* <Text style={styles.tourActionText}>
+                {userRole === 'tour_guide' ? t('tour.edit') : t('tour.view')}
+              </Text> */}
+            </View>
+          </TouchableOpacity>
+        </LinearGradient>
+      </View>
+    );
+  },
+);
+
 // Main Component
 const ChatScreen: React.FC<{route: any}> = ({route}) => {
   const {user} = useAuth();
@@ -502,8 +615,9 @@ const ChatScreen: React.FC<{route: any}> = ({route}) => {
   const navigation = useNavigation<any>();
 
   // Route params
-  const {chatId, toUserId, avatar} = route.params || {};
+  const {chatId, toUserId, avatar: avt, isGroup} = route.params || {};
   const userId = user?.uid;
+  const [avatar, setAvatar] = useState(avt || '');
 
   // State
   const [name, setName] = useState(route.params?.name || '');
@@ -514,6 +628,42 @@ const ChatScreen: React.FC<{route: any}> = ({route}) => {
   const [translationState, setTranslationState] = useState<TranslationState>(
     {},
   );
+  const [associatedTour, setAssociatedTour] = useState<TourItinerary | null>(
+    null,
+  );
+  const [showTourBanner, setShowTourBanner] = useState(true);
+
+  useEffect(() => {
+    if (!chatId || !userId) {
+      Alert.alert('Error', 'Chat ID or User ID is missing');
+      return;
+    }
+    const isExistInChat = async () => {
+      const unsubscribeExistCheck = firestore()
+        .collection('chats')
+        .doc(chatId)
+        .onSnapshot(
+          chatDoc => {
+            if (!chatDoc.exists) {
+              Alert.alert('Error', 'Chat does not exist');
+              navigation.navigate('ChatList');
+              return;
+            }
+            const chatData = chatDoc.data();
+            if (!chatData?.members?.includes(userId)) {
+              navigation.navigate('ChatList');
+            }
+          },
+          error => {
+            console.error('Error checking chat membership:', error);
+            Alert.alert('Error', 'Failed to verify chat access');
+          },
+        );
+
+      return () => unsubscribeExistCheck();
+    };
+    isExistInChat();
+  }, [userId, chatId]);
 
   // Refs
   const flatListRef = useRef<FlatList>(null);
@@ -802,6 +952,24 @@ const ChatScreen: React.FC<{route: any}> = ({route}) => {
     setSelectedImage(null);
   }, []);
 
+  // Tour handlers - memoized
+  const tourHandlers = useMemo(
+    () => ({
+      handleTourPress: (tourId: string) => {
+        const {role} = user || {};
+        if (role === 'tour_guide') {
+          navigation.navigate('EditTour', {tourId});
+        } else {
+          navigation.navigate('TourDetail', {tourId});
+        }
+      },
+      handleCloseTourBanner: () => {
+        setShowTourBanner(false);
+      },
+    }),
+    [user, navigation],
+  );
+
   // Render item function - memoized
   const renderMessage = useCallback(
     ({item}: {item: Message}) => {
@@ -860,7 +1028,7 @@ const ChatScreen: React.FC<{route: any}> = ({route}) => {
     if (messages.length > 0 && flatListRef.current) {
       setTimeout(() => {
         flatListRef.current?.scrollToEnd({animated: true});
-      }, 100);
+      }, 800);
     }
   }, [messages]);
 
@@ -870,11 +1038,31 @@ const ChatScreen: React.FC<{route: any}> = ({route}) => {
       .collection('chats')
       .doc(chatId)
       .onSnapshot(chatDoc => {
+        console.log('chatId', chatId);
         const chatData = chatDoc.data();
         if (!chatData) {
           setName('Untitled Group');
         } else if (!chatData.members || chatData.members.length === 0) {
           setName(chatData.name || 'Untitled Group');
+        } else if (chatData.members.length === 1) {
+          const member = chatData.members.find((id: string) => id !== userId);
+          if (member) {
+            firestore()
+              .collection('users')
+              .doc(member)
+              .get()
+              .then(userDoc => {
+                const userData = userDoc.data();
+                setName(userData?.name || 'Unknown User');
+                setAvatar(userData?.avatar?.url || '');
+              });
+          } else {
+            setName(chatData.name || 'Untitled Group');
+            setAvatar(chatData.avatar?.url || '');
+          }
+        } else {
+          setName(chatData.name || 'Untitled Chat');
+          setAvatar(chatData.avatar?.url || '');
         }
       });
 
@@ -927,6 +1115,39 @@ const ChatScreen: React.FC<{route: any}> = ({route}) => {
     fetchUserData();
   }, [messages]);
 
+  // Associated tour listener
+  useEffect(() => {
+    if (!isGroup || !chatId) {
+      return;
+    }
+
+    console.log('Fetching tours shared with chatId:', chatId);
+
+    const unsubscribe = firestore()
+      .collection('tours')
+      .where('sharedWith', 'array-contains', chatId)
+      .onSnapshot(
+        toursSnapshot => {
+          console.log('Tours snapshot:', toursSnapshot);
+
+          const tours = toursSnapshot.docs.map(doc => ({
+            id: doc.id,
+            ...doc.data(),
+          }));
+          console.log('Fetched tours:', tours);
+          setAssociatedTour(tours[0] || null);
+        },
+        error => {
+          console.error('Error fetching tours:', error);
+        },
+      );
+
+    // ❗ Trả về hàm unsubscribe để dọn dẹp listener khi component unmount hoặc deps thay đổi
+    return () => {
+      unsubscribe();
+    };
+  }, [chatId, isGroup]);
+
   return (
     <SafeAreaView style={styles.container}>
       <StatusBar backgroundColor="#4AC6D0" barStyle="light-content" />
@@ -939,6 +1160,17 @@ const ChatScreen: React.FC<{route: any}> = ({route}) => {
         user={user}
         chatId={chatId}
       />
+
+      {/* Pinned Tour Banner */}
+      {associatedTour && showTourBanner && (
+        <PinnedTourBanner
+          tour={associatedTour}
+          userRole={user?.role || 'tourist'}
+          onTourPress={tourHandlers.handleTourPress}
+          onClose={tourHandlers.handleCloseTourBanner}
+          t={t}
+        />
+      )}
 
       <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
@@ -955,7 +1187,7 @@ const ChatScreen: React.FC<{route: any}> = ({route}) => {
             maxToRenderPerBatch={10}
             windowSize={10}
             initialNumToRender={20}
-            getItemLayout={undefined} // Let FlatList calculate
+            getItemLayout={undefined}
           />
 
           <MessageInput
@@ -1323,6 +1555,139 @@ const styles = StyleSheet.create({
   sendButtonDisabled: {
     transform: [{scale: 0.9}],
     opacity: 0.6,
+  },
+  pinnedTourContainer: {
+    marginHorizontal: 16,
+    marginTop: 8,
+    borderRadius: 12,
+    overflow: 'hidden',
+    elevation: 2,
+    shadowColor: '#4AC6D0',
+    shadowOffset: {width: 0, height: 2},
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+  },
+  pinnedTourGradient: {
+    borderWidth: 1,
+    borderColor: 'rgba(74, 198, 208, 0.2)',
+    borderRadius: 12,
+  },
+  pinnedTourHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(74, 198, 208, 0.1)',
+  },
+  pinnedTourIconContainer: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: 'rgba(74, 198, 208, 0.15)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 8,
+  },
+  pinnedTourHeaderText: {
+    flex: 1,
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#4AC6D0',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  pinnedTourCloseButton: {
+    padding: 4,
+  },
+  pinnedTourContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 12,
+  },
+  tourImageContainer: {
+    width: 60,
+    height: 60,
+    borderRadius: 8,
+    overflow: 'hidden',
+    marginRight: 12,
+  },
+  tourImage: {
+    width: '100%',
+    height: '100%',
+  },
+  tourImagePlaceholder: {
+    width: '100%',
+    height: '100%',
+    backgroundColor: 'rgba(74, 198, 208, 0.1)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  tourInfo: {
+    flex: 1,
+    marginRight: 12,
+  },
+  tourTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#1E293B',
+    marginBottom: 4,
+  },
+  tourDetails: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 6,
+  },
+  tourLocation: {
+    fontSize: 13,
+    color: '#64748B',
+    marginLeft: 4,
+    flex: 1,
+  },
+  tourMeta: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  tourPrice: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#4AC6D0',
+  },
+  tourStatusBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 12,
+    backgroundColor: '#F1F5F9',
+  },
+  tourStatusActive: {
+    backgroundColor: 'rgba(16, 185, 129, 0.1)',
+  },
+  tourStatusCompleted: {
+    backgroundColor: 'rgba(99, 102, 241, 0.1)',
+  },
+  tourStatusText: {
+    fontSize: 10,
+    fontWeight: '600',
+    color: '#64748B',
+    textTransform: 'uppercase',
+  },
+  tourStatusTextActive: {
+    color: '#10B981',
+  },
+  tourStatusTextCompleted: {
+    color: '#6366F1',
+  },
+  tourAction: {
+    alignItems: 'center',
+    paddingLeft: 8,
+  },
+  tourActionText: {
+    fontSize: 10,
+    fontWeight: '600',
+    color: '#4AC6D0',
+    marginTop: 2,
+    textTransform: 'uppercase',
   },
 });
 

@@ -218,7 +218,7 @@ const AuthProviderInternal: React.FC<{children: React.ReactNode}> = ({
   // Document listener cleanup
   const cleanupDocListener = useCallback(() => {
     if (unsubscribeDocRef.current) {
-      console.log('🧹 Cleaning up document listener');
+      // console.log('🧹 Cleaning up document listener');
       unsubscribeDocRef.current();
       unsubscribeDocRef.current = null;
     }
@@ -262,7 +262,7 @@ const AuthProviderInternal: React.FC<{children: React.ReactNode}> = ({
     ) => {
       try {
         if (isSigningOutRef.current) {
-          console.log('⏭️ Skipping document update during signout');
+          // console.log('⏭️ Skipping document update during signout');
           return;
         }
 
@@ -324,7 +324,7 @@ const AuthProviderInternal: React.FC<{children: React.ReactNode}> = ({
     (authUser: FirebaseAuthTypes.User) => {
       cleanupDocListener();
 
-      console.log('👂 Setting up user document listener for:', authUser.uid);
+      // console.log('👂 Setting up user document listener for:', authUser.uid);
 
       const unsubscribeDoc = firestore()
         .collection('users')
@@ -342,7 +342,7 @@ const AuthProviderInternal: React.FC<{children: React.ReactNode}> = ({
   // Auth state change handler
   const handleAuthStateChange = useCallback(
     async (authUser: FirebaseAuthTypes.User | null) => {
-      console.log('🔐 Auth state changed:', authUser?.uid || 'null');
+      // console.log('🔐 Auth state changed:', authUser?.uid || 'null');
 
       if (authUser && !isSigningOutRef.current) {
         setupUserDocumentListener(authUser);
@@ -364,12 +364,12 @@ const AuthProviderInternal: React.FC<{children: React.ReactNode}> = ({
 
   // Main auth state listener effect
   useEffect(() => {
-    console.log('🚀 Setting up auth state listener');
+    // console.log('🚀 Setting up auth state listener');
 
     const unsubscribeAuth = auth().onAuthStateChanged(handleAuthStateChange);
 
     return () => {
-      console.log('🧹 Cleaning up auth state listener');
+      // console.log('🧹 Cleaning up auth state listener');
       unsubscribeAuth();
       cleanupDocListener();
     };
@@ -388,6 +388,9 @@ const AuthProviderInternal: React.FC<{children: React.ReactNode}> = ({
         setLoading(false);
         console.error('❌ Sign in error:', error);
         throw error;
+      } finally {
+        // console.log('🔐 Sign in process completed');
+        setLoading(false);
       }
     },
     [setLoading],
@@ -445,7 +448,7 @@ const AuthProviderInternal: React.FC<{children: React.ReactNode}> = ({
 
   const signOut = useCallback(async () => {
     try {
-      console.log('🚪 Starting signout process');
+      // console.log('🚪 Starting signout process');
       isSigningOutRef.current = true;
 
       const currentUser = auth().currentUser;
@@ -455,7 +458,7 @@ const AuthProviderInternal: React.FC<{children: React.ReactNode}> = ({
         try {
           await fcmService.removeToken(currentUser.uid);
         } catch (updateError) {
-          console.log('⚠️ Could not update user data on signout:', updateError);
+          // console.log('⚠️ Could not update user data on signout:', updateError);
         }
       }
 
@@ -471,7 +474,7 @@ const AuthProviderInternal: React.FC<{children: React.ReactNode}> = ({
       // Sign out from Firebase
       await auth().signOut();
 
-      console.log('✅ Signout completed successfully');
+      // console.log('✅ Signout completed successfully');
     } catch (error: any) {
       console.error('❌ Error signing out:', error);
 
@@ -497,12 +500,19 @@ const AuthProviderInternal: React.FC<{children: React.ReactNode}> = ({
     const currentUser = auth().currentUser;
     if (currentUser) {
       try {
-        const doc = await firestore()
+        const unsubscribe = firestore()
           .collection('users')
           .doc(currentUser.uid)
-          .get();
-
-        await handleUserDocumentSnapshot(doc, currentUser);
+          .onSnapshot(
+            doc => {
+              handleUserDocumentSnapshot(doc, currentUser);
+              unsubscribe(); // Unsubscribe after first snapshot
+            },
+            error => {
+              console.error('❌ Error refreshing user:', error);
+              unsubscribe(); // Unsubscribe on error
+            },
+          );
       } catch (error) {
         console.error('❌ Error refreshing user:', error);
       }

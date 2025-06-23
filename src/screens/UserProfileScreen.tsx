@@ -24,7 +24,7 @@ import Loading from '../components/Loading';
 import {useNavigation} from '@react-navigation/native';
 import LinearGradient from 'react-native-linear-gradient';
 import LanguageSelectionModal from '../components/SystemLan';
-
+import DatePicker from 'react-native-date-picker';
 const {width} = Dimensions.get('window');
 
 const UserProfileScreen = () => {
@@ -50,6 +50,9 @@ const UserProfileScreen = () => {
   const [showNewPassword, setShowNewPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [showLanguageModal, setShowLanguageModal] = useState(false);
+  const [address, setAddress] = useState('');
+  const [birthdate, setBirthdate] = useState('');
+  const [openDatePicker, setOpenDatePicker] = useState(false);
 
   useEffect(() => {
     if (!userId) {
@@ -64,6 +67,8 @@ const UserProfileScreen = () => {
           setName(data?.name || '');
           setEmail(data?.email || '');
           setBio(data?.bio || '');
+          setAddress(data?.address || '');
+          setBirthdate(data?.birthdate || '');
           setAvatarUrl(data?.avatar || '');
         }
       } catch (err) {
@@ -85,12 +90,17 @@ const UserProfileScreen = () => {
 
     setLoading(true);
     try {
-      await firestore().collection('users').doc(userId).update({
-        name: name.trim(),
-        bio: bio.trim(),
-        avatar: avatarUrl,
-        updatedAt: firestore.FieldValue.serverTimestamp(),
-      });
+      await firestore()
+        .collection('users')
+        .doc(userId)
+        .update({
+          name: name.trim(),
+          bio: bio.trim(),
+          avatar: avatarUrl,
+          address: address || '',
+          birthdate: birthdate || '',
+          updatedAt: firestore.FieldValue.serverTimestamp(),
+        });
       Alert.alert(t('common.success'), t('profile.profileUpdatedSuccessfully'));
     } catch (err) {
       console.error(err);
@@ -405,6 +415,61 @@ const UserProfileScreen = () => {
                 placeholderTextColor="#9CA3AF"
               />
             </View>
+          </View>
+
+          {/* Address Field */}
+          <View style={styles.inputGroup}>
+            <Text style={styles.label}>{t('profile.address')}</Text>
+            <View style={styles.inputContainer}>
+              <Icon
+                name="location-on"
+                size={20}
+                color="#6B7280"
+                style={styles.inputIcon}
+              />
+              <TextInput
+                style={styles.input}
+                value={address}
+                onChangeText={setAddress}
+                placeholder={t('profile.addressPlaceholder')}
+                placeholderTextColor="#9CA3AF"
+              />
+            </View>
+          </View>
+
+          {/* Birthdate Field */}
+          <View style={styles.inputGroup}>
+            <Text style={styles.label}>{t('profile.birthdate')}</Text>
+            <TouchableOpacity
+              style={styles.inputContainer}
+              onPress={() => setOpenDatePicker(true)}>
+              <Icon
+                name="cake"
+                size={20}
+                color="#6B7280"
+                style={styles.inputIcon}
+              />
+              <Text
+                style={[
+                  styles.input,
+                  {color: birthdate ? '#374151' : '#9CA3AF'},
+                ]}>
+                {birthdate || t('profile.birthdayPlaceholder')}
+              </Text>
+              <Icon name="date-range" size={20} color="#6B7280" />
+            </TouchableOpacity>
+            <DatePicker
+              modal
+              open={openDatePicker}
+              date={birthdate ? new Date(birthdate) : new Date()}
+              onConfirm={date => {
+                setOpenDatePicker(false);
+                setBirthdate(date);
+              }}
+              onCancel={() => {
+                setOpenDatePicker(false);
+              }}
+            />
           </View>
 
           {/* Bio Field */}

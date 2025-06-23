@@ -201,7 +201,7 @@ const useSoundManager = () => {
         console.log('🔇 Sound disabled for type:', type);
         return;
       }
-
+      console.log(`🎵 Playing sound for type: ${type}`, config);
       try {
         // Stop any currently playing track
         await TrackPlayer.stop();
@@ -297,7 +297,7 @@ const useSoundManager = () => {
 
   // Cleanup function
   const cleanupSound = useCallback((): void => {
-    console.log('🧹 Cleaning up sound manager...');
+    // console.log('🧹 Cleaning up sound manager...');
 
     if (refs.playbackLoopInterval) {
       clearTimeout(refs.playbackLoopInterval);
@@ -580,19 +580,19 @@ export default function SocketClient() {
     }
 
     try {
-      const retryableUpdate = createRetryableFunction(
-        () => updateMeetingDocument(notificationData.meetingId!),
-        3,
-        1000,
-      );
+      // const retryableUpdate = createRetryableFunction(
+      //   () => updateMeetingDocument(notificationData.meetingId!),
+      //   3,
+      //   1000,
+      // );
 
-      await retryableUpdate();
+      // await retryableUpdate();
       setModalCalledOK(true);
       setMeetingId(notificationData.meetingId);
     } catch (error) {
       console.error('❌ Error accepting call:', error);
     }
-  }, [notificationData, soundManager, updateMeetingDocument]);
+  }, [notificationData, soundManager]);
 
   const onCallModalDecline = useCallback((): void => {
     setCallModalVisible(false);

@@ -99,6 +99,7 @@ export const speakTranslationTempFile = async (
 /**
  * TrackPlayer method (Primary)
  */
+// ✅ Enhanced TrackPlayer method with better state management
 export const speakTranslationTrackPlayer = async (
   text: string,
   key: any,
@@ -106,7 +107,7 @@ export const speakTranslationTrackPlayer = async (
   targetLanguageCode: string = 'vi',
 ) => {
   const voice = voiceMap[targetLanguageCode] || voiceMap.vi;
-  console.log('🔊 Speaking with TrackPlayer');
+  console.log('🔊 Speaking with TrackPlayer (Direct):', text);
 
   const headers = {
     'Ocp-Apim-Subscription-Key': key,
@@ -129,71 +130,85 @@ export const speakTranslationTrackPlayer = async (
       },
     );
 
-    // Tạo temp file
-    const timestamp = Date.now();
-    const tempPath = `${RNFS.CachesDirectoryPath}/tts_${timestamp}.mp3`;
+    console.log('🎵 Playing directly with TrackPlayer...');
 
-    await RNFS.writeFile(
-      tempPath,
-      Buffer.from(response.data).toString('base64'),
-      'base64',
-    );
-
-    console.log('🎵 Playing with TrackPlayer...');
-
-    // Stop và clear queue trước
     try {
-      await TrackPlayer.stop();
+      const currentState = await TrackPlayer.getState();
+      console.log('Current TrackPlayer state:', currentState);
+
+      if (currentState === State.Playing || currentState === State.Paused) {
+        console.log('🛑 Stopping current playback...');
+        await TrackPlayer.stop();
+      }
+
       await TrackPlayer.reset();
+      console.log('🧹 TrackPlayer queue cleared');
     } catch (e) {
-      console.log('TrackPlayer was not playing');
+      console.log('TrackPlayer was not playing:', e.message);
     }
 
-    // Add track và play
+    // ✅ Convert ArrayBuffer to base64 data URL
+    const base64Audio = Buffer.from(response.data).toString('base64');
+    const dataUrl = `data:audio/mp3;base64,${base64Audio}`;
+
+    // Add track với data URL
+    const trackId = `tts_${Date.now()}`;
     await TrackPlayer.add({
-      id: `tts_${timestamp}`,
-      url: `file://${tempPath}`,
+      id: trackId,
+      url: dataUrl, // ✅ Sử dụng data URL thay vì file path
       title: 'Translation Audio',
       artist: 'TTS',
-      duration: 0, // TrackPlayer sẽ tự detect
+      duration: 0,
+      repeated: false,
     });
 
     await TrackPlayer.play();
-    console.log('🎵 TrackPlayer started playing');
+    console.log('🎵 TrackPlayer started playing directly:', trackId);
 
     return new Promise((resolve, reject) => {
       let checkInterval: NodeJS.Timeout;
       let timeoutId: NodeJS.Timeout;
+      let resolved = false;
 
       const cleanup = () => {
+        if (resolved) {
+          return;
+        }
+        resolved = true;
+
         if (checkInterval) {
           clearInterval(checkInterval);
         }
         if (timeoutId) {
           clearTimeout(timeoutId);
         }
-        // Cleanup file
-        RNFS.unlink(tempPath).catch(() => {});
+        // ✅ No temp file to cleanup
       };
 
       const checkPlaybackStatus = async () => {
+        if (resolved) {
+          return;
+        }
+
         try {
           const state = await TrackPlayer.getState();
           const position = await TrackPlayer.getPosition();
           const duration = await TrackPlayer.getDuration();
 
           console.log(
-            `🎵 TrackPlayer state: ${state}, position: ${position}/${duration}`,
+            `🎵 TrackPlayer state: ${state}, position: ${position.toFixed(
+              3,
+            )}/${duration.toFixed(3)}`,
           );
 
-          // Check if playback finished
+          // ✅ Better completion detection
           if (
             state === State.Stopped ||
-            state === State.Paused ||
-            (duration > 0 && position >= duration - 0.1)
+            state === State.None ||
+            (duration > 0 && position >= duration - 0.05)
           ) {
             cleanup();
-            console.log('✅ TrackPlayer playback completed');
+            console.log('✅ TrackPlayer direct playback completed');
             resolve('trackplayer_played');
           }
         } catch (error) {
@@ -203,18 +218,18 @@ export const speakTranslationTrackPlayer = async (
         }
       };
 
-      // Check every 200ms
+      // ✅ Check every 200ms for better accuracy
       checkInterval = setInterval(checkPlaybackStatus, 200);
 
-      // Timeout after 30 seconds
+      // ✅ Timeout after 10 seconds
       timeoutId = setTimeout(() => {
         cleanup();
-        console.log('⏰ TrackPlayer timeout');
+        console.log('⏰ TrackPlayer direct timeout');
         resolve('trackplayer_timeout');
-      }, 30000);
+      }, 10000);
     });
   } catch (error) {
-    console.error('❌ TrackPlayer TTS error:', error);
+    console.error('❌ TrackPlayer direct TTS error:', error);
     throw error;
   }
 };

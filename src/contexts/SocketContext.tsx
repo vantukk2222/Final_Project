@@ -15,9 +15,9 @@ import {AppState, AppStateStatus} from 'react-native';
 import firestore from '@react-native-firebase/firestore';
 import NetInfo from '@react-native-community/netinfo';
 
-// Constants
+// // Constants
 const SOCKET_SERVER_URL = 'ws://backendfinalpro-ct.onrender.com';
-// const SOCKET_SERVER_URL = 'http://192.168.1.10:3001';
+// const SOCKET_SERVER_URL = 'http://192.168.12.148:3001';
 
 const SOCKET_CONFIG = Object.freeze({
   timeout: 10000,
@@ -249,6 +249,7 @@ export const SocketProvider: React.FC<SocketProviderProps> = memo(
     const refs = useStableRefs();
     const isNetworkAvailable = useNetworkMonitoring();
 
+    // console.log(`🔌 SocketProvider initialized with server URL: ${serverUrl}`);
     // Merge configs
     const socketConfig = useMemo(
       () => ({
@@ -300,7 +301,7 @@ export const SocketProvider: React.FC<SocketProviderProps> = memo(
               });
             }
 
-            console.log(`🔄 User status updated to ${status}`);
+            // console.log(`🔄 User status updated to ${status}`);
           } catch (error) {
             console.error('❌ Error updating user status:', error);
             throw error;
@@ -342,7 +343,7 @@ export const SocketProvider: React.FC<SocketProviderProps> = memo(
     }, [refs]);
 
     // Enhanced heartbeat with health monitoring
-    const setupHeartbeat = useCallback(() => {
+    const setupHeartbeat = useCallback((): void => {
       if (refs.heartbeatInterval) {
         clearInterval(refs.heartbeatInterval);
       }
@@ -374,11 +375,16 @@ export const SocketProvider: React.FC<SocketProviderProps> = memo(
 
           // Trigger reconnection after multiple failures
           if (refs.consecutiveFailures >= 3) {
-            reconnect();
+            scheduleReconnection();
           }
         }
       }, socketConfig.heartbeatInterval);
-    }, [user?.uid, isNetworkAvailable, socketConfig.heartbeatInterval]);
+    }, [
+      user?.uid,
+      isNetworkAvailable,
+      socketConfig.heartbeatInterval,
+      scheduleReconnection,
+    ]);
 
     // Enhanced app state handling
     const handleAppStateChange = useCallback(
@@ -392,10 +398,10 @@ export const SocketProvider: React.FC<SocketProviderProps> = memo(
             case 'active':
               await updateUserStatus('online', true);
               setupHeartbeat();
-
               // Reconnect if disconnected
               if (!refs.socket?.connected && isNetworkAvailable) {
-                reconnect();
+                // Use scheduleReconnection or initializeSocket instead of reconnect()
+                initializeSocket();
               }
               break;
 
@@ -415,7 +421,13 @@ export const SocketProvider: React.FC<SocketProviderProps> = memo(
           console.error('❌ Error handling app state change:', error);
         }
       },
-      [user?.uid, updateUserStatus, setupHeartbeat, isNetworkAvailable],
+      [
+        user?.uid,
+        updateUserStatus,
+        setupHeartbeat,
+        isNetworkAvailable,
+        initializeSocket,
+      ],
     );
 
     // Enhanced socket initialization with comprehensive error handling
@@ -446,7 +458,7 @@ export const SocketProvider: React.FC<SocketProviderProps> = memo(
         );
 
         const fcmToken = await withTimeout(retryableGetToken(), 10000);
-        console.log('🚀 Initializing socket for user:', user.uid);
+        // console.log('🚀 Initializing socket for user:', user.uid);
 
         // Create socket with enhanced configuration
         refs.socket = io(serverUrl, {
@@ -461,7 +473,7 @@ export const SocketProvider: React.FC<SocketProviderProps> = memo(
 
         // Connection event handlers
         refs.socket.on(SocketEvents.CONNECT, async () => {
-          console.log('✅ Socket connected with ID:', refs.socket?.id);
+          // console.log('✅ Socket connected with ID:', refs.socket?.id);
           refs.connectionStartTime = Date.now();
           dispatch({type: 'CONNECTION_SUCCESS'});
 
@@ -485,7 +497,7 @@ export const SocketProvider: React.FC<SocketProviderProps> = memo(
         });
 
         refs.socket.on(SocketEvents.DISCONNECT, async (reason: string) => {
-          console.log('🔌 Socket disconnected, reason:', reason);
+          // console.log('🔌 Socket disconnected, reason:', reason);
           dispatch({type: 'USER_DISCONNECTED'});
 
           // Set user as offline
@@ -517,7 +529,7 @@ export const SocketProvider: React.FC<SocketProviderProps> = memo(
         });
 
         refs.socket.on(SocketEvents.RECONNECT, async () => {
-          console.log('🔄 Socket reconnected successfully');
+          // console.log('🔄 Socket reconnected successfully');
           dispatch({type: 'CONNECTION_SUCCESS'});
           await updateUserStatus('online', true);
           setupHeartbeat();
@@ -526,12 +538,12 @@ export const SocketProvider: React.FC<SocketProviderProps> = memo(
         // Pong handler for latency measurement
         refs.socket.on('pong', (timestamp: number) => {
           const latency = Date.now() - timestamp;
-          console.log(`🏓 Ping latency: ${latency}ms`);
+          // console.log(`🏓 Ping latency: ${latency}ms`);
         });
 
         // Enhanced user status updates
         refs.socket.on(SocketEvents.USER_STATUS_UPDATED, (data: any) => {
-          console.log('📱 User status updated:', data);
+          // console.log('📱 User status updated:', data);
           // Emit to other listeners if needed
         });
       } catch (error) {
@@ -572,9 +584,9 @@ export const SocketProvider: React.FC<SocketProviderProps> = memo(
         maxDelay,
       );
 
-      console.log(
-        `🔄 Scheduling reconnection in ${delay}ms (attempt ${attempt + 1})`,
-      );
+      // console.log(
+      //   `🔄 Scheduling reconnection in ${delay}ms (attempt ${attempt + 1})`,
+      // );
       dispatch({
         type: 'SET_CONNECTION_STATE',
         payload: ConnectionState.RECONNECTING,
@@ -594,7 +606,7 @@ export const SocketProvider: React.FC<SocketProviderProps> = memo(
 
     // Enhanced cleanup function
     const cleanupSocket = useCallback(async () => {
-      console.log('🧹 Cleaning up socket');
+      // console.log('🧹 Cleaning up socket');
 
       // Clear timeouts and intervals
       if (refs.reconnectTimeout) {
@@ -642,7 +654,7 @@ export const SocketProvider: React.FC<SocketProviderProps> = memo(
               return false;
             }
 
-            console.log('📤 Emitting event:', event, data);
+            // console.log('📤 Emitting event:', event, data);
             refs.socket.emit(event, data);
             return true;
           } catch (error) {
@@ -717,7 +729,7 @@ export const SocketProvider: React.FC<SocketProviderProps> = memo(
         },
 
         reconnect: async (): Promise<void> => {
-          console.log('🔄 Manual reconnect requested');
+          // console.log('🔄 Manual reconnect requested');
           await cleanupSocket();
           dispatch({type: 'RESET_RECONNECT_ATTEMPTS'});
           setTimeout(() => {

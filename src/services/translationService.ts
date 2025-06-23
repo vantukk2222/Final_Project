@@ -214,7 +214,7 @@ class TranslationService {
     await this.loadSettings();
 
     this.isInitialized = true;
-    console.log('🌐 Translation Service initialized successfully');
+    // console.log('🌐 Translation Service initialized successfully');
   }
 
   /**
@@ -239,10 +239,10 @@ class TranslationService {
     this.validateLanguageCode(selectedLanguage);
 
     try {
-      console.log(
-        '🚀 Completing first launch with language:',
-        selectedLanguage,
-      );
+      // console.log(
+      //   '🚀 Completing first launch with language:',
+      //   selectedLanguage,
+      // );
 
       // Mark first launch as done
       await AsyncStorage.setItem(StorageKeys.FIRST_LAUNCH, 'true');
@@ -250,7 +250,7 @@ class TranslationService {
       // Set language and translate if needed
       await this.setLanguage(selectedLanguage);
 
-      console.log('✅ First launch completed successfully');
+      // console.log('✅ First launch completed successfully');
     } catch (error) {
       console.error('❌ Error completing first launch:', error);
       throw new Error(
@@ -266,12 +266,12 @@ class TranslationService {
     this.validateLanguageCode(languageCode);
 
     if (languageCode === this.currentLanguage) {
-      console.log('🔄 Language already set to:', languageCode);
+      // console.log('🔄 Language already set to:', languageCode);
       return;
     }
 
     try {
-      console.log('🌐 Setting language to:', languageCode);
+      // console.log('🌐 Setting language to:', languageCode);
       this.setStatus(TranslationStatus.LOADING);
 
       this.currentLanguage = languageCode;
@@ -280,13 +280,13 @@ class TranslationService {
       if (languageCode === 'en') {
         // Use original English data
         this.translationData = lanEn;
-        console.log('📝 Using original English data');
+        // console.log('📝 Using original English data');
       } else {
         await this.loadOrTranslateLanguage(languageCode);
       }
 
       this.setStatus(TranslationStatus.SUCCESS);
-      console.log('✅ Language set successfully to:', languageCode);
+      // console.log('✅ Language set successfully to:', languageCode);
     } catch (error) {
       console.error('❌ Error setting language:', error);
       this.setStatus(TranslationStatus.ERROR);
@@ -412,7 +412,7 @@ class TranslationService {
       await AsyncStorage.multiRemove(translationKeys);
       this.cache.clear();
 
-      console.log('🗑️ Translation cache cleared');
+      // console.log('🗑️ Translation cache cleared');
     } catch (error) {
       console.error('❌ Error clearing cache:', error);
       throw new Error(`Failed to clear cache: ${(error as Error).message}`);
@@ -559,7 +559,7 @@ class TranslationService {
     // Check if translation is already in progress
     const existingPromise = this.translationPromises.get(languageCode);
     if (existingPromise) {
-      console.log('🔄 Translation already in progress for:', languageCode);
+      // console.log('🔄 Translation already in progress for:', languageCode);
       this.translationData = await existingPromise;
       return;
     }
@@ -567,7 +567,7 @@ class TranslationService {
     // Check cache first
     const cachedTranslation = await this.getCachedTranslation(languageCode);
     if (cachedTranslation && this.isCacheValid(cachedTranslation)) {
-      console.log('📋 Using cached translation for:', languageCode);
+      // console.log('📋 Using cached translation for:', languageCode);
       this.translationData = cachedTranslation.data;
       return;
     }
@@ -591,9 +591,9 @@ class TranslationService {
     targetLanguage: LanguageCode,
   ): Promise<TranslationData> {
     const azureLangCode = this.getAzureLanguageCode(targetLanguage);
-    console.log(
-      `🔄 Starting translation to ${targetLanguage} (Azure: ${azureLangCode})`,
-    );
+    // console.log(
+    //   `🔄 Starting translation to ${targetLanguage} (Azure: ${azureLangCode})`,
+    // );
 
     this.setStatus(TranslationStatus.TRANSLATING);
 
@@ -602,7 +602,7 @@ class TranslationService {
       const flatTexts = this.flattenTranslationObject(lanEn);
       const textsToTranslate = Object.values(flatTexts);
 
-      console.log(`📝 Translating ${textsToTranslate.length} texts...`);
+      // console.log(`📝 Translating ${textsToTranslate.length} texts...`);
 
       // Translate in batches with retry logic
       const translatedTexts: string[] = [];
@@ -635,7 +635,7 @@ class TranslationService {
       // Cache the translated data
       await this.cacheTranslation(targetLanguage, translatedData);
 
-      console.log('✅ Translation completed and cached successfully');
+      // console.log('✅ Translation completed and cached successfully');
       return translatedData;
     } catch (error) {
       console.error('❌ Error translating language:', error);
@@ -796,7 +796,7 @@ class TranslationService {
       await AsyncStorage.setItem(cacheKey, JSON.stringify(cache));
       this.cache.set(languageCode, cache);
 
-      console.log('💾 Translation cached for:', languageCode);
+      // console.log('💾 Translation cached for:', languageCode);
     } catch (error) {
       console.error('❌ Error caching translation:', error);
       // Non-fatal error, don't throw
@@ -836,7 +836,7 @@ class TranslationService {
         }
       }
 
-      console.log('📋 Translation settings loaded:', this.currentLanguage);
+      // console.log('📋 Translation settings loaded:', this.currentLanguage);
     } catch (error) {
       console.error('❌ Error loading translation settings:', error);
       // Reset to default on error

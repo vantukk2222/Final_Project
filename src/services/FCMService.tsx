@@ -155,7 +155,7 @@ class FCMService {
     userId: string | null,
     onSessionConflict?: (conflictData: SessionConflictData) => void,
   ): Promise<void> {
-    console.log('🔧 FCMService: Setting user', userId);
+    // console.log('🔧 FCMService: Setting user', userId);
 
     try {
       // Clean up previous user if different
@@ -181,7 +181,7 @@ class FCMService {
         this.setupTokenRefreshListener(userId);
         this.startHeartbeat(userId);
 
-        console.log('✅ FCMService: User set successfully');
+        // console.log('✅ FCMService: User set successfully');
       }
     } catch (error) {
       console.error('❌ FCMService: Error setting user:', error);
@@ -193,7 +193,7 @@ class FCMService {
    * Remove token with enhanced cleanup
    */
   async removeToken(userId: string): Promise<void> {
-    console.log('🗑️ FCMService: Removing token for user', userId);
+    // console.log('🗑️ FCMService: Removing token for user', userId);
 
     if (!userId) {
       console.warn('⚠️ FCMService: No user ID provided for token removal');
@@ -215,7 +215,7 @@ class FCMService {
       );
 
       await retryableRemove();
-      console.log('✅ FCMService: Token removed successfully');
+      // console.log('✅ FCMService: Token removed successfully');
     } catch (error) {
       console.error('❌ FCMService: Error removing token:', error);
       throw error;
@@ -253,7 +253,7 @@ class FCMService {
           Date.now() - lastActiveTime > this.config.sessionTimeoutMs;
 
         if (isExpired) {
-          console.log('⏰ FCMService: Session expired due to timeout');
+          // console.log('⏰ FCMService: Session expired due to timeout');
           return false;
         }
       }
@@ -304,7 +304,7 @@ class FCMService {
   async removeSession(userId: string): Promise<void> {
     try {
       if (userId && this.sessionId) {
-        console.log('🚪 FCMService: Removing session for user', userId);
+        // console.log('🚪 FCMService: Removing session for user', userId);
 
         const retryableRemove = createRetryableFunction(
           () =>
@@ -329,7 +329,7 @@ class FCMService {
         );
 
         await retryableRemove();
-        console.log('✅ FCMService: Session removed successfully');
+        // console.log('✅ FCMService: Session removed successfully');
       }
     } catch (error) {
       console.error('❌ FCMService: Error removing session:', error);
@@ -341,7 +341,7 @@ class FCMService {
    * Enhanced cleanup with complete resource deallocation
    */
   async cleanup(): Promise<void> {
-    console.log('🧹 FCMService: Cleaning up');
+    // console.log('🧹 FCMService: Cleaning up');
 
     try {
       // Stop heartbeat
@@ -383,7 +383,7 @@ class FCMService {
       this.isInitialized = false;
       this.initializationPromise = null;
 
-      console.log('✅ FCMService: Cleanup completed');
+      // console.log('✅ FCMService: Cleanup completed');
     } catch (error) {
       console.error('❌ FCMService: Error during cleanup:', error);
     }
@@ -441,7 +441,7 @@ class FCMService {
    */
   private async performInitialization(): Promise<boolean> {
     try {
-      console.log('🚀 FCMService: Initializing...');
+      // console.log('🚀 FCMService: Initializing...');
 
       // Gather comprehensive device info
       const [deviceId, model, appVersion, buildNumber] = await Promise.all([
@@ -470,7 +470,7 @@ class FCMService {
         authStatus === messaging.AuthorizationStatus.PROVISIONAL;
 
       if (enabled) {
-        console.log('✅ FCM Authorization status:', authStatus);
+        // console.log('✅ FCM Authorization status:', authStatus);
         this.isInitialized = true;
       } else {
         console.warn('⚠️ FCM Permission denied');
@@ -492,6 +492,7 @@ class FCMService {
     onSessionConflict?: (conflictData: SessionConflictData) => void,
   ): Promise<void> {
     try {
+      // console.log('🔧 FCMService: Creating session for user', userId);
       const fcmToken = await withTimeout(messaging().getToken(), 10000);
       this.sessionId = `${this.deviceInfo!.deviceId}_${Date.now()}`;
 
@@ -525,10 +526,10 @@ class FCMService {
           existingSession.isActive &&
           existingSession.deviceId !== this.deviceInfo!.deviceId
         ) {
-          console.log(
-            '🔄 FCMService: Kicking existing session:',
-            existingSession,
-          );
+          // console.log(
+          //   '🔄 FCMService: Kicking existing session:',
+          //   existingSession,
+          // );
 
           // Archive existing session
           transaction.update(userRef, {
@@ -562,10 +563,10 @@ class FCMService {
       // Setup session monitoring
       this.watchSession(userId, onSessionConflict);
 
-      console.log(
-        '✅ FCMService: Session created successfully:',
-        this.sessionId,
-      );
+      // console.log(
+      //   '✅ FCMService: Session created successfully:',
+      //   this.sessionId,
+      // );
     } catch (error) {
       console.error('❌ FCMService: Error creating session:', error);
       throw error;
@@ -594,7 +595,7 @@ class FCMService {
 
             // Check if our session has been kicked
             if (this.isSessionKicked(currentSession)) {
-              console.log('👋 FCMService: Session kicked by:', currentSession);
+              // console.log('👋 FCMService: Session kicked by:', currentSession);
 
               const conflictData: SessionConflictData = {
                 sessionId: currentSession.sessionId,
@@ -613,7 +614,7 @@ class FCMService {
 
             // Check for session expiry
             if (this.isSessionExpired(currentSession)) {
-              console.log('⏰ FCMService: Session expired');
+              // console.log('⏰ FCMService: Session expired');
               this.emitEvent(FCMEvents.SESSION_EXPIRED, {
                 sessionId: this.sessionId,
               });
@@ -675,7 +676,7 @@ class FCMService {
       const fcmToken = await withTimeout(messaging().getToken(), 10000);
 
       if (fcmToken && fcmToken !== this.tokenRef) {
-        console.log('🔄 FCMService: Updating token...');
+        // console.log('🔄 FCMService: Updating token...');
 
         const retryableUpdate = createRetryableFunction(
           () =>
@@ -694,7 +695,7 @@ class FCMService {
         this.tokenRef = fcmToken;
 
         this.emitEvent(FCMEvents.TOKEN_UPDATED, {token: fcmToken});
-        console.log('✅ FCMService: Token updated successfully');
+        // console.log('✅ FCMService: Token updated successfully');
       }
     } catch (error) {
       console.error('❌ FCMService: Error updating token:', error);
@@ -712,7 +713,7 @@ class FCMService {
 
     this.unsubscribeTokenRefresh = messaging().onTokenRefresh(
       async (newToken: string) => {
-        console.log('🔄 FCMService: Token refreshed:', newToken);
+        // console.log('🔄 FCMService: Token refreshed:', newToken);
 
         if (newToken !== this.tokenRef && userId) {
           try {
@@ -733,7 +734,7 @@ class FCMService {
             this.tokenRef = newToken;
 
             this.emitEvent(FCMEvents.TOKEN_UPDATED, {token: newToken});
-            console.log('✅ FCMService: Refreshed token updated');
+            // console.log('✅ FCMService: Refreshed token updated');
           } catch (error) {
             console.error(
               '❌ FCMService: Error updating refreshed token:',
@@ -761,7 +762,7 @@ class FCMService {
       }
     }, this.config.heartbeatIntervalMs);
 
-    console.log('💓 FCMService: Heartbeat started');
+    // console.log('💓 FCMService: Heartbeat started');
   }
 
   /**
@@ -771,7 +772,7 @@ class FCMService {
     if (this.heartbeatInterval) {
       clearInterval(this.heartbeatInterval);
       this.heartbeatInterval = null;
-      console.log('💤 FCMService: Heartbeat stopped');
+      // console.log('💤 FCMService: Heartbeat stopped');
     }
   }
 
@@ -830,7 +831,7 @@ class FCMService {
     this.appStateSubscription = AppState.addEventListener(
       'change',
       (nextAppState: AppStateStatus) => {
-        console.log('📱 FCMService: App state changed to:', nextAppState);
+        // console.log('📱 FCMService: App state changed to:', nextAppState);
 
         if (nextAppState === 'active' && this.currentUserId) {
           // Resume heartbeat when app becomes active

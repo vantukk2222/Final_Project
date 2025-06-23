@@ -9,6 +9,7 @@ import {
 } from 'react-native';
 import LinearGradient from 'react-native-linear-gradient';
 import Icon from 'react-native-vector-icons/MaterialIcons';
+import {useTranslation} from '../contexts/TranslationContext';
 
 // Call Modal Notification Component - Travel Themed Redesign
 const CallModalNotification = ({
@@ -28,6 +29,7 @@ const CallModalNotification = ({
   const pulseRing1 = useRef(new Animated.Value(1)).current;
   const pulseRing2 = useRef(new Animated.Value(1)).current;
   const floatAnim = useRef(new Animated.Value(0)).current;
+  const {t} = useTranslation();
 
   useEffect(() => {
     if (visible && isCallNotification) {
@@ -195,11 +197,7 @@ const CallModalNotification = ({
                 <LinearGradient
                   colors={['#4AC6D0', '#36B7C1', '#2AA8B3']}
                   style={styles.iconGradient}>
-                  <Icon
-                    name={notificationData?.isVideoCall ? 'videocam' : 'phone'}
-                    size={36}
-                    color="#FFFFFF"
-                  />
+                  <Icon name={'phone'} size={36} color="#FFFFFF" />
                 </LinearGradient>
 
                 {/* Travel-themed status indicator */}
@@ -210,12 +208,8 @@ const CallModalNotification = ({
             </View>
 
             <View style={styles.headerTextContainer}>
-              <Text style={styles.modalTitle}>
-                {`${
-                  notificationData?.isVideoCall ? 'Video' : 'Audio'
-                } Connection`}
-              </Text>
-              <Text style={styles.modalSubtitle}>Ready to Connect</Text>
+              <Text style={styles.modalTitle}>{t('call.audioConnection')}</Text>
+              <Text style={styles.modalSubtitle}>{t('call.ringing')}</Text>
               {notificationData?.callerName && (
                 <View style={styles.callerContainer}>
                   <Icon name="person" size={16} color="#4AC6D0" />
@@ -232,7 +226,7 @@ const CallModalNotification = ({
             <View style={styles.messageContainer}>
               <Icon name="explore" size={24} color="#4AC6D0" />
               <Text style={styles.modalBody}>
-                Someone wants to connect with you for a conversation
+                {t('call.someoneWantsToConnect')}
               </Text>
             </View>
 
@@ -247,7 +241,7 @@ const CallModalNotification = ({
                   colors={['#4AC6D0', '#36B7C1']}
                   style={styles.acceptButtonGradient}>
                   <Icon name="check-circle" size={24} color="#FFFFFF" />
-                  <Text style={styles.acceptButtonText}>Join</Text>
+                  <Text style={styles.acceptButtonText}>{t('call.join')}</Text>
                 </LinearGradient>
               </TouchableOpacity>
 
@@ -258,7 +252,9 @@ const CallModalNotification = ({
                 activeOpacity={0.9}>
                 <View style={styles.declineButtonContainer}>
                   <Icon name="cancel" size={24} color="#9CA3AF" />
-                  <Text style={styles.declineButtonText}>Maybe Later</Text>
+                  <Text style={styles.declineButtonText}>
+                    {t('call.maybeLater')}
+                  </Text>
                 </View>
               </TouchableOpacity>
             </View>

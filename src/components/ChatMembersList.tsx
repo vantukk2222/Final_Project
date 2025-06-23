@@ -21,6 +21,7 @@ import {
   Animated,
   ActivityIndicator,
   Dimensions,
+  Clipboard,
 } from 'react-native';
 import firestore from '@react-native-firebase/firestore';
 import {useNavigation} from '@react-navigation/native';
@@ -54,6 +55,7 @@ interface ChatData {
   name?: string;
   members: string[];
   roles: Record<string, 'owner' | 'admin' | 'member'>;
+  code?: string;
 }
 
 // State reducer for atomic updates
@@ -199,6 +201,7 @@ const HeaderComponent = memo(
     membersCount,
     otherUser,
     isEditingName,
+    isOwner,
     onBack,
     onEdit,
     onNameChange,
@@ -210,6 +213,7 @@ const HeaderComponent = memo(
     membersCount: number;
     otherUser: Member | null;
     isEditingName: boolean;
+    isOwner: boolean;
     onBack: () => void;
     onEdit: () => void;
     onNameChange: (name: string) => void;
@@ -255,16 +259,21 @@ const HeaderComponent = memo(
             </>
           )}
         </View>
+        {isGroup && isOwner && (
+          <TouchableOpacity onPress={onEdit} style={styles.editButton}>
+            <Icon
+              name={isEditingName ? 'check' : 'edit'}
+              size={20}
+              color="#FFF"
+            />
+          </TouchableOpacity>
+        )}
 
-        <TouchableOpacity
-          onPress={isGroup ? onEdit : onProfilePress}
-          style={styles.editButton}>
-          <Icon
-            name={isGroup ? (isEditingName ? 'check' : 'edit') : 'person'}
-            size={20}
-            color="#FFF"
-          />
-        </TouchableOpacity>
+        {!isGroup && (
+          <TouchableOpacity onPress={onProfilePress} style={styles.editButton}>
+            <Icon name={'person'} size={20} color="#FFF" />
+          </TouchableOpacity>
+        )}
       </View>
     </LinearGradient>
   ),
@@ -769,7 +778,48 @@ const ChatMembersList: React.FC<{route: any}> = ({route}) => {
 
   const [state, dispatch] = useReducer(stateReducer, initialState);
   const refs = useStableRefs();
+  const [code, setCode] = useState<string>('');
+  const [isCopyCode, setIsCopyCode] = useState<boolean>(false);
+  useEffect(() => {
+    if (!chatId || !currentUserId) {
+      Alert.alert('Error', 'Chat ID or User ID is missing');
+      return;
+    }
+    const isExistInChat = async () => {
+      const unsubscribeExistCheck = firestore()
+        .collection('chats')
+        .doc(chatId)
+        .onSnapshot(
+          chatDoc => {
+            if (!chatDoc.exists) {
+              Alert.alert('Error', 'Chat does not exist');
+              navigation.navigate('ChatList');
+              return;
+            }
+            const chatData = chatDoc.data();
+            if (!chatData?.members?.includes(currentUserId)) {
+              navigation.navigate('ChatList');
+            }
+          },
+          error => {
+            console.error('Error checking chat membership:', error);
+            Alert.alert('Error', 'Failed to verify chat access');
+          },
+        );
 
+      return () => unsubscribeExistCheck();
+    };
+    isExistInChat();
+  }, [currentUserId, chatId]);
+
+  useEffect(() => {
+    if (isCopyCode) {
+      Clipboard.setString(code);
+      setTimeout(() => {
+        setIsCopyCode(false);
+      }, 1500);
+    }
+  }, [isCopyCode]);
   // Stable navigation handlers
   const navigationHandlers = useMemo(
     () => ({
@@ -1043,7 +1093,23 @@ const ChatMembersList: React.FC<{route: any}> = ({route}) => {
               });
               dispatch({type: 'SET_ROLES', payload: chatData.roles || {}});
             }
-
+            const isGroup = chatData.isGroup || false;
+            if (isGroup) {
+              var codeG = chatData.code || '';
+              if (codeG === '') {
+                codeG = Math.random()
+                  .toString(36)
+                  .substring(2, 10)
+                  .toUpperCase();
+                chatDoc.ref.update({code: codeG});
+                await firestore()
+                  .collection('codes')
+                  .doc(codeG)
+                  .set({chatId: chatId}, {merge: true});
+              }
+              // await firestore().collection('code')
+              setCode(codeG);
+            }
             const membersList = await fetchMembersInBatches(chatData.members);
 
             // Find other user in 1-1 chat
@@ -1115,6 +1181,7 @@ const ChatMembersList: React.FC<{route: any}> = ({route}) => {
 
       <HeaderComponent
         isGroup={true}
+        isOwner={user?.role === 'tour_guide'}
         chatName={state.chatName}
         membersCount={computedValues.membersCount}
         otherUser={null}
@@ -1133,6 +1200,18 @@ const ChatMembersList: React.FC<{route: any}> = ({route}) => {
           userRole={computedValues.userRole}
           t={t}
         />
+        <View style={styles.copyCodeContainer}>
+          <Text style={styles.copyCodeText}>
+            {t('chatMembers.addMemberCode') + ': ' + code}
+          </Text>
+          <TouchableOpacity onPress={() => setIsCopyCode(!isCopyCode)}>
+            <Icon
+              name={!isCopyCode ? 'content-copy' : 'check'}
+              size={20}
+              color="#4AC6D0"
+            />
+          </TouchableOpacity>
+        </View>
 
         <AddMemberCard
           newMemberEmail={state.newMemberEmail}
@@ -1386,6 +1465,27 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: '#1E293B',
     marginLeft: 8,
+  },
+  copyCodeContainer: {
+    backgroundColor: '#FFF',
+    borderRadius: 16,
+    padding: 16,
+    marginBottom: 16,
+    elevation: 3,
+    shadowColor: '#4AC6D0',
+    shadowOffset: {width: 0, height: 2},
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  copyCodeText: {
+    fontSize: 14,
+    color: '#4AC6D0',
+    fontWeight: '600',
+    flex: 1,
+    marginRight: 12,
   },
   addMemberForm: {
     flexDirection: 'row',

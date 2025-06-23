@@ -12,6 +12,11 @@ import VoiceCallScreen from '../screens/VoiceCallScreen';
 import AdminDashboardScreen from '../screens/AdminDashboardScreen';
 import {fcmService} from '../services/FCMService';
 import ViewUserProfileScreen from '../screens/ViewUserProfileScreen';
+import ForgotPasswordScreen from '../screens/ForgotPasswordScreen';
+import TourManagementScreen from '../screens/TourManagementScreen';
+import CreateTourScreen from '../screens/CreateTourScreen';
+import TourDetailScreen from '../screens/TourDetailScreen';
+import EditTourScreen from '../screens/EditTourScreen';
 
 const Stack = createNativeStackNavigator();
 
@@ -74,6 +79,34 @@ const RootNavigator = () => {
             component={ViewUserProfileScreen}
             options={{headerShown: false}}
           />
+          <Stack.Screen
+            name="ForgotPassword"
+            component={ForgotPasswordScreen}
+            options={{
+              headerShown: false,
+              presentation: 'modal', // Optional: modal presentation
+            }}
+          />
+          <Stack.Screen
+            name="TourManagement"
+            component={TourManagementScreen}
+            options={{headerShown: false}}
+          />
+          <Stack.Screen
+            name="CreateTour"
+            component={CreateTourScreen}
+            options={{headerShown: false}}
+          />
+          <Stack.Screen
+            name="TourDetail"
+            component={TourDetailScreen}
+            options={{headerShown: false}}
+          />
+          <Stack.Screen
+            name="EditTour"
+            component={EditTourScreen}
+            options={{headerShown: false}}
+          />
         </Stack.Navigator>
       ) : user && user.role === 'admin' ? (
         <Stack.Navigator initialRouteName="AdminDashboard">
@@ -85,6 +118,21 @@ const RootNavigator = () => {
           <Stack.Screen
             name="ViewUserProfile"
             component={ViewUserProfileScreen}
+            options={{headerShown: false}}
+          />
+          <Stack.Screen
+            name="TourManagement"
+            component={TourManagementScreen}
+            options={{headerShown: false}}
+          />
+          <Stack.Screen
+            name="CreateTour"
+            component={CreateTourScreen}
+            options={{headerShown: false}}
+          />
+          <Stack.Screen
+            name="TourDetail"
+            component={TourDetailScreen}
             options={{headerShown: false}}
           />
         </Stack.Navigator>
@@ -99,6 +147,14 @@ const RootNavigator = () => {
             name="Register"
             component={RegisterScreen}
             options={{headerShown: false}}
+          />
+          <Stack.Screen
+            name="ForgotPassword"
+            component={ForgotPasswordScreen}
+            options={{
+              headerShown: false,
+              presentation: 'modal', // Optional: modal presentation
+            }}
           />
         </Stack.Navigator>
       )}
