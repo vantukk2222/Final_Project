@@ -21,7 +21,7 @@ import EditTourScreen from '../screens/EditTourScreen';
 const Stack = createNativeStackNavigator();
 
 const RootNavigator = () => {
-  const {user, loading} = useAuth();
+  const {user, loading, role} = useAuth();
 
   // Initialize FCM service
   useEffect(() => {
@@ -47,95 +47,186 @@ const RootNavigator = () => {
 
   return (
     <>
-      {user && user.role !== 'admin' ? (
-        <Stack.Navigator initialRouteName="ChatList">
-          <Stack.Screen
-            name="ChatList"
-            component={ChatListScreen}
-            options={{headerShown: false}}
-          />
-          <Stack.Screen
-            name="Chat"
-            component={ChatScreen}
-            options={{headerShown: false}}
-          />
-          <Stack.Screen
-            name="UserProfile"
-            component={UserProfileScreen}
-            options={{headerShown: false}}
-          />
-          <Stack.Screen
-            name="ChatMembers"
-            component={ChatMembersList}
-            options={{headerShown: false}}
-          />
-          <Stack.Screen
-            name="VoiceCall"
-            component={VoiceCallScreen}
-            options={{headerShown: false}}
-          />
-          <Stack.Screen
-            name="ViewUserProfile"
-            component={ViewUserProfileScreen}
-            options={{headerShown: false}}
-          />
-          <Stack.Screen
-            name="ForgotPassword"
-            component={ForgotPasswordScreen}
-            options={{
-              headerShown: false,
-              presentation: 'modal', // Optional: modal presentation
-            }}
-          />
-          <Stack.Screen
-            name="TourManagement"
-            component={TourManagementScreen}
-            options={{headerShown: false}}
-          />
-          <Stack.Screen
-            name="CreateTour"
-            component={CreateTourScreen}
-            options={{headerShown: false}}
-          />
-          <Stack.Screen
-            name="TourDetail"
-            component={TourDetailScreen}
-            options={{headerShown: false}}
-          />
-          <Stack.Screen
-            name="EditTour"
-            component={EditTourScreen}
-            options={{headerShown: false}}
-          />
-        </Stack.Navigator>
-      ) : user && user.role === 'admin' ? (
-        <Stack.Navigator initialRouteName="AdminDashboard">
-          <Stack.Screen
-            name="AdminDashboard"
-            component={AdminDashboardScreen}
-            options={{headerShown: false}}
-          />
-          <Stack.Screen
-            name="ViewUserProfile"
-            component={ViewUserProfileScreen}
-            options={{headerShown: false}}
-          />
-          <Stack.Screen
-            name="TourManagement"
-            component={TourManagementScreen}
-            options={{headerShown: false}}
-          />
-          <Stack.Screen
-            name="CreateTour"
-            component={CreateTourScreen}
-            options={{headerShown: false}}
-          />
-          <Stack.Screen
-            name="TourDetail"
-            component={TourDetailScreen}
-            options={{headerShown: false}}
-          />
-        </Stack.Navigator>
+      {user && user.isActive !== false ? (
+        user.role === 'admin' ? (
+          <Stack.Navigator initialRouteName="AdminDashboard">
+            <Stack.Screen
+              name="AdminDashboard"
+              component={AdminDashboardScreen}
+              options={{headerShown: false}}
+            />
+            <Stack.Screen
+              name="ViewUserProfile"
+              component={ViewUserProfileScreen}
+              options={{headerShown: false}}
+            />
+            <Stack.Screen
+              name="TourManagement"
+              component={TourManagementScreen}
+              options={{headerShown: false}}
+            />
+            <Stack.Screen
+              name="CreateTour"
+              component={CreateTourScreen}
+              options={{headerShown: false}}
+            />
+            <Stack.Screen
+              name="TourDetail"
+              component={TourDetailScreen}
+              options={{headerShown: false}}
+            />
+
+            <Stack.Screen
+              name="EditTour"
+              component={EditTourScreen}
+              options={{headerShown: false}}
+            />
+          </Stack.Navigator>
+        ) : user.role === 'tour_guide' && user.status === 'approved' ? (
+          <Stack.Navigator initialRouteName="TourManagement">
+            <Stack.Screen
+              name="ChatList"
+              component={ChatListScreen}
+              options={{headerShown: false}}
+            />
+            <Stack.Screen
+              name="Chat"
+              component={ChatScreen}
+              options={{headerShown: false}}
+            />
+            <Stack.Screen
+              name="UserProfile"
+              component={UserProfileScreen}
+              options={{headerShown: false}}
+            />
+            <Stack.Screen
+              name="ChatMembers"
+              component={ChatMembersList}
+              options={{headerShown: false}}
+            />
+            <Stack.Screen
+              name="VoiceCall"
+              component={VoiceCallScreen}
+              options={{headerShown: false}}
+            />
+            <Stack.Screen
+              name="ViewUserProfile"
+              component={ViewUserProfileScreen}
+              options={{headerShown: false}}
+            />
+            <Stack.Screen
+              name="ForgotPassword"
+              component={ForgotPasswordScreen}
+              options={{
+                headerShown: false,
+                presentation: 'modal', // Optional: modal presentation
+              }}
+            />
+            <Stack.Screen
+              name="TourManagement"
+              component={TourManagementScreen}
+              options={{headerShown: false}}
+            />
+            <Stack.Screen
+              name="CreateTour"
+              component={CreateTourScreen}
+              options={{headerShown: false}}
+            />
+            <Stack.Screen
+              name="TourDetail"
+              component={TourDetailScreen}
+              options={{headerShown: false}}
+            />
+            <Stack.Screen
+              name="EditTour"
+              component={EditTourScreen}
+              options={{headerShown: false}}
+            />
+          </Stack.Navigator>
+        ) : user.role === 'tourist' ? (
+          <Stack.Navigator initialRouteName="ChatList">
+            <Stack.Screen
+              name="ChatList"
+              component={ChatListScreen}
+              options={{headerShown: false}}
+            />
+            <Stack.Screen
+              name="Chat"
+              component={ChatScreen}
+              options={{headerShown: false}}
+            />
+            <Stack.Screen
+              name="UserProfile"
+              component={UserProfileScreen}
+              options={{headerShown: false}}
+            />
+            <Stack.Screen
+              name="ChatMembers"
+              component={ChatMembersList}
+              options={{headerShown: false}}
+            />
+            <Stack.Screen
+              name="VoiceCall"
+              component={VoiceCallScreen}
+              options={{headerShown: false}}
+            />
+            <Stack.Screen
+              name="ViewUserProfile"
+              component={ViewUserProfileScreen}
+              options={{headerShown: false}}
+            />
+            <Stack.Screen
+              name="ForgotPassword"
+              component={ForgotPasswordScreen}
+              options={{
+                headerShown: false,
+                presentation: 'modal', // Optional: modal presentation
+              }}
+            />
+            <Stack.Screen
+              name="TourManagement"
+              component={TourManagementScreen}
+              options={{headerShown: false}}
+            />
+            <Stack.Screen
+              name="CreateTour"
+              component={CreateTourScreen}
+              options={{headerShown: false}}
+            />
+            <Stack.Screen
+              name="TourDetail"
+              component={TourDetailScreen}
+              options={{headerShown: false}}
+            />
+            <Stack.Screen
+              name="EditTour"
+              component={EditTourScreen}
+              options={{headerShown: false}}
+            />
+          </Stack.Navigator>
+        ) : (
+          // Fallback for users with issues (pending tour guides, etc.)
+          <Stack.Navigator initialRouteName="Login">
+            <Stack.Screen
+              name="Login"
+              component={LoginScreen}
+              options={{headerShown: false}}
+            />
+            <Stack.Screen
+              name="Register"
+              component={RegisterScreen}
+              options={{headerShown: false}}
+            />
+            <Stack.Screen
+              name="ForgotPassword"
+              component={ForgotPasswordScreen}
+              options={{
+                headerShown: false,
+                presentation: 'modal',
+              }}
+            />
+          </Stack.Navigator>
+        )
       ) : (
         <Stack.Navigator initialRouteName="Login">
           <Stack.Screen
@@ -153,7 +244,7 @@ const RootNavigator = () => {
             component={ForgotPasswordScreen}
             options={{
               headerShown: false,
-              presentation: 'modal', // Optional: modal presentation
+              presentation: 'modal',
             }}
           />
         </Stack.Navigator>

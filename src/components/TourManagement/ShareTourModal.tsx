@@ -34,16 +34,17 @@ const ShareTourModal: React.FC<ShareTourModalProps> = ({
   tour,
   onClose,
 }) => {
-  console.log('ShareTourModal rendered with tour:', tour);
   const {user} = useAuth();
   const {emit} = useSocket();
   const {t} = useTranslation();
   const [chatGroups, setChatGroups] = useState<ChatGroup[]>([]);
   const [loading, setLoading] = useState(false);
-  const [sharing, setSharing] = useState<string | null>(null);
+  const [sharing, setSharing] = useState(false);
+  const [selectedGroups, setSelectedGroups] = useState<string[]>([]);
+  const [alreadySharedGroups, setAlreadySharedGroups] = useState<string[]>([]);
 
   const loadChatGroups = useCallback(async () => {
-    if (!user?.uid) {
+    if (!tour?.guideId || !user?.uid) {
       return;
     }
 
@@ -51,7 +52,7 @@ const ShareTourModal: React.FC<ShareTourModalProps> = ({
     try {
       const chatsSnapshot = await firestore()
         .collection('chats')
-        .where('members', 'array-contains', user.uid)
+        .where('members', 'array-contains', tour?.guideId[0] || tour?.guideId)
         .where('isGroup', '==', true)
         .get();
 
@@ -67,143 +68,262 @@ const ShareTourModal: React.FC<ShareTourModalProps> = ({
       });
 
       setChatGroups(groups);
+
+      // Set already shared groups and pre-select them
+      const sharedWith = tour?.sharedWith || [];
+      setAlreadySharedGroups(sharedWith);
+      setSelectedGroups(
+        sharedWith.filter(groupId =>
+          groups.some(group => group.id === groupId),
+        ),
+      );
     } catch (error) {
       console.error('Error loading chat groups:', error);
       Alert.alert(t('common.error'), t('tour.sharing.failedToLoadGroups'));
     } finally {
       setLoading(false);
     }
-  }, [user?.uid, t]);
+  }, [user?.uid, tour?.sharedWith, t]);
   useEffect(() => {
     if (visible && user?.uid) {
       loadChatGroups();
     }
   }, [visible, user?.uid, loadChatGroups]);
 
-  const shareTourToGroup = async (groupId: string) => {
+  const toggleGroupSelection = (groupId: string) => {
+    setSelectedGroups(prev => {
+      if (prev.includes(groupId)) {
+        return prev.filter(id => id !== groupId);
+      }
+      return [...prev, groupId];
+    });
+  };
+
+  const selectAllGroups = () => {
+    if (selectedGroups.length === chatGroups.length) {
+      setSelectedGroups([]);
+    } else {
+      setSelectedGroups(chatGroups.map(group => group.id));
+    }
+  };
+
+  const shareTourToGroups = async () => {
     if (!tour || !user?.uid) {
       return;
     }
 
-    setSharing(groupId);
+    const newGroupsToShare = selectedGroups.filter(
+      groupId => !alreadySharedGroups.includes(groupId),
+    );
+
+    const groupsToUnshare = alreadySharedGroups.filter(
+      groupId => !selectedGroups.includes(groupId),
+    );
+
+    if (newGroupsToShare.length === 0 && groupsToUnshare.length === 0) {
+      Alert.alert(t('common.error'), t('tour.sharing.noChangesToMake'));
+      return;
+    }
+
+    setSharing(true);
     try {
-      // const tourMessage = formatTourMessage(tour);
-      // add groupId to tour
-      firestore()
-        .collection('tours')
-        .doc(tour.id)
-        .onSnapshot(async tourDoc => {
-          if (tourDoc.exists) {
-            const tourData = tourDoc.data();
-            const sharedWith: string[] = tourData?.sharedWith || [];
+      const tourRef = firestore().collection('tours').doc(tour.id);
+      const tourDoc = await tourRef.get();
 
-            if (!sharedWith.includes(groupId)) {
-              sharedWith.push(groupId);
-              await firestore()
-                .collection('tours')
-                .doc(tour.id)
-                .update({sharedWith});
+      if (!tourDoc.exists) {
+        throw new Error('Tour not found');
+      }
 
-              firestore()
-                .collection('chats')
-                .doc(groupId)
-                .onSnapshot(snapshot => {
-                  if (snapshot.exists) {
-                    const chatData = snapshot.data();
-                    if (chatData) {
-                      const recipientIds = chatData.members.filter(
-                        (member: string) => member !== user.uid,
-                      );
+      const tourData = tourDoc.data();
+      const currentSharedWith: string[] = tourData?.sharedWith || [];
 
-                      emit('send_message', {
-                        chatId: groupId,
-                        senderId: user.uid,
-                        message: t('tour.sharing.newTourShared'),
-                        memberIds: recipientIds,
-                      });
-                    }
-                  }
-                });
-            }
-          }
-        });
-
-      // // Send the tour message to the group
-      // await firestore()
-      //   .collection('chats')
-      //   .doc(groupId)
-      //   .collection('messages')
-      //   .add({
-      //     from: user.uid,
-      //     text: tourMessage,
-      //     timestamp: firestore.FieldValue.serverTimestamp(),
-      //     type: 'tour_share',
-      //     tourId: tour.id,
-      //     tourData: {
-      //       title: tour.title,
-      //       tourDate: tour.tourDate,
-      //       startTime: tour.startTime,
-      //       endTime: tour.endTime,
-      //       price: tour.price,
-      //       groupSize: tour.groupSize,
-      //     },
-      //   });
-
-      // // Update the chat's last message
-      // await firestore()
-      //   .collection('chats')
-      //   .doc(groupId)
-      //   .update({
-      //     lastMessage: `${t('tour.sharing.sharedTour')}: ${tour.title}`,
-      //     lastMessageTime: firestore.FieldValue.serverTimestamp(),
-      //     lastSender: user.uid,
-      //     lastSenderName: user.name || user.email,
-      //     messageType: 'tour_share',
-      //   });
-
-      Alert.alert(
-        t('common.success'),
-        t('tour.sharing.tourSharedSuccessfully'),
-        [
-          {
-            text: t('common.ok'),
-            onPress: onClose,
-          },
-        ],
+      // Calculate new shared groups (add new ones, remove unshared ones)
+      const finalSharedWith = selectedGroups.filter(groupId =>
+        chatGroups.some(group => group.id === groupId),
       );
+
+      let totalParticipantChange = 0;
+
+      // Process newly selected groups (sharing)
+      for (const groupId of newGroupsToShare) {
+        const chatDoc = await firestore().collection('chats').doc(groupId);
+
+        if (chatDoc.exists) {
+          const chatData = chatDoc.data();
+          if (chatData) {
+            const recipientIds = chatData.members.filter(
+              (member: string) => member !== user.uid,
+            );
+
+            totalParticipantChange += recipientIds.length;
+
+            // Send notification message to group
+            emit('send_message', {
+              chatId: groupId,
+              senderId: user.uid,
+              message: `${t('tour.sharing.newTourShared')}: ${tour.title}`,
+              messageType: 'tour_notification',
+              tourData: {
+                id: tour.id,
+                title: tour.title,
+                tourDate: tour.tourDate,
+                startTime: tour.startTime,
+                endTime: tour.endTime,
+                price: tour.price,
+                groupSize: tour.groupSize,
+              },
+              memberIds: recipientIds,
+            });
+          }
+        }
+      }
+
+      // Process unshared groups (removing)
+      for (const groupId of groupsToUnshare) {
+        const chatDoc = await firestore().collection('chats').doc(groupId);
+
+        if (chatDoc.exists) {
+          const chatData = chatDoc.data();
+          if (chatData) {
+            const recipientIds = chatData.members.filter(
+              (member: string) => member !== user.uid,
+            );
+
+            totalParticipantChange -= recipientIds.length;
+
+            // Send notification message about tour removal
+            emit('send_message', {
+              chatId: groupId,
+              senderId: user.uid,
+              message: `${t('tour.sharing.tourUnshared')}: ${tour.title}`,
+              messageType: 'tour_unshare_notification',
+              tourData: {
+                id: tour.id,
+                title: tour.title,
+              },
+              memberIds: recipientIds,
+            });
+          }
+        }
+      }
+
+      // Update tour with new shared groups and participant count
+      const newParticipantCount = Math.max(
+        0,
+        (tourData?.currentParticipants || 0) + totalParticipantChange,
+      );
+
+      await tourRef.update({
+        sharedWith: finalSharedWith,
+        currentParticipants: newParticipantCount,
+        updatedAt: firestore.FieldValue.serverTimestamp(),
+      });
+
+      let alertMessage = '';
+      if (newGroupsToShare.length > 0 && groupsToUnshare.length > 0) {
+        alertMessage = `${t('tour.sharing.tourSharedTo')} ${
+          newGroupsToShare.length
+        } ${t('tour.sharing.groupsAndUnsharedFrom')} ${
+          groupsToUnshare.length
+        } ${t('tour.sharing.groups')}`;
+      } else if (newGroupsToShare.length > 0) {
+        alertMessage = `${t('tour.sharing.tourSharedTo')} ${
+          newGroupsToShare.length
+        } ${
+          newGroupsToShare.length === 1
+            ? t('tour.sharing.group')
+            : t('tour.sharing.groups')
+        }`;
+      } else if (groupsToUnshare.length > 0) {
+        alertMessage = `${t('tour.sharing.tourUnsharedFrom')} ${
+          groupsToUnshare.length
+        } ${
+          groupsToUnshare.length === 1
+            ? t('tour.sharing.group')
+            : t('tour.sharing.groups')
+        }`;
+      }
+
+      Alert.alert(t('common.success'), alertMessage, [
+        {
+          text: t('common.ok'),
+          onPress: () => {
+            setAlreadySharedGroups(finalSharedWith);
+            onClose();
+          },
+        },
+      ]);
     } catch (error) {
-      console.error('Error sharing tour:', error);
-      Alert.alert(t('common.error'), t('tour.sharing.failedToShareTour'));
+      console.error('Error updating tour sharing:', error);
+      Alert.alert(
+        t('common.error'),
+        t('tour.sharing.failedToUpdateTourSharing'),
+      );
     } finally {
-      setSharing(null);
+      setSharing(false);
     }
   };
 
-  const renderChatGroup = ({item}: {item: ChatGroup}) => (
-    <TouchableOpacity
-      style={styles.groupItem}
-      onPress={() => shareTourToGroup(item.id)}
-      disabled={sharing === item.id}>
-      <View style={styles.groupInfo}>
-        <View style={styles.groupAvatar}>
-          <Icon name="group" size={24} color="#3B82F6" />
+  const renderChatGroup = ({item}: {item: ChatGroup}) => {
+    const isSelected = selectedGroups.includes(item.id);
+    const isAlreadyShared = alreadySharedGroups.includes(item.id);
+    const willBeUnshared = isAlreadyShared && !isSelected;
+
+    return (
+      <TouchableOpacity
+        style={[
+          styles.groupItem,
+          isSelected && styles.groupItemSelected,
+          isAlreadyShared && !willBeUnshared && styles.groupItemShared,
+          willBeUnshared && styles.groupItemUnsharing,
+        ]}
+        onPress={() => toggleGroupSelection(item.id)}
+        disabled={sharing}>
+        <View style={styles.groupInfo}>
+          <View style={styles.groupAvatar}>
+            <Icon name="group" size={24} color="#3B82F6" />
+          </View>
+          <View style={styles.groupDetails}>
+            <Text style={styles.groupName} numberOfLines={1}>
+              {item.name}
+              {isAlreadyShared && !willBeUnshared && (
+                <Text style={styles.sharedLabel}>
+                  {' '}
+                  • {t('tour.sharing.shared')}
+                </Text>
+              )}
+              {willBeUnshared && (
+                <Text style={styles.unshareLabel}>
+                  {' '}
+                  • {t('tour.sharing.willUnshare')}
+                </Text>
+              )}
+            </Text>
+            <Text style={styles.memberCount}>
+              {item.memberCount} {t('chatMembers.memberCount')}
+            </Text>
+          </View>
         </View>
-        <View style={styles.groupDetails}>
-          <Text style={styles.groupName} numberOfLines={1}>
-            {item.name}
-          </Text>
-          <Text style={styles.memberCount}>
-            {item.memberCount} {t('chatMembers.memberCount')}
-          </Text>
+
+        <View
+          style={[
+            styles.checkbox,
+            isSelected && styles.checkboxSelected,
+            isAlreadyShared && !willBeUnshared && styles.checkboxShared,
+            willBeUnshared && styles.checkboxUnsharing,
+          ]}>
+          {isSelected && (
+            <Icon
+              name={isAlreadyShared ? 'done-all' : 'check'}
+              size={16}
+              color="#FFFFFF"
+            />
+          )}
+          {willBeUnshared && <Icon name="remove" size={16} color="#FFFFFF" />}
         </View>
-      </View>
-      {sharing === item.id ? (
-        <ActivityIndicator size="small" color="#3B82F6" />
-      ) : (
-        <Icon name="chevron-right" size={20} color="#9CA3AF" />
-      )}
-    </TouchableOpacity>
-  );
+      </TouchableOpacity>
+    );
+  };
 
   if (!tour) {
     return null;
@@ -232,15 +352,31 @@ const ShareTourModal: React.FC<ShareTourModalProps> = ({
               {tour.stops?.length} {t('tour.management.stops')} •{' '}
               {tour.price.adult} {tour.price.currency || 'USD'}
               {tour.price.child !== undefined &&
-                ` (Child: ${tour.price.child} ${tour.price.currency || 'USD'})`}
+                ` (${t('tour.form.children')} ${tour.price.child} ${
+                  tour.price.currency || 'USD'
+                })`}
             </Text>
           </View>
 
           {/* Groups List */}
           <View style={styles.content}>
-            <Text style={styles.sectionTitle}>
-              {t('tour.sharing.selectGroupToShare')}
-            </Text>
+            <View style={styles.sectionHeader}>
+              <Text style={styles.sectionTitle}>
+                {t('tour.sharing.selectGroupToShare')}
+              </Text>
+              {chatGroups.length > 0 && (
+                <TouchableOpacity
+                  onPress={selectAllGroups}
+                  style={styles.selectAllButton}
+                  disabled={sharing}>
+                  <Text style={styles.selectAllText}>
+                    {selectedGroups.length === chatGroups.length
+                      ? t('common.deselectAll')
+                      : t('common.selectAll')}
+                  </Text>
+                </TouchableOpacity>
+              )}
+            </View>
 
             {loading ? (
               <View style={styles.loadingContainer}>
@@ -260,13 +396,50 @@ const ShareTourModal: React.FC<ShareTourModalProps> = ({
                 </Text>
               </View>
             ) : (
-              <FlatList
-                data={chatGroups}
-                renderItem={renderChatGroup}
-                keyExtractor={item => item.id}
-                showsVerticalScrollIndicator={false}
-                style={styles.groupsList}
-              />
+              <>
+                <FlatList
+                  data={chatGroups}
+                  renderItem={renderChatGroup}
+                  keyExtractor={item => item.id}
+                  showsVerticalScrollIndicator={false}
+                  style={styles.groupsList}
+                />
+
+                {/* Selected Count and Share Button */}
+                <View style={styles.actionContainer}>
+                  <Text style={styles.selectedCount}>
+                    {`${selectedGroups.length} ${t('tour.sharing.of')} ${
+                      chatGroups.length
+                    } ${t('tour.sharing.groupsSelected')}`}
+                    {alreadySharedGroups.length > 0 && (
+                      <Text style={styles.sharedCount}>
+                        {` (${alreadySharedGroups.length} ${t(
+                          'tour.sharing.alreadyShared',
+                        )})`}
+                      </Text>
+                    )}
+                  </Text>
+
+                  <TouchableOpacity
+                    style={[
+                      styles.shareButton,
+                      sharing && styles.shareButtonDisabled,
+                    ]}
+                    onPress={shareTourToGroups}
+                    disabled={sharing}>
+                    {sharing ? (
+                      <ActivityIndicator size="small" color="#FFFFFF" />
+                    ) : (
+                      <Icon name="update" size={20} color="#FFFFFF" />
+                    )}
+                    <Text style={styles.shareButtonText}>
+                      {sharing
+                        ? t('tour.sharing.updating')
+                        : t('tour.sharing.updateSharing')}
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              </>
             )}
           </View>
         </View>
@@ -327,6 +500,23 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingTop: 16,
   },
+  sectionHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  selectAllButton: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 6,
+    backgroundColor: '#F3F4F6',
+  },
+  selectAllText: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: '#3B82F6',
+  },
   sectionTitle: {
     fontSize: 16,
     fontWeight: '600',
@@ -347,6 +537,19 @@ const styles = StyleSheet.create({
     marginBottom: 8,
     borderWidth: 1,
     borderColor: '#E5E7EB',
+  },
+  groupItemSelected: {
+    backgroundColor: '#EBF4FF',
+    borderColor: '#3B82F6',
+  },
+  groupItemShared: {
+    backgroundColor: '#F0FDF4',
+    borderColor: '#10B981',
+    opacity: 0.8,
+  },
+  groupItemUnsharing: {
+    backgroundColor: '#FEF2F2',
+    borderColor: '#EF4444',
   },
   groupInfo: {
     flexDirection: 'row',
@@ -374,6 +577,66 @@ const styles = StyleSheet.create({
   memberCount: {
     fontSize: 14,
     color: '#6B7280',
+  },
+  checkbox: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    borderWidth: 2,
+    borderColor: '#D1D5DB',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#FFFFFF',
+  },
+  checkboxSelected: {
+    backgroundColor: '#3B82F6',
+    borderColor: '#3B82F6',
+  },
+  checkboxShared: {
+    backgroundColor: '#10B981',
+    borderColor: '#10B981',
+  },
+  checkboxUnsharing: {
+    backgroundColor: '#EF4444',
+    borderColor: '#EF4444',
+  },
+  actionContainer: {
+    paddingTop: 16,
+    paddingBottom: 8,
+    borderTopWidth: 1,
+    borderTopColor: '#F3F4F6',
+    marginTop: 16,
+  },
+  selectedCount: {
+    fontSize: 14,
+    color: '#6B7280',
+    textAlign: 'center',
+    marginBottom: 12,
+  },
+  shareButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#3B82F6',
+    paddingVertical: 14,
+    paddingHorizontal: 24,
+    borderRadius: 12,
+    elevation: 2,
+    shadowColor: '#3B82F6',
+    shadowOffset: {width: 0, height: 2},
+    shadowOpacity: 0.2,
+    shadowRadius: 4,
+  },
+  shareButtonDisabled: {
+    backgroundColor: '#9CA3AF',
+    elevation: 0,
+    shadowOpacity: 0,
+  },
+  shareButtonText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#FFFFFF',
+    marginLeft: 8,
   },
   loadingContainer: {
     flex: 1,
@@ -404,6 +667,21 @@ const styles = StyleSheet.create({
     color: '#6B7280',
     textAlign: 'center',
     paddingHorizontal: 40,
+  },
+  sharedLabel: {
+    fontSize: 12,
+    color: '#10B981',
+    fontWeight: '500',
+  },
+  unshareLabel: {
+    fontSize: 12,
+    color: '#EF4444',
+    fontWeight: '500',
+  },
+  sharedCount: {
+    fontSize: 12,
+    color: '#10B981',
+    fontStyle: 'italic',
   },
 });
 

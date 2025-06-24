@@ -1751,6 +1751,44 @@ const ChatListScreen: React.FC = () => {
             : true
         }
       />
+      {computedValues.canCreateChat && (
+        <View style={styles.navigationBottom}>
+          <TouchableOpacity style={[styles.bottomButton, styles.channelButton]}>
+            <LinearGradient
+              colors={['#4AC6D0', '#3BB8C3']}
+              style={styles.activeButtonGradient}>
+              <Icon name="forum" size={18} color="#FFF" />
+              <Text style={styles.activeButtonText}>
+                {t('chatScreen.channel')}
+              </Text>
+            </LinearGradient>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.bottomButton, styles.toursButton]}
+            onPress={() => {
+              navigation.navigate('TourManagement');
+            }}>
+            <View style={styles.inactiveButtonContainer}>
+              <Icon name="map" size={18} color="#64748B" />
+              <Text style={styles.inactiveButtonText}>
+                {t('chatScreen.tours')}
+              </Text>
+            </View>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.bottomButton, styles.toursButton]}
+            onPress={() => {
+              navigation.navigate('UserProfile');
+            }}>
+            <View style={styles.inactiveButtonContainer}>
+              <Icon name="settings" size={18} color="#64748B" />
+              <Text style={styles.inactiveButtonText}>
+                {t('common.settings')}
+              </Text>
+            </View>
+          </TouchableOpacity>
+        </View>
+      )}
     </SafeAreaView>
   );
 };
@@ -1800,6 +1838,68 @@ const styles = StyleSheet.create({
     padding: 10,
     borderRadius: 20,
     backgroundColor: 'rgba(255, 255, 255, 0.15)',
+  },
+
+  navigationBottom: {
+    flexDirection: 'row',
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+    backgroundColor: '#FFFFFF',
+    borderTopWidth: 1,
+    borderTopColor: '#E2E8F0',
+    shadowColor: '#000',
+    shadowOffset: {width: 0, height: -2},
+    shadowOpacity: 0.05,
+    shadowRadius: 8,
+    elevation: 5,
+    gap: 12,
+  },
+  bottomButton: {
+    flex: 1,
+    borderRadius: 12,
+    overflow: 'hidden',
+    elevation: 2,
+    shadowColor: '#4AC6D0',
+    shadowOffset: {width: 0, height: 2},
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+  },
+  channelButton: {
+    // Active state styles handled by gradient
+  },
+  toursButton: {
+    backgroundColor: '#F8FAFC',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+  },
+  activeButtonGradient: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    gap: 8,
+  },
+  inactiveButtonContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    gap: 8,
+  },
+  activeButtonText: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#FFFFFF',
+    textShadowColor: 'rgba(0, 0, 0, 0.1)',
+    textShadowOffset: {width: 0, height: 1},
+    textShadowRadius: 2,
+  },
+  inactiveButtonText: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#64748B',
   },
   profileContainer: {
     position: 'relative',
@@ -2171,7 +2271,7 @@ const styles = StyleSheet.create({
   },
   fab: {
     position: 'absolute',
-    bottom: 24,
+    bottom: 92,
     right: 24,
     elevation: 8,
     shadowColor: '#4AC6D0',

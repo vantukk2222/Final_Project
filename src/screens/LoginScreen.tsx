@@ -295,13 +295,13 @@ const LoginScreen: React.FC = () => {
   const navigation = useNavigation<any>();
   const {fadeAnim, slideAnim, logoAnim} = useAnimations();
   const keyboardHeight = useKeyboardHandler();
-  const {signIn} = useAuth();
+  const {signIn, loading: authLoading} = useAuth();
 
   // Form handling
   const {
     control,
     handleSubmit,
-    formState: {errors, isSubmitting},
+    formState: {errors},
     setError,
     clearErrors,
   } = useForm<LoginFormData>({
@@ -314,7 +314,7 @@ const LoginScreen: React.FC = () => {
 
   // State
   const [showPassword, setShowPassword] = React.useState(false);
-  const loadingRef = useRef(false);
+  const [loading, setLoading] = React.useState(false);
 
   // Validation rules (memoized for performance)
   const validationRules = useMemo(
@@ -352,54 +352,47 @@ const LoginScreen: React.FC = () => {
 
   const onSubmit = useCallback(
     async (data: LoginFormData) => {
-      if (loadingRef.current) {
+      if (loading || authLoading) {
         return;
       }
 
-      loadingRef.current = true;
+      setLoading(true);
       clearErrors();
 
-      console.log('Login data:', data);
       try {
-        await auth().signInWithEmailAndPassword(
-          data.email.trim(),
-          data.password,
-        );
-        // signIn(data.email.trim(), data.password);
+        await signIn(data.email.trim(), data.password);
         // Navigation will be handled by AuthContext
       } catch (error: any) {
         console.error('Login error:', error);
 
-        // Handle specific Firebase errors
-        let errorMessage = t('auth.loginError');
+        // Handle specific errors
+        const errorMessage = error.message || t('auth.loginError');
 
-        switch (error.code) {
-          case 'auth/user-not-found':
-          case 'auth/wrong-password':
-            errorMessage = t('auth.invalidCredentials');
-            break;
-          case 'auth/invalid-email':
-            setError('email', {message: t('auth.invalidEmailAddress')});
-            return;
-          case 'auth/user-disabled':
-            errorMessage = t('auth.accountDisabled');
-            break;
-          case 'auth/too-many-requests':
-            errorMessage = t('auth.tooManyRequests');
-            break;
-          case 'auth/network-request-failed':
-            errorMessage = t('errors.networkError');
-            break;
-          default:
-            errorMessage = error.message || t('auth.loginError');
+        // Check if it's a field-specific error
+        if (
+          errorMessage.includes('email') ||
+          errorMessage.includes('invalid-email')
+        ) {
+          setError('email', {message: t('auth.invalidEmailAddress')});
+        } else if (
+          errorMessage.includes('password') ||
+          errorMessage.includes('credential')
+        ) {
+          setError('password', {message: t('auth.invalidCredentials')});
+        } else {
+          // Show general error alert
+          Alert.alert(t('auth.loginFailed'), errorMessage, [
+            {
+              text: t('common.ok'),
+              style: 'default',
+            },
+          ]);
         }
-
-        Alert.alert(t('auth.loginFailed'), t('auth.loginError'));
       } finally {
-        loadingRef.current = false;
+        setLoading(false);
       }
     },
-    [t, clearErrors, setError],
+    [t, clearErrors, setError, signIn, loading, authLoading],
   );
 
   // Render
@@ -492,7 +485,7 @@ const LoginScreen: React.FC = () => {
                 {/* Login Button */}
                 <LoginButton
                   onPress={handleSubmit(onSubmit)}
-                  loading={isSubmitting}
+                  loading={loading || authLoading}
                   t={t}
                 />
 

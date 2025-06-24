@@ -164,33 +164,50 @@ const AuthProviderInternal: React.FC<{children: React.ReactNode}> = ({
         return {canAccess: false, message: t('auth.userDataNotFound')};
       }
 
-      // Tour guide access control
-      if (userData.role === 'tour_guide') {
-        const statusMessages = {
-          pending: t('auth.tourGuideAwaitingApproval'),
-          rejected: t('auth.tourGuideApplicationRejected'),
-          suspended: t('auth.tourGuideAccountSuspended'),
-        };
-
-        const status = userData.status || 'pending';
-        if (status !== 'approved') {
-          return {
-            canAccess: false,
-            message:
-              statusMessages[status as keyof typeof statusMessages] ||
-              statusMessages.pending,
-          };
-        }
-      }
-
-      // Tourist access control
-      if (userData.role === 'tourist' && userData.isActive === false) {
+      // Check if user is active
+      if (userData.isActive === false) {
         return {
           canAccess: false,
           message: t('auth.accountDeactivated'),
         };
       }
 
+      // Tour guide access control
+      if (userData.role === 'tour_guide') {
+        const status = userData.status || 'pending';
+
+        switch (status) {
+          case 'pending':
+            return {
+              canAccess: false,
+              message: t('auth.tourGuideAwaitingApproval'),
+            };
+          case 'rejected':
+            return {
+              canAccess: false,
+              message: t('auth.tourGuideApplicationRejected'),
+            };
+          case 'suspended':
+            return {
+              canAccess: false,
+              message: t('auth.tourGuideAccountSuspended'),
+            };
+          case 'approved':
+            return {canAccess: true};
+          default:
+            return {
+              canAccess: false,
+              message: t('auth.tourGuideAwaitingApproval'),
+            };
+        }
+      }
+
+      // Admin access control
+      if (userData.role === 'admin') {
+        return {canAccess: true};
+      }
+
+      // Tourist access control (default)
       return {canAccess: true};
     },
     [t],
@@ -207,12 +224,22 @@ const AuthProviderInternal: React.FC<{children: React.ReactNode}> = ({
         {
           text: t('common.ok'),
           onPress: async () => {
-            await signOut();
+            // Directly call Firebase signOut instead of recursive call
+            try {
+              isSigningOutRef.current = true;
+              cleanupDocListener();
+              await auth().signOut();
+            } catch (error) {
+              console.error(
+                'Error in handleAccountStatusIssue signOut:',
+                error,
+              );
+            }
           },
         },
       ]);
     },
-    [t],
+    [t, cleanupDocListener],
   );
 
   // Document listener cleanup
@@ -226,9 +253,25 @@ const AuthProviderInternal: React.FC<{children: React.ReactNode}> = ({
 
   // Create user document
   const createUserDocument = useCallback(
-    async (authUser: FirebaseAuthTypes.User, role: Role = 'tourist') => {
+    async (
+      authUser: FirebaseAuthTypes.User,
+      role: Role = 'tourist',
+      name?: string,
+    ) => {
       try {
-        const userData = createDefaultUserData(authUser, role);
+        const userData = {
+          email: authUser.email || '',
+          role,
+          isActive: true,
+          name: name?.trim() || '',
+          createdAt: firestore.FieldValue.serverTimestamp(),
+          updatedAt: firestore.FieldValue.serverTimestamp(),
+          userStatus: DEFAULT_USER_STATUS,
+          translateCode: 'en-US',
+          language: 'en',
+          // Add status for tour guide
+          ...(role === 'tour_guide' && {status: 'pending'}),
+        };
 
         await firestore()
           .collection('users')
@@ -248,6 +291,9 @@ const AuthProviderInternal: React.FC<{children: React.ReactNode}> = ({
         }
       } catch (error) {
         console.error('❌ Error creating user document:', error);
+        if (!isSigningOutRef.current) {
+          setLoading(false);
+        }
         throw error;
       }
     },
@@ -382,18 +428,58 @@ const AuthProviderInternal: React.FC<{children: React.ReactNode}> = ({
         setLoading(true);
         isSigningOutRef.current = false;
 
-        await auth().signInWithEmailAndPassword(email.trim(), password);
+        const userCredential = await auth().signInWithEmailAndPassword(
+          email.trim(),
+          password,
+        );
+
+        // Check if user document exists
+        const userDoc = await firestore()
+          .collection('users')
+          .doc(userCredential.user.uid)
+          .get();
+
+        if (!userDoc.exists) {
+          // Create basic user document if it doesn't exist
+          await createUserDocument(userCredential.user);
+        }
+
         // User data will be handled by the auth state listener
       } catch (error: any) {
         setLoading(false);
         console.error('❌ Sign in error:', error);
-        throw error;
-      } finally {
-        // console.log('🔐 Sign in process completed');
-        setLoading(false);
+
+        // Handle Firebase auth errors
+        let errorMessage = t('auth.loginError');
+
+        switch (error.code) {
+          case 'auth/user-not-found':
+          case 'auth/wrong-password':
+            errorMessage = t('auth.invalidCredentials');
+            break;
+          case 'auth/invalid-email':
+            errorMessage = t('auth.invalidEmailAddress');
+            break;
+          case 'auth/user-disabled':
+            errorMessage = t('auth.accountDisabled');
+            break;
+          case 'auth/too-many-requests':
+            errorMessage = t('auth.tooManyRequests');
+            break;
+          case 'auth/network-request-failed':
+            errorMessage = t('errors.networkError');
+            break;
+          case 'auth/invalid-credential':
+            errorMessage = t('auth.invalidCredentials');
+            break;
+          default:
+            errorMessage = t('auth.loginError');
+        }
+
+        throw new Error(errorMessage);
       }
     },
-    [setLoading],
+    [setLoading, createUserDocument, t],
   );
 
   const signUp = useCallback(
@@ -407,13 +493,18 @@ const AuthProviderInternal: React.FC<{children: React.ReactNode}> = ({
           password,
         );
 
+        // Create user document
         const userData = {
-          email: email.trim(),
+          email: userCredential.user.email || '',
           role,
+          isActive: true,
           name: name?.trim() || '',
           createdAt: firestore.FieldValue.serverTimestamp(),
           updatedAt: firestore.FieldValue.serverTimestamp(),
-          isActive: true,
+          userStatus: DEFAULT_USER_STATUS,
+          translateCode: 'en-US',
+          language: 'en',
+          // Add status for tour guide
           ...(role === 'tour_guide' && {status: 'pending'}),
         };
 
@@ -424,26 +515,66 @@ const AuthProviderInternal: React.FC<{children: React.ReactNode}> = ({
 
         // Handle tour guide specific flow
         if (role === 'tour_guide') {
+          // Sign out immediately for tour guides since they need approval
+          isSigningOutRef.current = true;
+          cleanupDocListener();
+          await auth().signOut();
+
+          // Reset loading state after signout
+          setLoading(false);
+          setUser(null);
+          setRole(null);
+
           Alert.alert(
             t('auth.accountCreated'),
             t('auth.tourGuideAccountCreatedMessage'),
             [
               {
                 text: t('common.ok'),
-                onPress: async () => {
-                  await signOut();
+                onPress: () => {
+                  // Reset the signout flag
+                  setTimeout(() => {
+                    isSigningOutRef.current = false;
+                  }, 500);
                 },
               },
             ],
           );
+        } else {
+          // For tourists, let the auth state listener handle the login
+          // Don't set loading to false here, let the listener handle it
         }
       } catch (error: any) {
         setLoading(false);
         console.error('❌ Sign up error:', error);
-        throw error;
+
+        // Handle Firebase auth errors
+        let errorMessage = t('auth.registrationFailed');
+
+        switch (error.code) {
+          case 'auth/email-already-in-use':
+            errorMessage = t('auth.emailAlreadyInUse');
+            break;
+          case 'auth/weak-password':
+            errorMessage = t('auth.weakPassword');
+            break;
+          case 'auth/invalid-email':
+            errorMessage = t('auth.invalidEmailAddress');
+            break;
+          case 'auth/operation-not-allowed':
+            errorMessage = t('auth.operationNotAllowed');
+            break;
+          case 'auth/network-request-failed':
+            errorMessage = t('errors.networkError');
+            break;
+          default:
+            errorMessage = t('auth.registrationFailed');
+        }
+
+        throw new Error(errorMessage);
       }
     },
-    [setLoading, signOut, t],
+    [setLoading, t, cleanupDocListener, setUser, setRole],
   );
 
   const signOut = useCallback(async () => {

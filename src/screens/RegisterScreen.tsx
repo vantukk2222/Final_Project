@@ -23,7 +23,7 @@ import {useNavigation} from '@react-navigation/native';
 import Icon from 'react-native-vector-icons/FontAwesome5';
 import LinearGradient from 'react-native-linear-gradient';
 import {useTranslation} from '../contexts/TranslationContext';
-// import {LanguageButton} from '../components/LanguageButton';
+import {useAuth} from '../contexts/AuthContext';
 
 const {width, height} = Dimensions.get('window');
 
@@ -35,12 +35,15 @@ const RegisterScreen = () => {
     watch,
     formState: {errors},
     reset,
+    setError,
+    clearErrors,
   } = useForm();
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const navigation = useNavigation<any>();
   const watchPassword = watch('password');
+  const {signUp, loading: authLoading} = useAuth();
 
   // Animation values
   const fadeAnim = new Animated.Value(0);
@@ -78,6 +81,10 @@ const RegisterScreen = () => {
         value: 2,
         message: t('auth.nameMinLength'),
       },
+      pattern: {
+        value: /^[a-zA-ZÀ-ÿ\u00f1\u00d1\s]+$/,
+        message: t('auth.nameInvalid'),
+      },
     },
     email: {
       required: t('auth.emailRequired'),
@@ -108,55 +115,49 @@ const RegisterScreen = () => {
   });
 
   const onRegister = async (data: any) => {
+    if (loading || authLoading) {
+      return;
+    }
+
     setLoading(true);
+    clearErrors();
+
     try {
-      const userCredential = await auth().createUserWithEmailAndPassword(
-        data.email,
+      await signUp(
+        data.email.trim(),
         data.password,
+        data.role,
+        data.name?.trim(),
       );
 
-      const user = userCredential.user;
-
-      const userData = {
-        email: user.email,
-        name: data.name,
-        role: data.role || 'tourist',
-        createdAt: firestore.FieldValue.serverTimestamp(),
-        updatedAt: firestore.FieldValue.serverTimestamp(),
-      };
-
-      // Add status for tour guides
-      if (data.role === 'tour_guide') {
-        userData.status = 'pending';
-      }
+      // Reset form on success
       reset();
-      setLoading(false);
 
-      await firestore().collection('users').doc(user.uid).set(userData);
+      // Show success message based on role (only for tourists, tour guides will show their own alert)
+      if (data.role === 'tourist') {
+        const successMessage = t('auth.registerSuccess');
 
-      // const successMessage =
-      //   data.role === 'tour_guide'
-      //     ? t('auth.tourGuideRegistrationSuccess')
-      //     : t('auth.touristRegistrationSuccess');
-
-      // Alert.alert(t('common.success'), successMessage, [
-      //   {
-      //     text: t('common.continue'),
-      //     // onPress: () => navigation.navigate('Login'),
-      //   },
-      // ]);
-    } catch (error: any) {
-      let errorMessage = t('auth.registrationFailed');
-
-      if (error.code === 'auth/email-already-in-use') {
-        errorMessage = t('auth.emailAlreadyInUse');
-      } else if (error.code === 'auth/weak-password') {
-        errorMessage = t('auth.weakPassword');
-      } else if (error.code === 'auth/invalid-email') {
-        errorMessage = t('auth.invalidEmailAddress');
+        Alert.alert(t('auth.accountCreated'), successMessage, [
+          {
+            text: t('common.ok'),
+            onPress: () => {
+              // Navigation will be handled by AuthContext
+            },
+          },
+        ]);
       }
+      // For tour guides, the alert is shown in AuthContext
+    } catch (error: any) {
+      console.error('Registration error:', error);
 
-      Alert.alert(t('auth.registrationFailed'), errorMessage);
+      const errorMessage = error.message || t('auth.registrationFailed');
+
+      Alert.alert(t('auth.registrationFailed'), errorMessage, [
+        {
+          text: t('common.ok'),
+          style: 'default',
+        },
+      ]);
     } finally {
       setLoading(false);
     }
@@ -566,19 +567,19 @@ const RegisterScreen = () => {
                 <TouchableOpacity
                   style={[
                     styles.registerButton,
-                    loading && styles.registerButtonDisabled,
+                    (loading || authLoading) && styles.registerButtonDisabled,
                   ]}
                   onPress={handleSubmit(onRegister)}
-                  disabled={loading}
+                  disabled={loading || authLoading}
                   activeOpacity={0.8}>
                   <LinearGradient
                     colors={
-                      loading
+                      loading || authLoading
                         ? ['#94A3B8', '#64748B']
                         : ['#4AC6D0', '#3BB8C3', '#2DA5B0']
                     }
                     style={styles.registerButtonGradient}>
-                    {loading ? (
+                    {loading || authLoading ? (
                       <View style={styles.loadingContainer}>
                         <ActivityIndicator color="#fff" size="small" />
                         <Text style={styles.loadingText}>

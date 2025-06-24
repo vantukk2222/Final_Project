@@ -23,6 +23,7 @@ import {
   TextInput,
   PermissionsAndroid,
   Platform,
+  FlatList,
 } from 'react-native';
 import firestore from '@react-native-firebase/firestore';
 import Icon from 'react-native-vector-icons/MaterialIcons';
@@ -75,10 +76,11 @@ type StateAction =
   | {type: 'SET_EDIT_BIO'; payload: string}
   | {type: 'SET_EDIT_PASSWORD'; payload: string}
   | {type: 'SET_EDIT_AVATAR'; payload: any}
-  // ✅ New edit actions
   | {type: 'SET_EDIT_ADDRESS'; payload: string}
   | {type: 'SET_EDIT_BIRTHDATE'; payload: Date | null}
+  | {type: 'SET_EDIT_ROLE'; payload: string}
   | {type: 'SET_GROUP_COUNT'; payload: number}
+  | {type: 'SET_Itinerary_COUNT'; payload: number}
   | {type: 'SET_LOADING_STATS'; payload: boolean}
   | {type: 'RESET_EDIT_FORM'}
   | {type: 'UPDATE_USER_FIELD'; payload: {field: keyof UserData; value: any}};
@@ -91,11 +93,12 @@ interface ProfileState {
   editBio: string;
   editPassword: string;
   editAvatar: any;
-  // ✅ New edit fields
   editAddress: string;
   editBirthdate: Date | null;
+  editRole: string;
   uploading: boolean;
   groupCount: number;
+  itineraryCount: number;
   loadingStats: boolean;
 }
 
@@ -107,15 +110,15 @@ const initialState: ProfileState = {
   editBio: '',
   editPassword: '',
   editAvatar: null,
-  // ✅ Initialize new fields
   editAddress: '',
   editBirthdate: null,
+  editRole: 'tourist',
   uploading: false,
   groupCount: 0,
+  itineraryCount: 0,
   loadingStats: false,
 };
 
-// Atomic state reducer
 // Atomic state reducer
 const profileReducer = (
   state: ProfileState,
@@ -131,8 +134,8 @@ const profileReducer = (
         editName: action.payload?.name || '',
         editBio: action.payload?.bio || '',
         editAvatar: action.payload?.avatar || null,
-        // ✅ Initialize edit fields from user data
         editAddress: action.payload?.address || '',
+        editRole: action.payload?.role || 'tourist',
         editBirthdate: action.payload?.birthdate
           ? action.payload.birthdate.toDate
             ? action.payload.birthdate.toDate()
@@ -158,13 +161,16 @@ const profileReducer = (
       return {...state, editPassword: action.payload};
     case 'SET_EDIT_AVATAR':
       return {...state, editAvatar: action.payload};
-    // ✅ New edit handlers
     case 'SET_EDIT_ADDRESS':
       return {...state, editAddress: action.payload};
     case 'SET_EDIT_BIRTHDATE':
       return {...state, editBirthdate: action.payload};
+    case 'SET_EDIT_ROLE':
+      return {...state, editRole: action.payload};
     case 'SET_GROUP_COUNT':
       return {...state, groupCount: action.payload};
+    case 'SET_Itinerary_COUNT':
+      return {...state, itineraryCount: action.payload};
     case 'SET_LOADING_STATS':
       return {...state, loadingStats: action.payload};
     case 'RESET_EDIT_FORM':
@@ -175,8 +181,8 @@ const profileReducer = (
         editName: state.userData?.name || '',
         editBio: state.userData?.bio || '',
         editAvatar: state.userData?.avatar || null,
-        // ✅ Reset new fields
         editAddress: state.userData?.address || '',
+        editRole: state.userData?.role || 'tourist',
         editBirthdate: state.userData?.birthdate
           ? state.userData.birthdate.toDate
             ? state.userData.birthdate.toDate()
@@ -276,11 +282,6 @@ const getRoleConfig = (role: string) => {
       text: 'tourGuide',
       icon: 'tour',
       color: '#4AC6D0',
-    },
-    admin: {
-      text: 'administrator',
-      icon: 'admin-panel-settings',
-      color: '#EF4444',
     },
     tourist: {
       text: 'tourist',
@@ -503,6 +504,106 @@ const EditAvatarSection = memo(
   },
 );
 
+// Role options constant
+const ROLE_OPTIONS = [
+  {value: 'tourist', labelKey: 'tourist', icon: 'person', color: '#6B7280'},
+  {value: 'tour_guide', labelKey: 'tourGuide', icon: 'tour', color: '#4AC6D0'},
+];
+
+// Role Dropdown Component
+const RoleDropdown = memo(
+  ({
+    selectedRole,
+    onRoleChange,
+    disabled,
+    t,
+  }: {
+    selectedRole: string;
+    onRoleChange: (role: string) => void;
+    disabled: boolean;
+    t: (key: string) => string;
+  }) => {
+    const [isOpen, setIsOpen] = useState(false);
+
+    const selectedOption =
+      ROLE_OPTIONS.find(option => option.value === selectedRole) ||
+      ROLE_OPTIONS[0];
+
+    const handleSelect = (role: string) => {
+      onRoleChange(role);
+      setIsOpen(false);
+    };
+
+    return (
+      <View style={styles.dropdownContainer}>
+        <TouchableOpacity
+          style={[styles.dropdownButton, disabled && styles.dropdownDisabled]}
+          onPress={() => !disabled && setIsOpen(true)}
+          disabled={disabled}>
+          <View style={styles.dropdownContent}>
+            <Icon
+              name={selectedOption.icon}
+              size={20}
+              color={selectedOption.color}
+            />
+            <Text style={styles.dropdownText}>
+              {t(`viewUserProfile.roles.${selectedOption.labelKey}`)}
+            </Text>
+          </View>
+          <Icon
+            name={isOpen ? 'keyboard-arrow-up' : 'keyboard-arrow-down'}
+            size={24}
+            color="#6B7280"
+          />
+        </TouchableOpacity>
+
+        <Modal
+          visible={isOpen}
+          transparent
+          animationType="fade"
+          onRequestClose={() => setIsOpen(false)}>
+          <TouchableOpacity
+            style={styles.dropdownOverlay}
+            activeOpacity={1}
+            onPress={() => setIsOpen(false)}>
+            <View style={styles.dropdownModal}>
+              <Text style={styles.dropdownTitle}>
+                {t('viewUserProfile.selectRole')}
+              </Text>
+              <FlatList
+                data={ROLE_OPTIONS}
+                keyExtractor={item => item.value}
+                renderItem={({item}) => (
+                  <TouchableOpacity
+                    style={[
+                      styles.dropdownOption,
+                      item.value === selectedRole &&
+                        styles.dropdownOptionSelected,
+                    ]}
+                    onPress={() => handleSelect(item.value)}>
+                    <Icon name={item.icon} size={20} color={item.color} />
+                    <Text
+                      style={[
+                        styles.dropdownOptionText,
+                        item.value === selectedRole &&
+                          styles.dropdownOptionTextSelected,
+                      ]}>
+                      {t(`viewUserProfile.roles.${item.labelKey}`)}
+                    </Text>
+                    {item.value === selectedRole && (
+                      <Icon name="check" size={20} color="#4AC6D0" />
+                    )}
+                  </TouchableOpacity>
+                )}
+              />
+            </View>
+          </TouchableOpacity>
+        </Modal>
+      </View>
+    );
+  },
+);
+
 const EditForm = memo(
   ({
     editName,
@@ -511,12 +612,14 @@ const EditForm = memo(
     editAvatar,
     editAddress,
     editBirthdate,
+    editRole,
     uploading,
     onNameChange,
     onBioChange,
     onPasswordChange,
     onAddressChange,
     onBirthdateChange,
+    onRoleChange,
     onImagePicker,
     onCancel,
     onSave,
@@ -528,12 +631,14 @@ const EditForm = memo(
     editAvatar: any;
     editAddress: string;
     editBirthdate: Date | null;
+    editRole: string;
     uploading: boolean;
     onNameChange: (text: string) => void;
     onBioChange: (text: string) => void;
     onPasswordChange: (text: string) => void;
     onAddressChange: (text: string) => void;
     onBirthdateChange: (date: Date | null) => void;
+    onRoleChange: (role: string) => void;
     onImagePicker: () => void;
     onCancel: () => void;
     onSave: () => void;
@@ -578,7 +683,6 @@ const EditForm = memo(
           />
         </View>
 
-        {/* ✅ Address Field */}
         <View style={styles.editField}>
           <Text style={styles.editLabel}>{t('viewUserProfile.address')}</Text>
           <TextInput
@@ -594,7 +698,6 @@ const EditForm = memo(
           />
         </View>
 
-        {/* ✅ Birthdate Field */}
         <View style={styles.editField}>
           <Text style={styles.editLabel}>{t('viewUserProfile.birthdate')}</Text>
           <TouchableOpacity
@@ -621,6 +724,17 @@ const EditForm = memo(
               )}
             </View>
           </TouchableOpacity>
+        </View>
+
+        {/* ✅ Role Field */}
+        <View style={styles.editField}>
+          <Text style={styles.editLabel}>{t('viewUserProfile.role')}</Text>
+          <RoleDropdown
+            selectedRole={editRole}
+            onRoleChange={onRoleChange}
+            disabled={uploading}
+            t={t}
+          />
         </View>
 
         <View style={styles.editField}>
@@ -693,6 +807,7 @@ const EditForm = memo(
       prevProps.editBio === nextProps.editBio &&
       prevProps.editPassword === nextProps.editPassword &&
       prevProps.editAddress === nextProps.editAddress &&
+      prevProps.editRole === nextProps.editRole &&
       prevProps.editBirthdate?.getTime() ===
         nextProps.editBirthdate?.getTime() &&
       prevProps.uploading === nextProps.uploading &&
@@ -706,6 +821,7 @@ const InfoSection = memo(
     userData,
     roleConfig,
     groupCount,
+    itineraryCount,
     loadingStats,
     isAdmin,
     onStartChat,
@@ -714,6 +830,7 @@ const InfoSection = memo(
     userData: UserData;
     roleConfig: {text: string; icon: string; color: string};
     groupCount: number;
+    itineraryCount: number;
     loadingStats: boolean;
     isAdmin: boolean;
     onStartChat: () => void;
@@ -821,6 +938,23 @@ const InfoSection = memo(
               </Text>
             </View>
           )}
+          {isAdmin && userData.role === 'tour_guide' && (
+            <View style={styles.detailRow}>
+              <Icon name="map" size={18} color="#6B7280" />
+              <Text style={styles.detailLabel}>
+                {t('tour.management.totalTours')}:
+              </Text>
+              <Text style={styles.detailValue}>
+                {loadingStats
+                  ? '...'
+                  : `${itineraryCount} ${
+                      itineraryCount === 1
+                        ? t('tour.management.tour')
+                        : t('tour.management.tours')
+                    }`}
+              </Text>
+            </View>
+          )}
         </View>
 
         {!isAdmin && (
@@ -898,7 +1032,6 @@ const ViewUserProfile: React.FC<ViewUserProfileProps> = ({
   );
 
   // Form handlers - memoized
-  // Form handlers - memoized
   const formHandlers = useMemo(
     () => ({
       handleNameChange: (text: string) =>
@@ -907,11 +1040,12 @@ const ViewUserProfile: React.FC<ViewUserProfileProps> = ({
         dispatch({type: 'SET_EDIT_BIO', payload: text}),
       handlePasswordChange: (text: string) =>
         dispatch({type: 'SET_EDIT_PASSWORD', payload: text}),
-      // ✅ New handlers for address and birthdate
       handleAddressChange: (text: string) =>
         dispatch({type: 'SET_EDIT_ADDRESS', payload: text}),
       handleBirthdateChange: (date: Date | null) =>
         dispatch({type: 'SET_EDIT_BIRTHDATE', payload: date}),
+      handleRoleChange: (role: string) =>
+        dispatch({type: 'SET_EDIT_ROLE', payload: role}),
       handleEditToggle: () => {
         if (state.isEditing) {
           dispatch({type: 'RESET_EDIT_FORM'});
@@ -1050,12 +1184,11 @@ const ViewUserProfile: React.FC<ViewUserProfileProps> = ({
           const updateData: any = {
             name: state.editName.trim(),
             bio: state.editBio.trim(),
-            // ✅ Include new fields
             address: state.editAddress.trim(),
+            role: state.editRole,
             updatedAt: firestore.FieldValue.serverTimestamp(),
           };
 
-          // ✅ Handle birthdate
           if (state.editBirthdate) {
             updateData.birthdate = firestore.Timestamp.fromDate(
               state.editBirthdate,
@@ -1089,6 +1222,10 @@ const ViewUserProfile: React.FC<ViewUserProfileProps> = ({
           dispatch({
             type: 'UPDATE_USER_FIELD',
             payload: {field: 'address', value: state.editAddress.trim()},
+          });
+          dispatch({
+            type: 'UPDATE_USER_FIELD',
+            payload: {field: 'role', value: state.editRole},
           });
           dispatch({
             type: 'UPDATE_USER_FIELD',
@@ -1237,8 +1374,16 @@ const ViewUserProfile: React.FC<ViewUserProfileProps> = ({
         .where('isGroup', '==', true)
         .where(`roles.${userId}`, '==', 'owner')
         .get();
+      const intinerarysSnapshot = await firestore()
+        .collection('tours')
+        .where('guideId', 'array-contains', userId)
+        .get();
 
       dispatch({type: 'SET_GROUP_COUNT', payload: chatsSnapshot.size});
+      dispatch({
+        type: 'SET_Itinerary_COUNT',
+        payload: intinerarysSnapshot.size,
+      });
     } catch (error) {
       console.error('Error loading tour guide stats:', error);
     } finally {
@@ -1296,12 +1441,14 @@ const ViewUserProfile: React.FC<ViewUserProfileProps> = ({
                 editAvatar={state.editAvatar}
                 editAddress={state.editAddress}
                 editBirthdate={state.editBirthdate}
+                editRole={state.editRole}
                 uploading={state.uploading}
                 onNameChange={formHandlers.handleNameChange}
                 onBioChange={formHandlers.handleBioChange}
                 onPasswordChange={formHandlers.handlePasswordChange}
                 onAddressChange={formHandlers.handleAddressChange}
                 onBirthdateChange={formHandlers.handleBirthdateChange}
+                onRoleChange={formHandlers.handleRoleChange}
                 onImagePicker={imageHandlers.handleImagePicker}
                 onCancel={formHandlers.handleCancel}
                 onSave={businessHandlers.handleSaveChanges}
@@ -1319,6 +1466,7 @@ const ViewUserProfile: React.FC<ViewUserProfileProps> = ({
                   userData={state.userData}
                   roleConfig={computedValues.roleConfig}
                   groupCount={state.groupCount}
+                  itineraryCount={state.itineraryCount}
                   loadingStats={state.loadingStats}
                   isAdmin={computedValues.isAdmin}
                   onStartChat={businessHandlers.handleStartChat}
@@ -1732,6 +1880,84 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '700',
     marginLeft: 8,
+  },
+
+  // Role Dropdown Styles
+  dropdownContainer: {
+    position: 'relative',
+  },
+  dropdownButton: {
+    borderWidth: 1,
+    borderColor: '#D1D5DB',
+    borderRadius: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    backgroundColor: '#F9FAFB',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  dropdownDisabled: {
+    opacity: 0.6,
+  },
+  dropdownContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+  },
+  dropdownText: {
+    fontSize: 16,
+    color: '#1F2937',
+    marginLeft: 12,
+    flex: 1,
+  },
+  dropdownOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  dropdownModal: {
+    backgroundColor: '#fff',
+    borderRadius: 16,
+    margin: 20,
+    maxHeight: 300,
+    minWidth: 280,
+    elevation: 10,
+    shadowColor: '#000',
+    shadowOffset: {width: 0, height: 4},
+    shadowOpacity: 0.25,
+    shadowRadius: 10,
+  },
+  dropdownTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: '#1F2937',
+    padding: 20,
+    paddingBottom: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: '#E5E7EB',
+  },
+  dropdownOption: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F3F4F6',
+  },
+  dropdownOptionSelected: {
+    backgroundColor: '#F0F9FF',
+  },
+  dropdownOptionText: {
+    fontSize: 16,
+    color: '#374151',
+    marginLeft: 12,
+    flex: 1,
+  },
+  dropdownOptionTextSelected: {
+    color: '#1E40AF',
+    fontWeight: '600',
   },
 });
 

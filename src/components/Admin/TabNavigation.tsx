@@ -3,7 +3,7 @@ import {View, TouchableOpacity, Text, StyleSheet} from 'react-native';
 import Icon from 'react-native-vector-icons/FontAwesome5';
 import LinearGradient from 'react-native-linear-gradient';
 
-type TabType = 'overview' | 'guides' | 'tourists';
+type TabType = 'overview' | 'guides' | 'tourists' | 'tours';
 
 interface TabNavigationProps {
   activeTab: TabType;
@@ -18,6 +18,7 @@ const TabNavigation: React.FC<TabNavigationProps> = ({
     {key: 'overview', label: 'Overview', icon: 'chart-bar'},
     {key: 'guides', label: 'Tour Guides', icon: 'user-tie'},
     {key: 'tourists', label: 'Tourists', icon: 'user-friends'},
+    // {key: 'tours', label: 'Tours', icon: 'route'},
   ] as const;
 
   return (

@@ -308,22 +308,19 @@ class FCMService {
 
         const retryableRemove = createRetryableFunction(
           () =>
-            firestore()
-              .collection('users')
-              .doc(userId)
-              .update({
-                'currentSession.isActive': false,
-                'currentSession.logoutTime':
-                  firestore.FieldValue.serverTimestamp(),
-                lastActive: firestore.FieldValue.serverTimestamp(),
-                fcmToken: firestore.FieldValue.delete(),
-                [`sessionHistory.${this.sessionId}`]: {
-                  sessionId: this.sessionId,
-                  deviceId: this.deviceInfo?.deviceId,
-                  logoutTime: firestore.FieldValue.serverTimestamp(),
-                  status: SessionStatus.INACTIVE,
-                },
-              }),
+            firestore().collection('users').doc(userId).update({
+              'currentSession.isActive': false,
+              'currentSession.logoutTime':
+                firestore.FieldValue.serverTimestamp(),
+              lastActive: firestore.FieldValue.serverTimestamp(),
+              fcmToken: firestore.FieldValue.delete(),
+              // [`sessionHistory.${this.sessionId}`]: {
+              //   sessionId: this.sessionId,
+              //   deviceId: this.deviceInfo?.deviceId,
+              //   logoutTime: firestore.FieldValue.serverTimestamp(),
+              //   status: SessionStatus.INACTIVE,
+              // },
+            }),
           this.config.retryAttempts,
           this.config.retryDelayMs,
         );
@@ -532,15 +529,15 @@ class FCMService {
           // );
 
           // Archive existing session
-          transaction.update(userRef, {
-            [`sessionHistory.${existingSession.sessionId}`]: {
-              ...existingSession,
-              isActive: false,
-              kickedAt: firestore.FieldValue.serverTimestamp(),
-              kickedBy: this.sessionId,
-              status: SessionStatus.KICKED,
-            },
-          });
+          // transaction.update(userRef, {
+          //   [`sessionHistory.${existingSession.sessionId}`]: {
+          //     ...existingSession,
+          //     isActive: false,
+          //     kickedAt: firestore.FieldValue.serverTimestamp(),
+          //     kickedBy: this.sessionId,
+          //     status: SessionStatus.KICKED,
+          //   },
+          // });
 
           // Emit session conflict event
           this.emitEvent(FCMEvents.SESSION_CONFLICT, {

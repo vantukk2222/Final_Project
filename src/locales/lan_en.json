@@ -33,7 +33,10 @@
     "apply": "Apply",
     "applyChanges": "Apply Changes",
     "reset": "Reset",
-    "refresh": "Refresh"
+    "refresh": "Refresh",
+    "settings": "Settings",
+    "selectAll": "Select All",
+    "deselectAll": "Deselect All"
   },
   "auth": {
     "login": "Login",
@@ -127,8 +130,10 @@
     "tourGuideAccountCreatedMessage": "Your tour guide account has been created and is awaiting admin approval. You will be notified once approved.",
     
     "signInFailed": "Sign in failed",
-    "signOutFailed": "Sign out failed"
-
+    "signOutFailed": "Sign out failed",
+    
+    "nameInvalid": "Name can only contain letters and spaces",
+    "operationNotAllowed": "This operation is not allowed"
   },
   
   "roles": {
@@ -277,7 +282,7 @@
   "chat": {
     "travel": "Travel",
     "chats": "Chat",
-    "travelChats": "Travel Chat",
+    "travelChats": "Channel",
     "conversation": "conversation",
     "searchConversations": "Search conversations...",
     "defaultGroupName": "Travel Group",
@@ -313,6 +318,8 @@
     "failedToDeleteChat": "Failed to delete chat. Please try again."
   },
   "chatScreen": {
+    "channel": "Channel",
+    "tours": "Tours",
     "associatedTour": "Associated Tour",
     "noMessagesYet": "No messages yet",
     "sendMessage": "Send Message",
@@ -588,7 +595,13 @@
       "manageTourGuides": "Manage Tour Guides",
       "manageTourGuidesDescription": "View, approve, and manage guide accounts",
       "manageTourists": "Manage Tourists",
-      "manageTouristsDescription": "View and manage tourist accounts"
+      "manageTouristsDescription": "View and manage tourist accounts",
+      "manageTours": "Manage Tours",
+      "manageToursDescription": "View and manage tour itineraries",
+      "totalTours": "Total Tours",
+      "activeTours": "Active Tours",
+      "completedTours": "Completed Tours",
+      "draftTours": "Draft Tours"
     },
     "dashboard": {
       "title": "Admin Dashboard",
@@ -596,8 +609,11 @@
       "failedToLoadStatistics": "Failed to load statistics",
       "failedToLoadTourGuides": "Failed to load tour guides",
       "failedToLoadTourists": "Failed to load tourists",
+      "failedToLoadTours": "Failed to load tours",
       "tourGuideStatusUpdated": "Tour guide status updated to {{status}}",
+      "tourStatusUpdated": "Tour status updated successfully",
       "failedToUpdateStatus": "Failed to update status",
+      "failedToUpdateTourStatus": "Failed to update tour status",
       "touristAccountActivated": "Tourist account activated",
       "touristAccountDeactivated": "Tourist account deactivated",
       "failedToUpdateTouristStatus": "Failed to update tourist status",
@@ -611,10 +627,13 @@
       "thisUser": "this user",
       "noTourGuidesFound": "No tour guides found",
       "noTouristsFound": "No tourists found",
+      "noToursFound": "No tours found",
       "loadingTourGuides": "Loading tour guides...",
       "loadingTourists": "Loading tourists...",
+      "loadingTours": "Loading tours...",
       "searchTourGuides": "Search tour guides...",
       "searchTourists": "Search tourists...",
+      "searchTours": "Search tours...",
       
       "status": {
         "pending": "pending",
@@ -631,12 +650,57 @@
         "activate": "activate",
         "deactivate": "deactivate"
       }
+    },
+    "tours": {
+      "guide": "Guide",
+      "status": {
+        "draft": "Draft",
+        "published": "Published",
+        "active": "Active",
+        "completed": "Completed",
+        "cancelled": "Cancelled"
+      },
+      "stops": " stop",
+      "stops_plural": " stops",
+      "participants": "participants",
+      "child": "Children",
+      "viewDetails": "View Details",
+      "publish": "Publish",
+      "activate": "Activate",
+      "cancel": "Cancel",
+      "complete": "Complete",
+      "confirmStatusChange": "Are you sure you want to {{action}} \"{{title}}\"?",
+      "actions": {
+        "publish": "Are you sure you want to publish tour.",
+        "activate": "Are you sure you want to activate tour.",
+        "cancel": "Are you sure you want to cancel tour.",
+        "complete": "Are you sure you want to complete tour.",
+        "delete": "Are you sure you want to delete tour."
+      }
+      
     }
   },
   "tour": {
     "management": {
+      "createFirstTour": "Create your first tour",
+      "totalTours": "Total Tours",
+      "tours": "Tours",
+      "tour": "Tour",
+      "loadingTours": "Loading tours...",
+      "statistics": "Statistics",
+      "searchTours": "Search Tours...",
+      "activeTours": "Active Tours",
+      "revenue": "Revenue",
       "loadError": "Failed to load tour.",
       "title": "Tour Management",
+      "filterAndSort": "Filter and Sort",
+      "status": "Status",
+      "sortBy": "Sort By",
+      "sortNewest": "Newest",
+      "sortOldest": "Oldest",
+      "sortPriceLow": "Price: Low to High",
+      "sortPriceHigh": "Price: High to Low",
+      "sortTitle": "Title",
       "createTour": "Create Tour",
       "editTour": "Edit Tour",
       "tourDetails": "Tour Details",
@@ -666,10 +730,11 @@
       "saveSuccess": "Tour saved successfully",
       "saveError": "Failed to save tour",
       "notFound": "Tour not found",
-      "unknownDate": "Unknown Date",
+      "unknownDate": "Unknown Date"
    },
     "form": {
       "basicInformation": "Basic Information",
+      "children": "Children",
       "tourTitle": "Tour Title",
       "enterTourTitle": "Enter tour title",
       "tourTitleRequired": "Tour title is required",
@@ -796,9 +861,29 @@
       "sharedByGuide": "Shared by guide:",
       "sharedTour": "Shared tour itinerary",
       "newTourShared": "New tour itinerary shared",
+      "tourUnshared": "Tour removed from group",
       "loadingGroups": "Loading chat groups...",
       "noGroupsFound": "No chat groups found",
-      "createGroupFirst": "Create a group chat first to share tours"
+      "createGroupFirst": "Create a group chat first to share tours",
+      "pleaseSelectGroups": "Please select at least one group",
+      "pleaseSelectNewGroups": "Please select new groups to share with",
+      "noChangesToMake": "No changes to make",
+      "tourSharedTo": "Tour shared to",
+      "tourUnsharedFrom": "Tour unshared from", 
+      "group": "group",
+      "groups": "groups",
+      "groupsAndUnsharedFrom": "groups and unshared from",
+      "of": "of",
+      "groupsSelected": "groups selected",
+      "alreadyShared": "already shared",
+      "alreadySharedCount": "already shared",
+      "shared": "Shared",
+      "willUnshare": "Will unshare",
+      "updating": "Updating...",
+      "updateSharing": "Update Sharing",
+      "sharing": "Sharing...",
+      "shareToSelected": "Share to Selected",
+      "failedToUpdateTourSharing": "Failed to update tour sharing"
     }
   },
   "images": {

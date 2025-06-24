@@ -21,6 +21,7 @@ import ShareTourModal from '../components/TourManagement/ShareTourModal';
 import ImagePickerComponent from '../components/common/ImagePickerComponent';
 import ImageGallery from '../components/common/ImageGallery';
 import {useAuth} from '../contexts/AuthContext';
+import translationTextService from '../services/translationText';
 
 interface TourDetailScreenProps {
   navigation: any;
@@ -35,7 +36,7 @@ const TourDetailScreen: React.FC<TourDetailScreenProps> = ({
   navigation,
   route,
 }) => {
-  const {t} = useTranslation();
+  const {t, currentLanguage} = useTranslation();
   const {user} = useAuth();
   const {tourId} = route.params;
 
@@ -49,12 +50,52 @@ const TourDetailScreen: React.FC<TourDetailScreenProps> = ({
       .collection('tours')
       .doc(tourId)
       .onSnapshot(
-        doc => {
+        async doc => {
           if (doc.exists) {
             const tourData = doc.data() as TourItinerary;
+
+            const titleS = await translationTextService.translateText(
+              tourData.title,
+              currentLanguage,
+            );
+            const desS = await translationTextService.translateText(
+              tourData.description,
+              currentLanguage,
+            );
+            const stopsS = await Promise.all(
+              tourData.stops?.map(async stop => {
+                const destinationName =
+                  await translationTextService.translateText(
+                    stop.destination?.name || '',
+                    currentLanguage,
+                  );
+                const activitiesS = await Promise.all(
+                  stop.activities?.map(async activity => {
+                    const activityName =
+                      await translationTextService.translateText(
+                        activity.name || '',
+                        currentLanguage,
+                      );
+                    return {
+                      ...activity,
+                      name: activityName.translatedText,
+                    };
+                  }) || [],
+                );
+                return {
+                  ...stop,
+                  destination: {
+                    ...stop.destination,
+                    name: destinationName.translatedText,
+                  },
+                  activities: activitiesS,
+                };
+              }) || [],
+            );
             // Convert Firestore Timestamp to Date
             const processedTour = {
               id: doc.id,
+
               ...tourData,
               price: {
                 adult: tourData.price?.adult || 0,
@@ -70,6 +111,9 @@ const TourDetailScreen: React.FC<TourDetailScreenProps> = ({
               updatedAt: tourData.updatedAt?.toDate
                 ? tourData.updatedAt.toDate()
                 : new Date(tourData.updatedAt),
+              title: titleS.translatedText || tourData.title,
+              description: desS.translatedText || tourData.description,
+              stops: stopsS,
             } as TourItinerary;
             setTour(processedTour);
           } else {
@@ -394,7 +438,7 @@ const TourDetailScreen: React.FC<TourDetailScreenProps> = ({
               <Text style={styles.priceText}>
                 {tour.price.adult} {tour.price.currency || 'USD'}
                 {tour.price.child !== undefined &&
-                  ` (Child: ${tour.price.child} ${
+                  ` (${t('tour.form.children')} ${tour.price.child} ${
                     tour.price.currency || 'USD'
                   })`}
               </Text>
@@ -874,6 +918,7 @@ const styles = StyleSheet.create({
     padding: 16,
     borderLeftWidth: 4,
     borderLeftColor: '#3B82F6',
+    marginBottom: 16,
   },
   notesText: {
     fontSize: 14,

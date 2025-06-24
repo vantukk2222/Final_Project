@@ -270,24 +270,6 @@ const CreateTourScreen: React.FC<CreateTourScreenProps> = ({navigation}) => {
         <Text style={styles.headerTitle}>
           {t('tour.management.createTour')}
         </Text>
-        <View style={styles.headerActions}>
-          <TouchableOpacity
-            style={[styles.headerButton, styles.draftButton]}
-            onPress={() => saveTour('draft')}
-            disabled={saving}>
-            <Text style={styles.draftButtonText}>
-              {t('tour.management.saveDraft')}
-            </Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[styles.headerButton, styles.publishButton]}
-            onPress={() => saveTour('published')}
-            disabled={saving}>
-            <Text style={styles.publishButtonText}>
-              {t('tour.management.publish')}
-            </Text>
-          </TouchableOpacity>
-        </View>
       </View>
 
       <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
@@ -408,6 +390,25 @@ const CreateTourScreen: React.FC<CreateTourScreenProps> = ({navigation}) => {
         onClose={() => setShowAddDestinationModal(false)}
         onAddDestination={addTourStop}
       />
+      {/* Save Buttons */}
+      <View style={styles.headerActions}>
+        <TouchableOpacity
+          style={[styles.headerButton, styles.draftButton]}
+          onPress={() => saveTour('draft')}
+          disabled={saving}>
+          <Text style={styles.draftButtonText}>
+            {t('tour.management.saveDraft')}
+          </Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[styles.headerButton, styles.publishButton]}
+          onPress={() => saveTour('published')}
+          disabled={saving}>
+          <Text style={styles.publishButtonText}>
+            {t('tour.management.publish')}
+          </Text>
+        </TouchableOpacity>
+      </View>
     </SafeAreaView>
   );
 };
@@ -440,12 +441,28 @@ const styles = StyleSheet.create({
   },
   headerActions: {
     flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    backgroundColor: '#FFFFFF',
+    borderTopWidth: 1,
+    borderTopColor: '#E5E7EB',
+    borderBottomWidth: 1,
+    borderBottomColor: '#E5E7EB',
     gap: 8,
   },
   headerButton: {
-    paddingHorizontal: 16,
-    paddingVertical: 8,
+    flex: 1,
+    paddingVertical: 12,
     borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginHorizontal: 4,
+    shadowColor: '#000',
+    shadowOffset: {width: 0, height: 2},
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
   },
   draftButton: {
     backgroundColor: '#F3F4F6',

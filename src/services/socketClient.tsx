@@ -620,7 +620,20 @@ export default function SocketClient() {
       console.log('📱 App state changed to:', nextAppState);
 
       if (nextAppState === 'background') {
-        soundManager.stopNotificationSound();
+        // soundManager.stopNotificationSound();
+        // update status of user to offline
+        firestore()
+          .collection('users')
+          .doc(user.uid)
+          .update({
+            userStatus: {
+              status: 'offline',
+              lastSeen: firestore.FieldValue.serverTimestamp(),
+              lastActivity: firestore.FieldValue.serverTimestamp(),
+              isOnline: false,
+              updatedAt: firestore.FieldValue.serverTimestamp(),
+            },
+          });
       } else if (nextAppState === 'active') {
         // Process any queued background notifications
         notificationManager.processNotificationQueue();
