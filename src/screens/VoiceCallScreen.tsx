@@ -483,32 +483,14 @@ const VoiceCallScreen = ({route}) => {
           .then(() => {
             console.log('✅ Audio file written to:', tempFilePath);
 
-            // Create Sound object from file path
-            const sound = new Sound(tempFilePath, '', error => {
-              if (error) {
-                console.error('❌ [Audio] Failed to load audio file:', error);
-                // Clean up temp file on error
-                RNFS.unlink(tempFilePath).catch(e =>
-                  console.error('Failed to delete temp file:', e),
-                );
-                return;
-              }
+            // Add to queue instead of playing immediately
+            audioQueueRef.current.push(tempFilePath);
+            console.log(
+              `📥 Audio queued. Queue length: ${audioQueueRef.current.length}`,
+            );
 
-              // Play the audio
-              sound.play(success => {
-                if (success) {
-                  console.log('✅ Audio played successfully');
-                } else {
-                  console.error('❌ Audio playback failed');
-                }
-
-                // Clean up
-                sound.release();
-                RNFS.unlink(tempFilePath).catch(e =>
-                  console.error('Failed to delete temp file:', e),
-                );
-              });
-            });
+            // Process queue
+            processAudioQueue();
           })
           .catch(error => {
             console.error('❌ Failed to write audio file:', error);

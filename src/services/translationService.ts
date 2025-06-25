@@ -1,7 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import lanEn from '../locales/lan_en.json';
 
-// Types
 interface SupportedLanguage {
   code: string;
   name: string;
@@ -9,6 +8,512 @@ interface SupportedLanguage {
   flag: string;
   azureCode: string;
 }
+
+export const SUPPORTED_LANGUAGES: readonly SupportedLanguage[] = Object.freeze([
+  {
+    code: 'af',
+    name: 'Afrikaans',
+    nativeName: 'Afrikaans',
+    flag: '🇿🇦',
+    azureCode: 'af',
+  },
+  {
+    code: 'sq',
+    name: 'Albanian',
+    nativeName: 'Shqip',
+    flag: '🇦🇱',
+    azureCode: 'sq',
+  },
+  {
+    code: 'am',
+    name: 'Amharic',
+    nativeName: 'አማርኛ',
+    flag: '🇪🇹',
+    azureCode: 'am',
+  },
+  {
+    code: 'ar',
+    name: 'Arabic',
+    nativeName: 'العربية',
+    flag: '🇸🇦', // Corrected: Saudi Arabia as a standard
+    azureCode: 'ar',
+  },
+  {
+    code: 'hy',
+    name: 'Armenian',
+    nativeName: 'Հայերեն',
+    flag: '🇦🇲',
+    azureCode: 'hy',
+  },
+  {
+    code: 'az',
+    name: 'Azerbaijani',
+    nativeName: 'Azərbaycan',
+    flag: '🇦🇿',
+    azureCode: 'az',
+  },
+  {
+    code: 'bn',
+    name: 'Bangla',
+    nativeName: 'বাংলা',
+    flag: '🇧🇩',
+    azureCode: 'bn',
+  },
+  {
+    code: 'eu',
+    name: 'Basque',
+    nativeName: 'Euskara',
+    flag: '🇪🇸', // Basque Country is in Spain
+    azureCode: 'eu',
+  },
+  {
+    code: 'bs',
+    name: 'Bosnian',
+    nativeName: 'Bosanski',
+    flag: '🇧🇦',
+    azureCode: 'bs',
+  },
+  {
+    code: 'bg',
+    name: 'Bulgarian',
+    nativeName: 'Български',
+    flag: '🇧🇬',
+    azureCode: 'bg',
+  },
+  {
+    code: 'my',
+    name: 'Burmese',
+    nativeName: 'မြန်မာ',
+    flag: '🇲🇲',
+    azureCode: 'my',
+  },
+  {
+    code: 'ca',
+    name: 'Catalan',
+    nativeName: 'Català',
+    flag: '🇪🇸', // Catalonia is in Spain
+    azureCode: 'ca',
+  },
+  {
+    code: 'zh',
+    name: 'Chinese',
+    nativeName: '中文',
+    flag: '🇨🇳',
+    azureCode: 'zh-Hans',
+  },
+  {
+    code: 'hr',
+    name: 'Croatian',
+    nativeName: 'Hrvatski',
+    flag: '🇭🇷',
+    azureCode: 'hr',
+  },
+  {
+    code: 'cs',
+    name: 'Czech',
+    nativeName: 'Čeština',
+    flag: '🇨🇿',
+    azureCode: 'cs',
+  },
+  {
+    code: 'da',
+    name: 'Danish',
+    nativeName: 'Dansk',
+    flag: '🇩🇰',
+    azureCode: 'da',
+  },
+  {
+    code: 'nl',
+    name: 'Dutch',
+    nativeName: 'Nederlands',
+    flag: '🇳🇱', // Corrected: Netherlands
+    azureCode: 'nl',
+  },
+  {
+    code: 'en',
+    name: 'English',
+    nativeName: 'English',
+    flag: '🇬🇧', // Corrected: UK as origin
+    azureCode: 'en',
+  },
+  {
+    code: 'et',
+    name: 'Estonian',
+    nativeName: 'Eesti',
+    flag: '🇪🇪',
+    azureCode: 'et',
+  },
+  {
+    code: 'fil',
+    name: 'Filipino',
+    nativeName: 'Filipino',
+    flag: '🇵🇭',
+    azureCode: 'fil',
+  },
+  {
+    code: 'fi',
+    name: 'Finnish',
+    nativeName: 'Suomi',
+    flag: '🇫🇮',
+    azureCode: 'fi',
+  },
+  {
+    code: 'fr',
+    name: 'French',
+    nativeName: 'Français',
+    flag: '🇫🇷', // Corrected: France
+    azureCode: 'fr',
+  },
+  {
+    code: 'gl',
+    name: 'Galician',
+    nativeName: 'Galego',
+    flag: '🇪🇸', // Galicia is in Spain
+    azureCode: 'gl',
+  },
+  {
+    code: 'ka',
+    name: 'Georgian',
+    nativeName: 'ქართული',
+    flag: '🇬🇪',
+    azureCode: 'ka',
+  },
+  {
+    code: 'de',
+    name: 'German',
+    nativeName: 'Deutsch',
+    flag: '🇩🇪', // Corrected: Germany
+    azureCode: 'de',
+  },
+  {
+    code: 'el',
+    name: 'Greek',
+    nativeName: 'Ελληνικά',
+    flag: '🇬🇷',
+    azureCode: 'el',
+  },
+  {
+    code: 'gu',
+    name: 'Gujarati',
+    nativeName: 'ગુજરાતી',
+    flag: '🇮🇳',
+    azureCode: 'gu',
+  },
+  {
+    code: 'he',
+    name: 'Hebrew',
+    nativeName: 'עברית',
+    flag: '🇮🇱',
+    azureCode: 'he',
+  },
+  {
+    code: 'hi',
+    name: 'Hindi',
+    nativeName: 'हिन्दी',
+    flag: '🇮🇳',
+    azureCode: 'hi',
+  },
+  {
+    code: 'hu',
+    name: 'Hungarian',
+    nativeName: 'Magyar',
+    flag: '🇭🇺',
+    azureCode: 'hu',
+  },
+  {
+    code: 'is',
+    name: 'Icelandic',
+    nativeName: 'Íslenska',
+    flag: '🇮🇸',
+    azureCode: 'is',
+  },
+  {
+    code: 'id',
+    name: 'Indonesian',
+    nativeName: 'Indonesia',
+    flag: '🇮🇩',
+    azureCode: 'id',
+  },
+  {
+    code: 'ga',
+    name: 'Irish',
+    nativeName: 'Gaeilge',
+    flag: '🇮🇪',
+    azureCode: 'ga',
+  },
+  {
+    code: 'it',
+    name: 'Italian',
+    nativeName: 'Italiano',
+    flag: '🇮🇹',
+    azureCode: 'it',
+  },
+  {
+    code: 'ja',
+    name: 'Japanese',
+    nativeName: '日本語',
+    flag: '🇯🇵',
+    azureCode: 'ja',
+  },
+  {
+    code: 'jv',
+    name: 'Javanese',
+    nativeName: 'Jawa',
+    flag: '🇮🇩',
+    azureCode: 'jv',
+  },
+  {
+    code: 'kn',
+    name: 'Kannada',
+    nativeName: 'ಕನ್ನಡ',
+    flag: '🇮🇳',
+    azureCode: 'kn',
+  },
+  {
+    code: 'kk',
+    name: 'Kazakh',
+    nativeName: 'Қазақ',
+    flag: '🇰🇿',
+    azureCode: 'kk',
+  },
+  {code: 'km', name: 'Khmer', nativeName: 'ខ្មែរ', flag: '🇰🇭', azureCode: 'km'},
+  {
+    code: 'ko',
+    name: 'Korean',
+    nativeName: '한국어',
+    flag: '🇰🇷',
+    azureCode: 'ko',
+  },
+  {code: 'lo', name: 'Lao', nativeName: 'ລາວ', flag: '🇱🇦', azureCode: 'lo'},
+  {
+    code: 'lv',
+    name: 'Latvian',
+    nativeName: 'Latviešu',
+    flag: '🇱🇻',
+    azureCode: 'lv',
+  },
+  {
+    code: 'lt',
+    name: 'Lithuanian',
+    nativeName: 'Lietuvių',
+    flag: '🇱🇹',
+    azureCode: 'lt',
+  },
+  {
+    code: 'mk',
+    name: 'Macedonian',
+    nativeName: 'Македонски',
+    flag: '🇲🇰',
+    azureCode: 'mk',
+  },
+  {
+    code: 'ms',
+    name: 'Malay',
+    nativeName: 'Melayu',
+    flag: '🇲🇾',
+    azureCode: 'ms',
+  },
+  {
+    code: 'ml',
+    name: 'Malayalam',
+    nativeName: 'മലയാളം',
+    flag: '🇮🇳',
+    azureCode: 'ml',
+  },
+  {
+    code: 'mt',
+    name: 'Maltese',
+    nativeName: 'Malti',
+    flag: '🇲🇹',
+    azureCode: 'mt',
+  },
+  {
+    code: 'mr',
+    name: 'Marathi',
+    nativeName: 'मराठी',
+    flag: '🇮🇳',
+    azureCode: 'mr',
+  },
+  {
+    code: 'mn',
+    name: 'Mongolian',
+    nativeName: 'Монгол',
+    flag: '🇲🇳',
+    azureCode: 'mn',
+  },
+  {
+    code: 'ne',
+    name: 'Nepali',
+    nativeName: 'नेपाली',
+    flag: '🇳🇵',
+    azureCode: 'ne',
+  },
+  {
+    code: 'nb',
+    name: 'Norwegian Bokmål',
+    nativeName: 'Norsk bokmål',
+    flag: '🇳🇴',
+    azureCode: 'nb',
+  },
+  {code: 'ps', name: 'Pashto', nativeName: 'پښتو', flag: '🇦🇫', azureCode: 'ps'},
+  {
+    code: 'fa',
+    name: 'Persian',
+    nativeName: 'فارسی',
+    flag: '🇮🇷',
+    azureCode: 'fa',
+  },
+  {
+    code: 'pl',
+    name: 'Polish',
+    nativeName: 'Polski',
+    flag: '🇵🇱',
+    azureCode: 'pl',
+  },
+  {
+    code: 'pt',
+    name: 'Portuguese',
+    nativeName: 'Português',
+    flag: '🇧🇷', // Brazil has the largest number of speakers
+    azureCode: 'pt',
+  },
+  {
+    code: 'ro',
+    name: 'Romanian',
+    nativeName: 'Română',
+    flag: '🇷🇴',
+    azureCode: 'ro',
+  },
+  {
+    code: 'ru',
+    name: 'Russian',
+    nativeName: 'Русский',
+    flag: '🇷🇺',
+    azureCode: 'ru',
+  },
+  {
+    code: 'sr',
+    name: 'Serbian',
+    nativeName: 'Српски',
+    flag: '🇷🇸',
+    azureCode: 'sr-Cyrl',
+  },
+  {
+    code: 'si',
+    name: 'Sinhala',
+    nativeName: 'සිංහල',
+    flag: '🇱🇰',
+    azureCode: 'si',
+  },
+  {
+    code: 'sk',
+    name: 'Slovak',
+    nativeName: 'Slovenčina',
+    flag: '🇸🇰',
+    azureCode: 'sk',
+  },
+  {
+    code: 'sl',
+    name: 'Slovenian',
+    nativeName: 'Slovenščina',
+    flag: '🇸🇮',
+    azureCode: 'sl',
+  },
+  {
+    code: 'so',
+    name: 'Somali',
+    nativeName: 'Soomaali',
+    flag: '🇸🇴',
+    azureCode: 'so',
+  },
+  {
+    code: 'es',
+    name: 'Spanish',
+    nativeName: 'Español',
+    flag: '🇪🇸', // Corrected: Spain
+    azureCode: 'es',
+  },
+  {
+    code: 'su',
+    name: 'Sundanese',
+    nativeName: 'Sunda',
+    flag: '🇮🇩',
+    azureCode: 'su',
+  },
+  {
+    code: 'sw',
+    name: 'Swahili',
+    nativeName: 'Kiswahili',
+    flag: '🇰🇪', // Kenya as a primary country
+    azureCode: 'sw',
+  },
+  {
+    code: 'sv',
+    name: 'Swedish',
+    nativeName: 'Svenska',
+    flag: '🇸🇪',
+    azureCode: 'sv',
+  },
+  {code: 'ta', name: 'Tamil', nativeName: 'தமிழ்', flag: '🇮🇳', azureCode: 'ta'},
+  {
+    code: 'te',
+    name: 'Telugu',
+    nativeName: 'తెలుగు',
+    flag: '🇮🇳',
+    azureCode: 'te',
+  },
+  {code: 'th', name: 'Thai', nativeName: 'ไทย', flag: '🇹🇭', azureCode: 'th'},
+  {
+    code: 'tr',
+    name: 'Turkish',
+    nativeName: 'Türkçe',
+    flag: '🇹🇷',
+    azureCode: 'tr',
+  },
+  {
+    code: 'uk',
+    name: 'Ukrainian',
+    nativeName: 'Українська',
+    flag: '🇺🇦',
+    azureCode: 'uk',
+  },
+  {
+    code: 'ur',
+    name: 'Urdu',
+    nativeName: 'اردو',
+    flag: '🇵🇰', // Pakistan is more representative for Urdu
+    azureCode: 'ur',
+  },
+  {
+    code: 'uz',
+    name: 'Uzbek',
+    nativeName: 'O‘zbek',
+    flag: '🇺🇿',
+    azureCode: 'uz',
+  },
+  {
+    code: 'vi',
+    name: 'Vietnamese',
+    nativeName: 'Tiếng Việt',
+    flag: '🇻🇳',
+    azureCode: 'vi',
+  },
+  {
+    code: 'cy',
+    name: 'Welsh',
+    nativeName: 'Cymraeg',
+    flag: '🇬🇧', // Wales is part of the UK
+    azureCode: 'cy',
+  },
+  {
+    code: 'zu',
+    name: 'Zulu',
+    nativeName: 'IsiZulu',
+    flag: '🇿🇦',
+    azureCode: 'zu',
+  },
+] as const);
+// Types
 
 interface TranslationCache {
   data: TranslationData;
@@ -59,66 +564,6 @@ enum TranslationStatus {
   ERROR = 'error',
   SUCCESS = 'success',
 }
-
-// Constants
-export const SUPPORTED_LANGUAGES: readonly SupportedLanguage[] = Object.freeze([
-  {
-    code: 'en',
-    name: 'English',
-    nativeName: 'English',
-    flag: '🇺🇸',
-    azureCode: 'en',
-  },
-  {
-    code: 'vi',
-    name: 'Vietnamese',
-    nativeName: 'Tiếng Việt',
-    flag: '🇻🇳',
-    azureCode: 'vi',
-  },
-  {
-    code: 'ja',
-    name: 'Japanese',
-    nativeName: '日本語',
-    flag: '🇯🇵',
-    azureCode: 'ja',
-  },
-  {
-    code: 'ko',
-    name: 'Korean',
-    nativeName: '한국어',
-    flag: '🇰🇷',
-    azureCode: 'ko',
-  },
-  {
-    code: 'zh',
-    name: 'Chinese',
-    nativeName: '中文',
-    flag: '🇨🇳',
-    azureCode: 'zh-Hans',
-  },
-  {
-    code: 'fr',
-    name: 'French',
-    nativeName: 'Français',
-    flag: '🇫🇷',
-    azureCode: 'fr',
-  },
-  {
-    code: 'de',
-    name: 'German',
-    nativeName: 'Deutsch',
-    flag: '🇩🇪',
-    azureCode: 'de',
-  },
-  {
-    code: 'es',
-    name: 'Spanish',
-    nativeName: 'Español',
-    flag: '🇪🇸',
-    azureCode: 'es',
-  },
-] as const);
 
 type TranslationData = typeof lanEn;
 type LanguageCode = (typeof SUPPORTED_LANGUAGES)[number]['code'];

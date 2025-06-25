@@ -571,7 +571,7 @@ const LanguageModal = ({
                   styles.cancelButtonText,
                   isProcessing && styles.disabledButtonText,
                 ]}>
-                {t('lanSelect.cancel')}
+                {t('common.cancel')}
               </Text>
             </TouchableOpacity>
 

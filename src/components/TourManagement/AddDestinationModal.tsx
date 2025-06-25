@@ -10,6 +10,7 @@ import {
   Alert,
 } from 'react-native';
 import Icon from 'react-native-vector-icons/MaterialIcons';
+import DatePicker from 'react-native-date-picker';
 import {Destination, Activity} from '../../types/tour';
 import {useTranslation} from '../../contexts/TranslationContext';
 import ImagePickerComponent from '../common/ImagePickerComponent';
@@ -48,6 +49,10 @@ const AddDestinationModal: React.FC<AddDestinationModalProps> = ({
     isOptional: false,
     images: [],
   });
+
+  // Date picker states
+  const [showOpeningTimePicker, setShowOpeningTimePicker] = useState(false);
+  const [showClosingTimePicker, setShowClosingTimePicker] = useState(false);
 
   const activityTypes = [
     {
@@ -205,6 +210,45 @@ const AddDestinationModal: React.FC<AddDestinationModalProps> = ({
     return activities.reduce((total, activity) => total + activity.duration, 0);
   }, [activities]);
 
+  // Time conversion utilities
+  const timeStringToDate = (timeString: string): Date => {
+    const [hours, minutes] = timeString.split(':').map(Number);
+    const date = new Date();
+    date.setHours(hours, minutes, 0, 0);
+    return date;
+  };
+
+  const dateToTimeString = (date: Date): string => {
+    const hours = date.getHours().toString().padStart(2, '0');
+    const minutes = date.getMinutes().toString().padStart(2, '0');
+    return `${hours}:${minutes}`;
+  };
+
+  // Handle time changes
+  const handleOpeningTimeChange = (date: Date) => {
+    const timeString = dateToTimeString(date);
+    setDestination({
+      ...destination,
+      openingHours: {
+        ...destination.openingHours!,
+        open: timeString,
+      },
+    });
+    setShowOpeningTimePicker(false);
+  };
+
+  const handleClosingTimeChange = (date: Date) => {
+    const timeString = dateToTimeString(date);
+    setDestination({
+      ...destination,
+      openingHours: {
+        ...destination.openingHours!,
+        close: timeString,
+      },
+    });
+    setShowClosingTimePicker(false);
+  };
+
   return (
     <Modal
       visible={visible}
@@ -358,42 +402,28 @@ const AddDestinationModal: React.FC<AddDestinationModalProps> = ({
                     <Text style={styles.label}>
                       {t('tour.destinations.openingTime')}
                     </Text>
-                    <TextInput
-                      style={styles.input}
-                      value={destination.openingHours?.open}
-                      onChangeText={text =>
-                        setDestination({
-                          ...destination,
-                          openingHours: {
-                            ...destination.openingHours!,
-                            open: text,
-                          },
-                        })
-                      }
-                      placeholder="09:00"
-                      placeholderTextColor="#9CA3AF"
-                    />
+                    <TouchableOpacity
+                      style={styles.timePickerButton}
+                      onPress={() => setShowOpeningTimePicker(true)}>
+                      <Icon name="schedule" size={20} color="#6B7280" />
+                      <Text style={styles.timePickerText}>
+                        {destination.openingHours?.open}
+                      </Text>
+                    </TouchableOpacity>
                   </View>
 
                   <View style={[styles.inputGroup, {flex: 1, marginLeft: 8}]}>
                     <Text style={styles.label}>
                       {t('tour.destinations.closingTime')}
                     </Text>
-                    <TextInput
-                      style={styles.input}
-                      value={destination.openingHours?.close}
-                      onChangeText={text =>
-                        setDestination({
-                          ...destination,
-                          openingHours: {
-                            ...destination.openingHours!,
-                            close: text,
-                          },
-                        })
-                      }
-                      placeholder="17:00"
-                      placeholderTextColor="#9CA3AF"
-                    />
+                    <TouchableOpacity
+                      style={styles.timePickerButton}
+                      onPress={() => setShowClosingTimePicker(true)}>
+                      <Icon name="schedule" size={20} color="#6B7280" />
+                      <Text style={styles.timePickerText}>
+                        {destination.openingHours?.close}
+                      </Text>
+                    </TouchableOpacity>
                   </View>
                 </View>
               </View>
@@ -667,6 +697,31 @@ const AddDestinationModal: React.FC<AddDestinationModalProps> = ({
             </View>
           )}
         </ScrollView>
+
+        {/* Date Time Pickers */}
+        <DatePicker
+          modal
+          open={showOpeningTimePicker}
+          date={timeStringToDate(destination.openingHours?.open || '09:00')}
+          mode="time"
+          title={t('tour.destinations.openingTime')}
+          confirmText={t('common.confirm')}
+          cancelText={t('common.cancel')}
+          onConfirm={handleOpeningTimeChange}
+          onCancel={() => setShowOpeningTimePicker(false)}
+        />
+
+        <DatePicker
+          modal
+          open={showClosingTimePicker}
+          date={timeStringToDate(destination.openingHours?.close || '17:00')}
+          mode="time"
+          title={t('tour.destinations.closingTime')}
+          confirmText={t('common.confirm')}
+          cancelText={t('common.cancel')}
+          onConfirm={handleClosingTimeChange}
+          onCancel={() => setShowClosingTimePicker(false)}
+        />
       </View>
     </Modal>
   );
@@ -762,6 +817,7 @@ const styles = StyleSheet.create({
   },
   textArea: {
     minHeight: 80,
+    textAlignVertical: 'top',
   },
   timeContainer: {
     flexDirection: 'row',
@@ -897,6 +953,23 @@ const styles = StyleSheet.create({
   removeButton: {
     padding: 8,
   },
+  timePickerButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#D1D5DB',
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+    backgroundColor: '#FFFFFF',
+  },
+  timePickerText: {
+    fontSize: 16,
+    color: '#1F2937',
+    marginLeft: 8,
+    flex: 1,
+  },
 });
 
+export default AddDestinationModal;
 export default AddDestinationModal;

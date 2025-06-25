@@ -107,8 +107,8 @@ const TourCard = React.memo(
         activeOpacity={0.8}>
         {/* Tour Image */}
         <View style={styles.tourImageContainer}>
-          {tour.images && tour.images.length > 0 ? (
-            <Image source={{uri: tour.images[0]}} style={styles.tourImage} />
+          {tour?.images && tour?.images?.length > 0 ? (
+            <Image source={{uri: tour?.images[0]}} style={styles.tourImage} />
           ) : (
             <View style={styles.tourImagePlaceholder}>
               <Icon name="landscape" size={40} color="#CBD5E1" />
@@ -117,7 +117,9 @@ const TourCard = React.memo(
           <View style={styles.tourImageOverlay}>
             <View
               style={[styles.statusBadge, {backgroundColor: statusInfo.color}]}>
-              <Text style={styles.statusText}>{tour.status.toUpperCase()}</Text>
+              <Text style={styles.statusText}>
+                {t(`tour.management.${tour.status}`)}
+              </Text>
             </View>
           </View>
         </View>
@@ -416,12 +418,12 @@ const TourManagementScreen: React.FC = () => {
   const statistics = useMemo(() => {
     const totalTours = tours.length;
     const activeTours = tours.filter(t => t.status === 'active').length;
-    const draftTours = tours.filter(t => t.status === 'draft').length;
-    const completedTours = tours.filter(t => t.status === 'completed').length;
-    const totalRevenue = tours.reduce((sum, tour) => {
-      const total = tour.currentParticipants || 0;
-      return sum + total * tour.price.adult;
-    }, 0);
+    // const draftTours = tours.filter(t => t.status === 'draft').length;
+    // const completedTours = tours.filter(t => t.status === 'completed').length;
+    // const totalRevenue = tours.reduce((sum, tour) => {
+    //   const total = tour?.currentParticipants || 0;
+    //   return sum + total * tour?.price?.adult;
+    // }, 0);
 
     return [
       {
@@ -438,13 +440,13 @@ const TourManagementScreen: React.FC = () => {
         color: '#10B981',
         bgColor: 'rgba(16, 185, 129, 0.1)',
       },
-      {
-        title: t('tour.management.revenue'),
-        value: `$${totalRevenue.toLocaleString()}`,
-        icon: 'attach-money',
-        color: '#F59E0B',
-        bgColor: 'rgba(245, 158, 11, 0.1)',
-      },
+      // {
+      //   title: t('tour.management.revenue'),
+      //   value: `$${totalRevenue.toLocaleString()}`,
+      //   icon: 'attach-money',
+      //   color: '#F59E0B',
+      //   bgColor: 'rgba(245, 158, 11, 0.1)',
+      // },
     ];
   }, [tours, t]);
 
@@ -473,9 +475,9 @@ const TourManagementScreen: React.FC = () => {
             new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
           );
         case 'price_low':
-          return a.price.adult - b.price.adult;
+          return a?.price?.adult - b?.price?.adult;
         case 'price_high':
-          return b.price.adult - a.price.adult;
+          return b?.price?.adult - a?.price?.adult;
         case 'title':
           return a.title.localeCompare(b.title);
         case 'newest':
@@ -501,11 +503,18 @@ const TourManagementScreen: React.FC = () => {
 
       const unsubscribe = toursQuery.orderBy('createdAt', 'desc').onSnapshot(
         snapshot => {
+          if (snapshot.empty) {
+            console.log('No tours found');
+            setTours([]);
+            setLoading(false);
+            setRefreshing(false);
+            return;
+          }
           const toursList = snapshot.docs.map(doc => ({
             id: doc.id,
             ...doc.data(),
           })) as TourItinerary[];
-          console.log('Tours loaded:', toursList);
+          // console.log('Tours loaded:', toursList);
 
           setTours(toursList);
           setLoading(false);

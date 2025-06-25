@@ -101,11 +101,15 @@ const useAuthRefs = () => {
   const unsubscribeDocRef = useRef<(() => void) | null>(null);
   const isSigningOutRef = useRef(false);
   const currentUserRef = useRef<User | null>(null);
+  const accessCheckTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const hasShownInitialAlertRef = useRef(false);
 
   return {
     unsubscribeDocRef,
     isSigningOutRef,
     currentUserRef,
+    accessCheckTimeoutRef,
+    hasShownInitialAlertRef,
   };
 };
 
@@ -150,7 +154,13 @@ const AuthProviderInternal: React.FC<{children: React.ReactNode}> = ({
 }) => {
   const {t} = useTranslation();
   const {user, setUser, role, setRole, loading, setLoading} = useAuthState();
-  const {unsubscribeDocRef, isSigningOutRef, currentUserRef} = useAuthRefs();
+  const {
+    unsubscribeDocRef,
+    isSigningOutRef,
+    currentUserRef,
+    accessCheckTimeoutRef,
+    hasShownInitialAlertRef,
+  } = useAuthRefs();
 
   // Keep current user ref in sync
   useEffect(() => {
@@ -213,42 +223,104 @@ const AuthProviderInternal: React.FC<{children: React.ReactNode}> = ({
     [t],
   );
 
-  // Account status issue handler
+  // Account status issue handler with debounce
   const handleAccountStatusIssue = useCallback(
-    async (message: string) => {
+    async (message: string, isInitialCheck: boolean = false) => {
       if (isSigningOutRef.current) {
         return;
       }
+      if (isInitialCheck && !hasShownInitialAlertRef.current) {
+        if (accessCheckTimeoutRef.current) {
+          clearTimeout(accessCheckTimeoutRef.current);
+        }
+        accessCheckTimeoutRef.current = setTimeout(() => {
+          const currentUser = auth().currentUser;
+          if (currentUser && !isSigningOutRef.current) {
+            firestore()
+              .collection('users')
+              .doc(currentUser.uid)
+              .get()
+              .then(doc => {
+                const userData = doc.data();
+                const accessCheck = checkUserAccess(userData);
 
-      Alert.alert(t('auth.accountIssue'), message, [
-        {
-          text: t('common.ok'),
-          onPress: async () => {
-            // Directly call Firebase signOut instead of recursive call
-            try {
-              isSigningOutRef.current = true;
-              cleanupDocListener();
-              await auth().signOut();
-            } catch (error) {
-              console.error(
-                'Error in handleAccountStatusIssue signOut:',
-                error,
-              );
-            }
+                if (
+                  !accessCheck.canAccess &&
+                  !hasShownInitialAlertRef.current
+                ) {
+                  hasShownInitialAlertRef.current = true;
+
+                  Alert.alert(
+                    t('auth.accountIssue'),
+                    accessCheck.message || message,
+                    [
+                      {
+                        text: t('common.ok'),
+                        onPress: async () => {
+                          try {
+                            isSigningOutRef.current = true;
+                            cleanupDocListener();
+                            await auth().signOut();
+                          } catch (error) {
+                            console.error('Error in delayed signOut:', error);
+                          }
+                        },
+                      },
+                    ],
+                  );
+                } else if (accessCheck.canAccess) {
+                }
+              })
+              .catch(error => {
+                console.error('❌ Error in delayed access check:', error);
+              });
+          }
+        }, 2000);
+
+        return;
+      }
+
+      // For non-initial checks or if we've already shown the alert, proceed immediately
+      if (!hasShownInitialAlertRef.current || !isInitialCheck) {
+        hasShownInitialAlertRef.current = true;
+
+        Alert.alert(t('auth.accountIssue'), message, [
+          {
+            text: t('common.ok'),
+            onPress: async () => {
+              try {
+                isSigningOutRef.current = true;
+                cleanupDocListener();
+                await auth().signOut();
+              } catch (error) {
+                console.error(
+                  'Error in handleAccountStatusIssue signOut:',
+                  error,
+                );
+              }
+            },
           },
-        },
-      ]);
+        ]);
+      }
     },
-    [t, cleanupDocListener],
+    [t, cleanupDocListener, checkUserAccess],
   );
 
   // Document listener cleanup
   const cleanupDocListener = useCallback(() => {
     if (unsubscribeDocRef.current) {
-      // console.log('🧹 Cleaning up document listener');
       unsubscribeDocRef.current();
       unsubscribeDocRef.current = null;
     }
+
+    // Clear any pending access check timeouts
+    if (accessCheckTimeoutRef.current) {
+      clearTimeout(accessCheckTimeoutRef.current);
+      accessCheckTimeoutRef.current = null;
+    }
+
+    // Reset alert flag
+    hasShownInitialAlertRef.current = false;
   }, []);
 
   // Create user document
@@ -305,6 +377,7 @@ const AuthProviderInternal: React.FC<{children: React.ReactNode}> = ({
     async (
       doc: firestore.FirebaseFirestoreTypes.DocumentSnapshot,
       authUser: FirebaseAuthTypes.User,
+      isInitialSnapshot: boolean = false,
     ) => {
       try {
         if (isSigningOutRef.current) {
@@ -313,9 +386,18 @@ const AuthProviderInternal: React.FC<{children: React.ReactNode}> = ({
         }
 
         const userData = doc.data();
+        // console.log('📄 User document snapshot received:', {
+        //   exists: doc.exists,
+        //   userId: authUser.uid,
+        //   role: userData?.role,
+        //   status: userData?.status,
+        //   isActive: userData?.isActive,
+        //   isInitial: isInitialSnapshot,
+        // });
 
         // Create user document if it doesn't exist
         if (!userData) {
+          // console.log('📝 Creating user document - no data found');
           await createUserDocument(authUser);
           return;
         }
@@ -323,14 +405,23 @@ const AuthProviderInternal: React.FC<{children: React.ReactNode}> = ({
         // Check access permissions
         const accessCheck = checkUserAccess(userData);
         if (!accessCheck.canAccess) {
+          // console.log('❌ Access denied:', accessCheck.message);
           await handleAccountStatusIssue(
             accessCheck.message || t('auth.accessDenied'),
+            isInitialSnapshot,
           );
           return;
         }
 
-        // Update user state
+        // If we reach here, access is granted
+        // Clear any pending timeout and update user state
+        if (accessCheckTimeoutRef.current) {
+          clearTimeout(accessCheckTimeoutRef.current);
+          accessCheckTimeoutRef.current = null;
+        }
+
         if (!isSigningOutRef.current) {
+          // console.log('✅ Access granted - updating user state');
           const fullUserData = transformFirestoreUser(authUser, userData);
           setUser(fullUserData);
           setRole(userData.role || 'tourist');
@@ -372,13 +463,16 @@ const AuthProviderInternal: React.FC<{children: React.ReactNode}> = ({
 
       // console.log('👂 Setting up user document listener for:', authUser.uid);
 
+      let isFirstSnapshot = true;
+
       const unsubscribeDoc = firestore()
         .collection('users')
         .doc(authUser.uid)
-        .onSnapshot(
-          doc => handleUserDocumentSnapshot(doc, authUser),
-          handleDocumentError,
-        );
+        .onSnapshot(doc => {
+          // console.log('📡 Document snapshot received for:', authUser.uid);
+          handleUserDocumentSnapshot(doc, authUser, isFirstSnapshot);
+          isFirstSnapshot = false;
+        }, handleDocumentError);
 
       unsubscribeDocRef.current = unsubscribeDoc;
     },
@@ -391,6 +485,8 @@ const AuthProviderInternal: React.FC<{children: React.ReactNode}> = ({
       // console.log('🔐 Auth state changed:', authUser?.uid || 'null');
 
       if (authUser && !isSigningOutRef.current) {
+        // Reset the alert flag for new auth session
+        hasShownInitialAlertRef.current = false;
         setupUserDocumentListener(authUser);
       } else {
         cleanupDocListener();

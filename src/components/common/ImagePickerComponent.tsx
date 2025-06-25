@@ -35,10 +35,7 @@ const ImagePickerComponent: React.FC<ImagePickerComponentProps> = ({
   const selectImages = () => {
     const remainingSlots = maxImages - images.length;
     if (remainingSlots <= 0) {
-      Alert.alert(
-        t('common.error'),
-        t('images.maxImagesReached', {max: maxImages}),
-      );
+      Alert.alert(t('common.error'), t('images.maxImagesReached') + maxImages);
       return;
     }
 
@@ -77,10 +74,10 @@ const ImagePickerComponent: React.FC<ImagePickerComponentProps> = ({
       const newImageUrls = uploadResults.map(result => result.secure_url);
       onImagesChange([...images, ...newImageUrls]);
 
-      Alert.alert(
-        t('common.success'),
-        t('images.uploadSuccess', {count: newImageUrls.length}),
-      );
+      // Alert.alert(
+      // t('common.success'),
+      // t('images.uploadSuccess', {count: newImageUrls.length}),
+      // );
     } catch (error) {
       console.error('Upload error:', error);
       Alert.alert(t('common.error'), t('images.uploadError'));

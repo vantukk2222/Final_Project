@@ -618,6 +618,10 @@ export default function SocketClient() {
   useEffect(() => {
     const handleAppStateChange = (nextAppState: AppStateStatus): void => {
       console.log('📱 App state changed to:', nextAppState);
+      if (!user || !user.uid) {
+        console.warn('⚠️ User not authenticated, skipping app state handling');
+        return;
+      }
 
       if (nextAppState === 'background') {
         // soundManager.stopNotificationSound();

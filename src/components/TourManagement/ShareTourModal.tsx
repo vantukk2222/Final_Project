@@ -162,16 +162,6 @@ const ShareTourModal: React.FC<ShareTourModalProps> = ({
               chatId: groupId,
               senderId: user.uid,
               message: `${t('tour.sharing.newTourShared')}: ${tour.title}`,
-              messageType: 'tour_notification',
-              tourData: {
-                id: tour.id,
-                title: tour.title,
-                tourDate: tour.tourDate,
-                startTime: tour.startTime,
-                endTime: tour.endTime,
-                price: tour.price,
-                groupSize: tour.groupSize,
-              },
               memberIds: recipientIds,
             });
           }
@@ -196,11 +186,6 @@ const ShareTourModal: React.FC<ShareTourModalProps> = ({
               chatId: groupId,
               senderId: user.uid,
               message: `${t('tour.sharing.tourUnshared')}: ${tour.title}`,
-              messageType: 'tour_unshare_notification',
-              tourData: {
-                id: tour.id,
-                title: tour.title,
-              },
               memberIds: recipientIds,
             });
           }

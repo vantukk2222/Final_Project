@@ -16,7 +16,6 @@
     "next": "Next",
     "done": "Done",
     "search": "Search",
-    "settings": "Settings",
     "confirm": "Confirm",
     "tryAgain": "Try Again",
     "or": "or",
@@ -470,6 +469,7 @@
   },
   
   "viewUserProfile": {
+    "selectRole": "Select Role",
     "unknownUser": "Unknown User",
     "userNotFound": "User not found",
     "failedToLoadProfile": "Failed to load user profile",
@@ -796,6 +796,7 @@
     "activities": {
       "activities": "Activities",
       "addActivity": "Add Activity",
+      "editActivity": "Edit Activity",
       "activityName": "Activity Name",
       "enterActivityName": "Enter activity name",
       "activityNameRequired": "Activity name is required",
@@ -889,7 +890,7 @@
   "images": {
     "addImages": "Add Images",
     "images": "images",
-    "maxImagesReached": "Maximum {max} images allowed",
+    "maxImagesReached": "Maximum images allowed",
     "uploadSuccess": "{count} image(s) uploaded successfully",
     "uploadError": "Failed to upload images. Please try again.",
     "confirmRemove": "Remove Image",

@@ -683,8 +683,7 @@ const LanguageSelectionModal: React.FC<LanguageSelectionModalProps> = ({
           <View style={styles.infoNote}>
             <Icon name="info-outline" size={16} color="#6B7280" />
             <Text style={styles.infoText}>
-              App restart recommended for best experience. Offline mode
-              available if network issues occur.
+              App restart recommended for best experience.
             </Text>
           </View>
         </Animated.View>
@@ -937,7 +936,7 @@ const styles = StyleSheet.create({
   },
   cancelButtonText: {
     color: '#64748B',
-    fontSize: 15,
+    fontSize: 13,
     fontWeight: '600',
   },
   confirmButton: {
@@ -954,7 +953,7 @@ const styles = StyleSheet.create({
   },
   confirmButtonText: {
     color: '#fff',
-    fontSize: 15,
+    fontSize: 13,
     fontWeight: '600',
   },
   buttonDisabled: {

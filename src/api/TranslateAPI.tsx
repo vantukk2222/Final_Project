@@ -26,7 +26,7 @@ export const translateTextAzure = async (
     });
 
     const data = await response.json();
-    console.log('Translation response:', data);
+    // console.log('Translation response:', data);
     return data?.[0]?.translations?.[0]?.text || '';
   } catch (error) {
     console.error('Translation API error:', error);

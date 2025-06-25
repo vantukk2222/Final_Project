@@ -76,8 +76,14 @@ const TourDetailScreen: React.FC<TourDetailScreenProps> = ({
                         activity.name || '',
                         currentLanguage,
                       );
+                    const activityDescription =
+                      await translationTextService.translateText(
+                        activity.description || '',
+                        currentLanguage,
+                      );
                     return {
                       ...activity,
+                      description: activityDescription.translatedText,
                       name: activityName.translatedText,
                     };
                   }) || [],
@@ -291,6 +297,43 @@ const TourDetailScreen: React.FC<TourDetailScreenProps> = ({
     }
   }, []);
 
+  const calculateStopDuration = useCallback((stop: any) => {
+    if (!stop.arrivalTime || !stop.departureTime) {
+      return 0;
+    }
+    const arrival = new Date(`2000-01-01T${stop.arrivalTime}:00`);
+    const departure = new Date(`2000-01-01T${stop.departureTime}:00`);
+    return Math.floor((departure.getTime() - arrival.getTime()) / (1000 * 60));
+  }, []);
+
+  const getTotalActivityDuration = useCallback((activities: any[]) => {
+    return activities.reduce(
+      (total, activity) => total + (activity.duration || 0),
+      0,
+    );
+  }, []);
+
+  const getActivityTypeIcon = useCallback((type: string) => {
+    switch (type) {
+      case 'sightseeing':
+        return 'visibility';
+      case 'dining':
+        return 'restaurant';
+      case 'shopping':
+        return 'shopping-bag';
+      case 'entertainment':
+        return 'theaters';
+      case 'cultural':
+        return 'account-balance';
+      case 'outdoor':
+        return 'nature';
+      case 'transport':
+        return 'directions-bus';
+      default:
+        return 'more-horiz';
+    }
+  }, []);
+
   if (loading) {
     return (
       <SafeAreaView style={styles.container}>
@@ -446,92 +489,284 @@ const TourDetailScreen: React.FC<TourDetailScreenProps> = ({
           )}
         </View>
 
-        {/* Tour Stops */}
+        {/* Enhanced Tour Stops */}
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>
-            {t('tour.details.itinerary')} ({tour?.stops?.length || 0}{' '}
-            {t('tour.management.stops')})
-          </Text>
+          <View style={styles.itineraryHeader}>
+            <Text style={styles.sectionTitle}>
+              {t('tour.details.itinerary')}
+            </Text>
+            <View style={styles.itineraryStats}>
+              <Text style={styles.statsText}>
+                {tour?.stops?.length || 0} {t('tour.management.stops')}
+              </Text>
+              <Text style={styles.statsText}>
+                {tour?.stops?.reduce(
+                  (total, stop) => total + calculateStopDuration(stop),
+                  0,
+                ) || 0}
+                m total
+              </Text>
+            </View>
+          </View>
+
           {tour?.stops?.map((stop, index) => (
             <View key={stop.id || index} style={styles.stopCard}>
-              <View style={styles.stopHeader}>
-                <View style={styles.stopNumber}>
-                  <Text style={styles.stopNumberText}>{index + 1}</Text>
+              {/* Stop Header with Timeline */}
+              <View style={styles.stopHeaderWithTimeline}>
+                <View style={styles.timelineContainer}>
+                  <View style={styles.timelineNode}>
+                    <Text style={styles.stopNumberText}>{index + 1}</Text>
+                  </View>
+                  {index < (tour?.stops?.length || 0) - 1 && (
+                    <View style={styles.timelineLine} />
+                  )}
                 </View>
-                {/* Image destination */}
-                {stop?.destination?.images &&
-                stop.destination.images.length > 0 ? (
-                  <Image
-                    source={{uri: stop.destination.images[0]}}
-                    style={{
-                      width: 40,
-                      height: 40,
-                      borderRadius: 20,
-                      marginRight: 12,
-                    }}
-                  />
-                ) : (
-                  <Icon
-                    name="place"
-                    size={40}
-                    color="#6B7280"
-                    style={{marginRight: 12}}
-                  />
-                )}
-                <View style={styles.stopInfo}>
-                  <Text style={styles.stopName}>
-                    {stop.destination?.name || 'Unknown Destination'}
-                  </Text>
-                  <Text style={styles.stopTime}>
-                    {stop.arrivalTime ? formatTime(stop.arrivalTime) : '00:00'}{' '}
-                    -{' '}
-                    {stop.departureTime
-                      ? formatTime(stop.departureTime)
-                      : '00:00'}
-                  </Text>
-                  {stop.destination?.address && (
-                    <TouchableOpacity
-                      style={styles.addressContainer}
-                      onPress={() => openMaps(stop.destination)}>
-                      <Icon name="place" size={16} color="#6B7280" />
-                      <Text style={styles.addressText} numberOfLines={2}>
-                        {stop.destination.address}
+
+                <View style={styles.stopMainContent}>
+                  {/* Destination Header */}
+                  <View style={styles.destinationHeader}>
+                    {stop?.destination?.images &&
+                    stop.destination.images.length > 0 ? (
+                      <Image
+                        source={{uri: stop.destination.images[0]}}
+                        style={styles.destinationImage}
+                      />
+                    ) : (
+                      <View style={styles.destinationPlaceholder}>
+                        <Icon name="place" size={24} color="#6B7280" />
+                      </View>
+                    )}
+
+                    <View style={styles.destinationInfo}>
+                      <Text style={styles.destinationName}>
+                        {stop.destination?.name || 'Unknown Destination'}
                       </Text>
-                      <Icon name="open-in-new" size={16} color="#3B82F6" />
-                    </TouchableOpacity>
+                      <View style={styles.timeInfo}>
+                        <Icon name="schedule" size={16} color="#6B7280" />
+                        <Text style={styles.timeText}>
+                          {stop.arrivalTime
+                            ? formatTime(stop.arrivalTime)
+                            : '00:00'}{' '}
+                          -{' '}
+                          {stop.departureTime
+                            ? formatTime(stop.departureTime)
+                            : '00:00'}
+                        </Text>
+                        <Text style={styles.durationBadge}>
+                          {calculateStopDuration(stop)}m
+                        </Text>
+                      </View>
+                    </View>
+                  </View>
+
+                  {/* Destination Details */}
+                  {stop.destination && (
+                    <View style={styles.destinationDetails}>
+                      {stop.destination.address && (
+                        <TouchableOpacity
+                          style={styles.detailRow}
+                          onPress={() => openMaps(stop.destination)}>
+                          <Icon name="place" size={16} color="#6B7280" />
+                          <Text style={styles.detailText} numberOfLines={2}>
+                            {stop.destination.address}
+                          </Text>
+                          <Icon name="open-in-new" size={16} color="#3B82F6" />
+                        </TouchableOpacity>
+                      )}
+
+                      {stop.destination.estimatedVisitTime && (
+                        <View style={styles.detailRow}>
+                          <Icon name="timer" size={16} color="#6B7280" />
+                          <Text style={styles.detailText}>
+                            {t('tour.destinations.estimatedVisitTime')}:{' '}
+                            {stop.destination.estimatedVisitTime}m
+                          </Text>
+                        </View>
+                      )}
+
+                      {stop.destination.ticketPrice &&
+                        stop.destination.ticketPrice.adult > 0 && (
+                          <View style={styles.detailRow}>
+                            <Icon name="local-atm" size={16} color="#6B7280" />
+                            <Text style={styles.detailText}>
+                              {stop.destination.ticketPrice.adult}{' '}
+                              {stop.destination.ticketPrice.currency}
+                              {stop.destination.ticketPrice.child &&
+                                ` (${t('tour.form.children')}: ${
+                                  stop.destination.ticketPrice.child
+                                } ${stop.destination.ticketPrice.currency})`}
+                            </Text>
+                          </View>
+                        )}
+
+                      {stop.destination.openingHours && (
+                        <View style={styles.detailRow}>
+                          <Icon name="access-time" size={16} color="#6B7280" />
+                          <Text style={styles.detailText}>
+                            {formatTime(stop.destination.openingHours.open)} -{' '}
+                            {formatTime(stop.destination.openingHours.close)}
+                          </Text>
+                        </View>
+                      )}
+
+                      {stop.destination.description && (
+                        <View style={styles.descriptionContainer}>
+                          <Text
+                            style={styles.descriptionText}
+                            numberOfLines={3}>
+                            {stop.destination.description}
+                          </Text>
+                        </View>
+                      )}
+
+                      {/* Destination Images Gallery */}
+                      {stop.destination.images &&
+                        stop.destination.images.length > 1 && (
+                          <View style={styles.destinationGallery}>
+                            <ImageGallery
+                              images={stop.destination.images}
+                              title={stop.destination.name}
+                              maxPreviewImages={3}
+                            />
+                          </View>
+                        )}
+                    </View>
+                  )}
+
+                  {/* Meeting Point */}
+                  {stop.meetingPoint && (
+                    <View style={styles.meetingPointContainer}>
+                      <Icon name="flag" size={16} color="#F59E0B" />
+                      <View style={styles.meetingPointInfo}>
+                        <Text style={styles.meetingPointLabel}>
+                          {t('tour.stops.meetingPoint')}:
+                        </Text>
+                        <Text style={styles.meetingPointText}>
+                          {stop.meetingPoint}
+                        </Text>
+                      </View>
+                    </View>
+                  )}
+
+                  {/* Activities Section */}
+                  {stop.activities && stop.activities.length > 0 && (
+                    <View style={styles.activitiesSection}>
+                      <View style={styles.activitiesHeader}>
+                        <Text style={styles.activitiesTitle}>
+                          {t('tour.activities.activities')} (
+                          {stop.activities.length})
+                        </Text>
+                        <Text style={styles.activitiesDuration}>
+                          {getTotalActivityDuration(stop.activities)}m total
+                        </Text>
+                      </View>
+
+                      <View style={styles.activitiesList}>
+                        {stop.activities.map((activity, activityIndex) => (
+                          <View
+                            key={activity.id || activityIndex}
+                            style={styles.activityCard}>
+                            <View style={styles.activityHeader}>
+                              <View style={styles.activityIcon}>
+                                <Icon
+                                  name={getActivityTypeIcon(activity.type)}
+                                  size={18}
+                                  color="#3B82F6"
+                                />
+                              </View>
+                              <View style={styles.activityMainInfo}>
+                                <Text style={styles.activityName}>
+                                  {activity.name || 'Unknown Activity'}
+                                </Text>
+                                <View style={styles.activityMeta}>
+                                  <Text style={styles.activityDuration}>
+                                    {activity.duration || 0}m
+                                  </Text>
+                                  <Text style={styles.activityType}>
+                                    {t(`tour.activityTypes.${activity.type}`) ||
+                                      activity.type}
+                                  </Text>
+                                  {activity.isOptional && (
+                                    <View style={styles.optionalBadge}>
+                                      <Text style={styles.optionalText}>
+                                        {t('tour.activities.optional')}
+                                      </Text>
+                                    </View>
+                                  )}
+                                </View>
+                              </View>
+                              {activity.cost && activity.cost > 0 && (
+                                <View style={styles.activityCost}>
+                                  <Text style={styles.costText}>
+                                    {activity.cost}{' '}
+                                    {stop.destination?.ticketPrice?.currency ||
+                                      'USD'}
+                                  </Text>
+                                </View>
+                              )}
+                            </View>
+
+                            {activity.description && (
+                              <Text
+                                style={styles.activityDescription}
+                                numberOfLines={2}>
+                                {activity.description}
+                              </Text>
+                            )}
+
+                            {activity.requirements &&
+                              activity.requirements.length > 0 && (
+                                <View style={styles.activityRequirements}>
+                                  <Text style={styles.requirementsTitle}>
+                                    Requirements:
+                                  </Text>
+                                  <Text style={styles.requirementsText}>
+                                    {activity.requirements.join(', ')}
+                                  </Text>
+                                </View>
+                              )}
+
+                            {activity.notes && (
+                              <View style={styles.activityNotes}>
+                                <Icon name="note" size={14} color="#6B7280" />
+                                <Text style={styles.notesText}>
+                                  {activity.notes}
+                                </Text>
+                              </View>
+                            )}
+
+                            {/* Activity Images */}
+                            {activity.images && activity.images.length > 0 && (
+                              <View style={styles.activityImages}>
+                                <ImageGallery
+                                  images={activity.images}
+                                  title={activity.name}
+                                  maxPreviewImages={2}
+                                />
+                              </View>
+                            )}
+                          </View>
+                        ))}
+                      </View>
+                    </View>
+                  )}
+
+                  {/* Special Instructions */}
+                  {stop.specialInstructions && (
+                    <View style={styles.instructionsContainer}>
+                      <Icon name="info" size={16} color="#F59E0B" />
+                      <View style={styles.instructionsContent}>
+                        <Text style={styles.instructionsTitle}>
+                          {t('tour.stops.specialInstructions')}:
+                        </Text>
+                        <Text style={styles.instructionsText}>
+                          {stop.specialInstructions}
+                        </Text>
+                      </View>
+                    </View>
                   )}
                 </View>
               </View>
-
-              {stop.activities && stop.activities.length > 0 && (
-                <View style={styles.activitiesContainer}>
-                  <Text style={styles.activitiesTitle}>
-                    {t('tour.activities.activities')} ({stop.activities.length})
-                  </Text>
-                  {stop.activities.map((activity, activityIndex) => (
-                    <View
-                      key={activity.id || activityIndex}
-                      style={styles.activityItem}>
-                      <Icon name="check-circle" size={16} color="#10B981" />
-                      <Text style={styles.activityText}>
-                        {activity.name || 'Unknown Activity'} (
-                        {activity.duration || 0}m)
-                        {activity.isOptional &&
-                          ` - ${t('tour.activities.optional')}`}
-                      </Text>
-                    </View>
-                  ))}
-                </View>
-              )}
-
-              {stop.specialInstructions && (
-                <View style={styles.instructionsContainer}>
-                  <Icon name="info" size={16} color="#F59E0B" />
-                  <Text style={styles.instructionsText}>
-                    {stop.specialInstructions}
-                  </Text>
-                </View>
-              )}
             </View>
           )) || <Text style={styles.infoText}>No stops available</Text>}
         </View>
@@ -795,173 +1030,393 @@ const styles = StyleSheet.create({
   },
   stopCard: {
     backgroundColor: '#FFFFFF',
-    borderRadius: 12,
-    padding: 16,
-    marginBottom: 12,
+    borderRadius: 16,
+    marginBottom: 20,
     shadowColor: '#000',
     shadowOffset: {width: 0, height: 2},
     shadowOpacity: 0.1,
+    shadowRadius: 8,
+    elevation: 3,
+    overflow: 'hidden',
+  },
+  stopHeaderWithTimeline: {
+    flexDirection: 'row',
+    padding: 20,
+  },
+  timelineContainer: {
+    alignItems: 'center',
+    marginRight: 16,
+  },
+  timelineNode: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: '#10B981',
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: '#10B981',
+    shadowOffset: {width: 0, height: 2},
+    shadowOpacity: 0.3,
     shadowRadius: 4,
     elevation: 3,
   },
-  stopHeader: {
-    flexDirection: 'row',
-    marginBottom: 12,
+  timelineLine: {
+    width: 2,
+    height: 60,
+    backgroundColor: '#E5E7EB',
+    marginTop: 8,
   },
-  stopNumber: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: '#10B981',
+  stopMainContent: {
+    flex: 1,
+  },
+  destinationHeader: {
+    flexDirection: 'row',
+    marginBottom: 16,
+  },
+  destinationImage: {
+    width: 60,
+    height: 60,
+    borderRadius: 12,
+    marginRight: 12,
+  },
+  destinationPlaceholder: {
+    width: 60,
+    height: 60,
+    borderRadius: 12,
+    backgroundColor: '#F3F4F6',
     justifyContent: 'center',
     alignItems: 'center',
     marginRight: 12,
   },
-  stopNumberText: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#FFFFFF',
-  },
-  stopInfo: {
+  destinationInfo: {
     flex: 1,
   },
-  stopName: {
+  destinationName: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: '#1F2937',
+    marginBottom: 8,
+  },
+  timeInfo: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  timeText: {
+    fontSize: 16,
+    color: '#374151',
+    fontWeight: '500',
+  },
+  durationBadge: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#10B981',
+    backgroundColor: '#ECFDF5',
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 8,
+  },
+  destinationDetails: {
+    marginBottom: 16,
+    padding: 16,
+    backgroundColor: '#F9FAFB',
+    borderRadius: 12,
+  },
+  detailRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 8,
+    gap: 8,
+  },
+  detailText: {
+    flex: 1,
+    fontSize: 14,
+    color: '#374151',
+  },
+  descriptionContainer: {
+    marginTop: 8,
+    paddingTop: 8,
+    borderTopWidth: 1,
+    borderTopColor: '#E5E7EB',
+  },
+  descriptionText: {
+    fontSize: 14,
+    color: '#6B7280',
+    lineHeight: 20,
+  },
+  destinationGallery: {
+    marginTop: 12,
+  },
+  meetingPointContainer: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    backgroundColor: '#FEF3C7',
+    padding: 12,
+    borderRadius: 8,
+    marginBottom: 16,
+    gap: 8,
+  },
+  meetingPointInfo: {
+    flex: 1,
+  },
+  meetingPointLabel: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#92400E',
+    marginBottom: 2,
+  },
+  meetingPointText: {
+    fontSize: 14,
+    color: '#92400E',
+  },
+  activitiesSection: {
+    marginBottom: 16,
+  },
+  activitiesHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  activitiesTitle: {
     fontSize: 18,
     fontWeight: '600',
     color: '#1F2937',
-    marginBottom: 4,
   },
-  stopTime: {
+  activitiesDuration: {
     fontSize: 14,
     color: '#6B7280',
-    marginBottom: 8,
+    fontWeight: '500',
   },
-  addressContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
+  activitiesList: {
+    gap: 12,
   },
-  addressText: {
-    flex: 1,
-    fontSize: 14,
-    color: '#3B82F6',
-    textDecorationLine: 'underline',
-  },
-  activitiesContainer: {
-    marginTop: 12,
-    paddingTop: 12,
-    borderTopWidth: 1,
-    borderTopColor: '#F3F4F6',
-  },
-  activitiesTitle: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#374151',
-    marginBottom: 8,
-  },
-  activityItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    marginBottom: 4,
-  },
-  activityDuration: {
-    fontSize: 12,
-    color: '#6B7280',
-  },
-  optionalText: {
-    fontSize: 12,
-    color: '#F59E0B',
-    fontStyle: 'italic',
-  },
-  instructionsContainer: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: 8,
-    marginTop: 12,
-    paddingTop: 12,
-    borderTopWidth: 1,
-    borderTopColor: '#FEF3C7',
-    backgroundColor: '#FFFBEB',
-    borderRadius: 8,
-    padding: 12,
-  },
-  instructionsText: {
-    flex: 1,
-    fontSize: 14,
-    color: '#92400E',
-    lineHeight: 20,
-  },
-  infoBlock: {
-    marginBottom: 16,
-  },
-  infoBlockTitle: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#374151',
-    marginBottom: 8,
-  },
-  listItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    marginBottom: 4,
-  },
-  listItemText: {
-    flex: 1,
-    fontSize: 14,
-    color: '#374151',
-  },
-  notesContainer: {
-    backgroundColor: '#FFFFFF',
+  activityCard: {
+    backgroundColor: '#F8FAFC',
     borderRadius: 12,
     padding: 16,
     borderLeftWidth: 4,
     borderLeftColor: '#3B82F6',
+  },
+  activityHeader: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    marginBottom: 8,
+  },
+  activityIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: '#EBF4FF',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 12,
+  },
+  activityMainInfo: {
+    flex: 1,
+  },
+  activityName: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#1F2937',
+    marginBottom: 4,
+  },
+  activityMeta: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    flexWrap: 'wrap',
+  },
+  activityDuration: {
+    fontSize: 12,
+    fontWeight: '500',
+    color: '#6B7280',
+  },
+  activityType: {
+    fontSize: 12,
+    fontWeight: '500',
+    color: '#3B82F6',
+  },
+  optionalBadge: {
+    backgroundColor: '#FEF3C7',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
+  },
+  optionalText: {
+    fontSize: 10,
+    fontWeight: '600',
+    color: '#F59E0B',
+  },
+  activityCost: {
+    alignItems: 'flex-end',
+  },
+  costText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#10B981',
+  },
+  activityDescription: {
+    fontSize: 14,
+    color: '#6B7280',
+    lineHeight: 20,
+    marginBottom: 8,
+  },
+  activityRequirements: {
+    marginBottom: 8,
+  },
+  requirementsTitle: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#374151',
+    marginBottom: 2,
+  },
+  requirementsText: {
+    fontSize: 12,
+    color: '#6B7280',
+    fontStyle: 'italic',
+  },
+  activityNotes: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 6,
+    marginBottom: 8,
+  },
+  activityImages: {
+    marginTop: 8,
+  },
+  instructionsContainer: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    backgroundColor: '#FFFBEB',
+    padding: 12,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#FDE68A',
+    gap: 8,
+  },
+  instructionsContent: {
+    flex: 1,
+  },
+  instructionsTitle: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#92400E',
+    marginBottom: 4,
+  },
+  instructionsText: {
+    fontSize: 14,
+    color: '#92400E',
+    lineHeight: 20,
+  },
+
+  // Missing styles for itinerary section
+  itineraryHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
     marginBottom: 16,
+  },
+  itineraryStats: {
+    alignItems: 'flex-end',
+  },
+  statsText: {
+    fontSize: 12,
+    color: '#6B7280',
+    fontWeight: '500',
+  },
+  stopNumberText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#FFFFFF',
+  },
+
+  // Missing styles for notes section
+  notesContainer: {
+    backgroundColor: '#F9FAFB',
+    padding: 16,
+    borderRadius: 12,
+    borderLeftWidth: 4,
+    borderLeftColor: '#3B82F6',
   },
   notesText: {
     fontSize: 14,
     color: '#374151',
     lineHeight: 20,
   },
+
+  // Missing styles for info blocks
+  infoBlock: {
+    marginBottom: 16,
+  },
+  infoBlockTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#1F2937',
+    marginBottom: 8,
+  },
+  listItem: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    marginBottom: 6,
+    paddingLeft: 4,
+  },
+  listItemText: {
+    fontSize: 14,
+    color: '#374151',
+    marginLeft: 8,
+    flex: 1,
+    lineHeight: 20,
+  },
+
+  // Missing styles for action container
   actionContainer: {
     flexDirection: 'row',
     padding: 16,
-    gap: 12,
     backgroundColor: '#FFFFFF',
     borderTopWidth: 1,
     borderTopColor: '#E5E7EB',
+    gap: 12,
   },
   publishButton: {
     flex: 1,
     flexDirection: 'row',
-    justifyContent: 'center',
     alignItems: 'center',
+    justifyContent: 'center',
     backgroundColor: '#10B981',
     paddingVertical: 12,
     borderRadius: 8,
-    gap: 8,
+    elevation: 2,
+    shadowColor: '#10B981',
+    shadowOffset: {width: 0, height: 2},
+    shadowOpacity: 0.2,
+    shadowRadius: 4,
   },
   publishButtonText: {
     fontSize: 16,
     fontWeight: '600',
     color: '#FFFFFF',
+    marginLeft: 8,
   },
   deleteButton: {
+    flex: 1,
     flexDirection: 'row',
-    justifyContent: 'center',
     alignItems: 'center',
+    justifyContent: 'center',
     backgroundColor: '#EF4444',
     paddingVertical: 12,
-    paddingHorizontal: 20,
     borderRadius: 8,
-    gap: 8,
+    elevation: 2,
+    shadowColor: '#EF4444',
+    shadowOffset: {width: 0, height: 2},
+    shadowOpacity: 0.2,
+    shadowRadius: 4,
   },
   deleteButtonText: {
     fontSize: 16,
     fontWeight: '600',
     color: '#FFFFFF',
+    marginLeft: 8,
   },
 });
 

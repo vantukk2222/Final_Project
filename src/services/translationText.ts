@@ -82,7 +82,7 @@ class TranslationTextService {
         timeout: 15000, // Increased timeout
       });
 
-      console.log('Translation response:', response.data);
+      // console.log('Translation response:', response.data);
 
       if (
         !response.data ||

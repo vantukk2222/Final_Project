@@ -350,50 +350,59 @@ const LoginScreen: React.FC = () => {
     navigation.navigate('Register');
   }, [navigation]);
 
-  const onSubmit = useCallback(
-    async (data: LoginFormData) => {
-      if (loading || authLoading) {
-        return;
-      }
+  const onSubmit = useCallback(async (data: LoginFormData) => {
+    if (loading || authLoading) {
+      return;
+    }
 
-      setLoading(true);
-      clearErrors();
+    setLoading(true);
+    clearErrors();
 
-      try {
-        await signIn(data.email.trim(), data.password);
-        // Navigation will be handled by AuthContext
-      } catch (error: any) {
-        console.error('Login error:', error);
+    try {
+      console.log('Attempting to sign in with:', data);
+      await signIn(data.email.trim(), data.password);
+      // Navigation will be handled by AuthContext
+    } catch (error: any) {
+      console.error('Login error:', error);
+      Alert.alert(
+        t('auth.loginFailed'),
+        error.message || t('auth.loginError'),
+        [
+          {
+            text: t('common.ok'),
+            style: 'default',
+          },
+        ],
+      );
+      setLoading(false);
 
-        // Handle specific errors
-        const errorMessage = error.message || t('auth.loginError');
+      // // Handle specific errors
+      // const errorMessage = error.message || t('auth.loginError');
 
-        // Check if it's a field-specific error
-        if (
-          errorMessage.includes('email') ||
-          errorMessage.includes('invalid-email')
-        ) {
-          setError('email', {message: t('auth.invalidEmailAddress')});
-        } else if (
-          errorMessage.includes('password') ||
-          errorMessage.includes('credential')
-        ) {
-          setError('password', {message: t('auth.invalidCredentials')});
-        } else {
-          // Show general error alert
-          Alert.alert(t('auth.loginFailed'), errorMessage, [
-            {
-              text: t('common.ok'),
-              style: 'default',
-            },
-          ]);
-        }
-      } finally {
-        setLoading(false);
-      }
-    },
-    [t, clearErrors, setError, signIn, loading, authLoading],
-  );
+      // // Check if it's a field-specific error
+      // if (
+      //   errorMessage.includes('email') ||
+      //   errorMessage.includes('invalid-email')
+      // ) {
+      //   setError('email', {message: t('auth.invalidEmailAddress')});
+      // } else if (
+      //   errorMessage.includes('password') ||
+      //   errorMessage.includes('credential')
+      // ) {
+      //   setError('password', {message: t('auth.invalidCredentials')});
+      // } else {
+      //   // Show general error alert
+      //   Alert.alert(t('auth.loginFailed'), errorMessage, [
+      //     {
+      //       text: t('common.ok'),
+      //       style: 'default',
+      //     },
+      //   ]);
+      // }
+    } finally {
+      setLoading(false);
+    }
+  }, []);
 
   // Render
   return (

@@ -11,8 +11,10 @@ import {
   Image,
 } from 'react-native';
 import Icon from 'react-native-vector-icons/MaterialIcons';
+import DatePicker from 'react-native-date-picker';
 import {TourStop, Activity} from '../../types/tour';
 import {useTranslation} from '../../contexts/TranslationContext';
+import ImagePickerComponent from '../common/ImagePickerComponent';
 
 interface TourStopCardProps {
   stop: TourStop;
@@ -42,7 +44,17 @@ const TourStopCard: React.FC<TourStopCardProps> = ({
     duration: 60,
     type: 'sightseeing',
     isOptional: false,
+    cost: 0,
+    requirements: [],
+    notes: '',
+    images: [],
   });
+
+  // Date picker states
+  const [showArrivalTimePicker, setShowArrivalTimePicker] = useState(false);
+  const [showDepartureTimePicker, setShowDepartureTimePicker] = useState(false);
+  const [showOpeningTimePicker, setShowOpeningTimePicker] = useState(false);
+  const [showClosingTimePicker, setShowClosingTimePicker] = useState(false);
 
   const activityTypes = [
     {
@@ -76,7 +88,7 @@ const TourStopCard: React.FC<TourStopCardProps> = ({
   ];
 
   const formatTime = (time: string) => {
-    console.log('stopmkkmk', stop);
+    // console.log('stopmkkmk tourstop', stop);
     const [hours, minutes] = time.split(':');
     const hour = parseInt(hours, 10);
     const ampm = hour >= 12 ? 'PM' : 'AM';
@@ -107,6 +119,31 @@ const TourStopCard: React.FC<TourStopCardProps> = ({
       return;
     }
 
+    // Validate destination information
+    if (!editedStop.destination?.name?.trim()) {
+      Alert.alert(
+        t('common.error'),
+        t('tour.destinations.destinationNameRequired'),
+      );
+      return;
+    }
+
+    if (!editedStop.destination?.address?.trim()) {
+      Alert.alert(
+        t('common.error'),
+        t('tour.destinations.destinationAddressRequired'),
+      );
+      return;
+    }
+
+    if (!editedStop.destination?.description?.trim()) {
+      Alert.alert(
+        t('common.error'),
+        t('tour.destinations.destinationDescriptionRequired'),
+      );
+      return;
+    }
+
     const arrival = new Date(`2000-01-01T${editedStop.arrivalTime}:00`);
     const departure = new Date(`2000-01-01T${editedStop.departureTime}:00`);
 
@@ -115,7 +152,16 @@ const TourStopCard: React.FC<TourStopCardProps> = ({
       return;
     }
 
-    onUpdate(editedStop);
+    // Update destination updatedAt timestamp
+    const updatedStop = {
+      ...editedStop,
+      destination: {
+        ...editedStop.destination,
+        updatedAt: new Date(),
+      },
+    };
+
+    onUpdate(updatedStop);
     setShowEditModal(false);
   };
 
@@ -131,11 +177,14 @@ const TourStopCard: React.FC<TourStopCardProps> = ({
       id: Date.now().toString(),
       name: newActivity.name.trim(),
       description: newActivity.description.trim(),
+      notes: newActivity.notes?.trim() || '',
+      requirements: newActivity.requirements || [],
     };
 
     const updatedActivities = [...editedStop.activities, activityToAdd];
     setEditedStop({...editedStop, activities: updatedActivities});
 
+    // Reset form
     setNewActivity({
       id: '',
       name: '',
@@ -143,6 +192,50 @@ const TourStopCard: React.FC<TourStopCardProps> = ({
       duration: 60,
       type: 'sightseeing',
       isOptional: false,
+      cost: 0,
+      requirements: [],
+      notes: '',
+      images: [],
+    });
+    setShowAddActivityModal(false);
+  };
+
+  const editActivity = (activity: Activity) => {
+    setNewActivity(activity);
+    setShowAddActivityModal(true);
+  };
+
+  const updateActivity = () => {
+    if (!newActivity.name.trim()) {
+      Alert.alert(t('common.error'), t('tour.activities.activityNameRequired'));
+      return;
+    }
+
+    const updatedActivities = editedStop.activities.map(activity =>
+      activity.id === newActivity.id
+        ? {
+            ...newActivity,
+            name: newActivity.name.trim(),
+            description: newActivity.description.trim(),
+            notes: newActivity.notes?.trim() || '',
+          }
+        : activity,
+    );
+
+    setEditedStop({...editedStop, activities: updatedActivities});
+
+    // Reset form
+    setNewActivity({
+      id: '',
+      name: '',
+      description: '',
+      duration: 60,
+      type: 'sightseeing',
+      isOptional: false,
+      cost: 0,
+      requirements: [],
+      notes: '',
+      images: [],
     });
     setShowAddActivityModal(false);
   };
@@ -164,6 +257,63 @@ const TourStopCard: React.FC<TourStopCardProps> = ({
         {text: t('common.remove'), style: 'destructive', onPress: onRemove},
       ],
     );
+  };
+
+  // Time conversion utilities
+  const timeStringToDate = (timeString: string): Date => {
+    const [hours, minutes] = timeString.split(':').map(Number);
+    const date = new Date();
+    date.setHours(hours, minutes, 0, 0);
+    return date;
+  };
+
+  const dateToTimeString = (date: Date): string => {
+    const hours = date.getHours().toString().padStart(2, '0');
+    const minutes = date.getMinutes().toString().padStart(2, '0');
+    return `${hours}:${minutes}`;
+  };
+
+  // Handle time changes
+  const handleArrivalTimeChange = (date: Date) => {
+    const timeString = dateToTimeString(date);
+    setEditedStop({...editedStop, arrivalTime: timeString});
+    setShowArrivalTimePicker(false);
+  };
+
+  const handleDepartureTimeChange = (date: Date) => {
+    const timeString = dateToTimeString(date);
+    setEditedStop({...editedStop, departureTime: timeString});
+    setShowDepartureTimePicker(false);
+  };
+
+  const handleOpeningTimeChange = (date: Date) => {
+    const timeString = dateToTimeString(date);
+    setEditedStop({
+      ...editedStop,
+      destination: {
+        ...editedStop.destination!,
+        openingHours: {
+          ...editedStop.destination!.openingHours!,
+          open: timeString,
+        },
+      },
+    });
+    setShowOpeningTimePicker(false);
+  };
+
+  const handleClosingTimeChange = (date: Date) => {
+    const timeString = dateToTimeString(date);
+    setEditedStop({
+      ...editedStop,
+      destination: {
+        ...editedStop.destination!,
+        openingHours: {
+          ...editedStop.destination!.openingHours!,
+          close: timeString,
+        },
+      },
+    });
+    setShowClosingTimePicker(false);
   };
 
   return (
@@ -319,6 +469,246 @@ const TourStopCard: React.FC<TourStopCardProps> = ({
           <ScrollView
             style={styles.modalContent}
             showsVerticalScrollIndicator={false}>
+            {/* Destination Information */}
+            <View style={styles.section}>
+              <Text style={styles.modalSectionTitle}>
+                {t('tour.form.basicInformation')}
+              </Text>
+
+              <View style={styles.inputGroup}>
+                <Text style={styles.label}>
+                  {t('tour.destinations.destinationName')} *
+                </Text>
+                <TextInput
+                  style={styles.textInput}
+                  value={editedStop.destination?.name || ''}
+                  onChangeText={text =>
+                    setEditedStop({
+                      ...editedStop,
+                      destination: {
+                        ...editedStop.destination!,
+                        name: text,
+                      },
+                    })
+                  }
+                  placeholder={t('tour.destinations.enterDestinationName')}
+                  placeholderTextColor="#9CA3AF"
+                />
+              </View>
+
+              <View style={styles.inputGroup}>
+                <Text style={styles.label}>
+                  {t('tour.destinations.address')} *
+                </Text>
+                <TextInput
+                  style={styles.textInput}
+                  value={editedStop.destination?.address || ''}
+                  onChangeText={text =>
+                    setEditedStop({
+                      ...editedStop,
+                      destination: {
+                        ...editedStop.destination!,
+                        address: text,
+                      },
+                    })
+                  }
+                  placeholder={t('tour.destinations.enterDestinationAddress')}
+                  placeholderTextColor="#9CA3AF"
+                  multiline
+                />
+              </View>
+
+              <View style={styles.inputGroup}>
+                <Text style={styles.label}>{t('tour.form.description')} *</Text>
+                <TextInput
+                  style={[styles.textInput, styles.textArea]}
+                  value={editedStop.destination?.description || ''}
+                  onChangeText={text =>
+                    setEditedStop({
+                      ...editedStop,
+                      destination: {
+                        ...editedStop.destination!,
+                        description: text,
+                      },
+                    })
+                  }
+                  placeholder={t(
+                    'tour.destinations.enterDestinationDescription',
+                  )}
+                  placeholderTextColor="#9CA3AF"
+                  multiline
+                  numberOfLines={4}
+                  textAlignVertical="top"
+                />
+              </View>
+
+              {/* Destination Images */}
+              <View style={styles.inputGroup}>
+                <Text style={styles.label}>{t('tour.form.images')}</Text>
+                <ImagePickerComponent
+                  images={editedStop.destination?.images || []}
+                  onImagesChange={images =>
+                    setEditedStop({
+                      ...editedStop,
+                      destination: {
+                        ...editedStop.destination!,
+                        images,
+                      },
+                    })
+                  }
+                  maxImages={5}
+                  folder="destinations"
+                  title={t('tour.destinations.selectImages')}
+                />
+              </View>
+            </View>
+
+            {/* Visit Information */}
+            <View style={styles.section}>
+              <Text style={styles.modalSectionTitle}>
+                {t('tour.destinations.visitInformation')}
+              </Text>
+
+              <View style={styles.inputGroup}>
+                <Text style={styles.label}>
+                  {t('tour.destinations.estimatedVisitTime')} (minutes)
+                </Text>
+                <TextInput
+                  style={styles.textInput}
+                  value={
+                    editedStop.destination?.estimatedVisitTime?.toString() ||
+                    '60'
+                  }
+                  onChangeText={text =>
+                    setEditedStop({
+                      ...editedStop,
+                      destination: {
+                        ...editedStop.destination!,
+                        estimatedVisitTime: parseInt(text, 10) || 60,
+                      },
+                    })
+                  }
+                  placeholder="60"
+                  placeholderTextColor="#9CA3AF"
+                  keyboardType="numeric"
+                />
+              </View>
+
+              <View style={styles.timeContainer}>
+                <View style={[styles.inputGroup, {flex: 1, marginRight: 8}]}>
+                  <Text style={styles.label}>
+                    {t('tour.destinations.openingTime')}
+                  </Text>
+                  <TouchableOpacity
+                    style={styles.timePickerButton}
+                    onPress={() => setShowOpeningTimePicker(true)}>
+                    <Icon name="schedule" size={20} color="#6B7280" />
+                    <Text style={styles.timePickerText}>
+                      {editedStop.destination?.openingHours?.open || '09:00'}
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+
+                <View style={[styles.inputGroup, {flex: 1, marginLeft: 8}]}>
+                  <Text style={styles.label}>
+                    {t('tour.destinations.closingTime')}
+                  </Text>
+                  <TouchableOpacity
+                    style={styles.timePickerButton}
+                    onPress={() => setShowClosingTimePicker(true)}>
+                    <Icon name="schedule" size={20} color="#6B7280" />
+                    <Text style={styles.timePickerText}>
+                      {editedStop.destination?.openingHours?.close || '17:00'}
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            </View>
+
+            {/* Pricing Information */}
+            <View style={styles.section}>
+              <Text style={styles.modalSectionTitle}>
+                {t('tour.destinations.ticketPricing')}
+              </Text>
+
+              <View style={styles.priceContainer}>
+                <View style={[styles.inputGroup, {flex: 2, marginRight: 8}]}>
+                  <Text style={styles.label}>{t('tour.form.adultPrice')}</Text>
+                  <TextInput
+                    style={styles.textInput}
+                    value={
+                      editedStop.destination?.ticketPrice?.adult?.toString() ||
+                      '0'
+                    }
+                    onChangeText={text =>
+                      setEditedStop({
+                        ...editedStop,
+                        destination: {
+                          ...editedStop.destination!,
+                          ticketPrice: {
+                            ...editedStop.destination!.ticketPrice!,
+                            adult: parseFloat(text) || 0,
+                          },
+                        },
+                      })
+                    }
+                    placeholder="0"
+                    placeholderTextColor="#9CA3AF"
+                    keyboardType="numeric"
+                  />
+                </View>
+
+                <View style={[styles.inputGroup, {flex: 1, marginLeft: 8}]}>
+                  <Text style={styles.label}>{t('tour.form.currency')}</Text>
+                  <TextInput
+                    style={styles.textInput}
+                    value={
+                      editedStop.destination?.ticketPrice?.currency || 'USD'
+                    }
+                    onChangeText={text =>
+                      setEditedStop({
+                        ...editedStop,
+                        destination: {
+                          ...editedStop.destination!,
+                          ticketPrice: {
+                            ...editedStop.destination!.ticketPrice!,
+                            currency: text,
+                          },
+                        },
+                      })
+                    }
+                    placeholder="USD"
+                    placeholderTextColor="#9CA3AF"
+                  />
+                </View>
+              </View>
+
+              <View style={styles.inputGroup}>
+                <Text style={styles.label}>{t('tour.form.childPrice')}</Text>
+                <TextInput
+                  style={styles.textInput}
+                  value={
+                    editedStop.destination?.ticketPrice?.child?.toString() || ''
+                  }
+                  onChangeText={text =>
+                    setEditedStop({
+                      ...editedStop,
+                      destination: {
+                        ...editedStop.destination!,
+                        ticketPrice: {
+                          ...editedStop.destination!.ticketPrice!,
+                          child: parseFloat(text) || undefined,
+                        },
+                      },
+                    })
+                  }
+                  placeholder="0"
+                  placeholderTextColor="#9CA3AF"
+                  keyboardType="numeric"
+                />
+              </View>
+            </View>
+
             {/* Time Settings */}
             <View style={styles.timeSection}>
               <Text style={styles.modalSectionTitle}>
@@ -329,27 +719,27 @@ const TourStopCard: React.FC<TourStopCardProps> = ({
                   <Text style={styles.timeLabel}>
                     {t('tour.stops.arrivalTime')}
                   </Text>
-                  <TextInput
-                    style={styles.timeField}
-                    value={editedStop.arrivalTime}
-                    onChangeText={time =>
-                      setEditedStop({...editedStop, arrivalTime: time})
-                    }
-                    placeholder="HH:MM"
-                  />
+                  <TouchableOpacity
+                    style={styles.timePickerButton}
+                    onPress={() => setShowArrivalTimePicker(true)}>
+                    <Icon name="schedule" size={20} color="#6B7280" />
+                    <Text style={styles.timePickerText}>
+                      {editedStop.arrivalTime}
+                    </Text>
+                  </TouchableOpacity>
                 </View>
                 <View style={styles.timeInput}>
                   <Text style={styles.timeLabel}>
                     {t('tour.stops.departureTime')}
                   </Text>
-                  <TextInput
-                    style={styles.timeField}
-                    value={editedStop.departureTime}
-                    onChangeText={time =>
-                      setEditedStop({...editedStop, departureTime: time})
-                    }
-                    placeholder="HH:MM"
-                  />
+                  <TouchableOpacity
+                    style={styles.timePickerButton}
+                    onPress={() => setShowDepartureTimePicker(true)}>
+                    <Icon name="schedule" size={20} color="#6B7280" />
+                    <Text style={styles.timePickerText}>
+                      {editedStop.departureTime}
+                    </Text>
+                  </TouchableOpacity>
                 </View>
               </View>
             </View>
@@ -412,29 +802,117 @@ const TourStopCard: React.FC<TourStopCardProps> = ({
                         ?.label || t('tour.activityTypes.other')}
                       {activity.isOptional &&
                         ` · ${t('tour.activities.optional')}`}
+                      {activity.cost &&
+                        activity.cost > 0 &&
+                        ` · ${activity.cost} ${
+                          editedStop.destination?.ticketPrice?.currency || 'USD'
+                        }`}
                     </Text>
+                    {activity.description && (
+                      <Text
+                        style={styles.activityDescription}
+                        numberOfLines={2}>
+                        {activity.description}
+                      </Text>
+                    )}
                   </View>
-                  <TouchableOpacity
-                    style={styles.removeActivityButton}
-                    onPress={() => removeActivity(activity.id)}>
-                    <Icon name="delete" size={20} color="#EF4444" />
-                  </TouchableOpacity>
+                  <View style={styles.activityActions}>
+                    <TouchableOpacity
+                      style={styles.editActivityButton}
+                      onPress={() => editActivity(activity)}>
+                      <Icon name="edit" size={18} color="#3B82F6" />
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={styles.removeActivityButton}
+                      onPress={() => removeActivity(activity.id)}>
+                      <Icon name="delete" size={18} color="#EF4444" />
+                    </TouchableOpacity>
+                  </View>
                 </View>
               ))}
             </View>
           </ScrollView>
         </View>
 
-        {/* Add Activity Modal */}
+        {/* Date Time Pickers */}
+        <DatePicker
+          modal
+          open={showArrivalTimePicker}
+          date={timeStringToDate(editedStop.arrivalTime)}
+          mode="time"
+          title={t('tour.stops.arrivalTime')}
+          confirmText={t('common.confirm')}
+          cancelText={t('common.cancel')}
+          onConfirm={handleArrivalTimeChange}
+          onCancel={() => setShowArrivalTimePicker(false)}
+        />
+
+        <DatePicker
+          modal
+          open={showDepartureTimePicker}
+          date={timeStringToDate(editedStop.departureTime)}
+          mode="time"
+          title={t('tour.stops.departureTime')}
+          confirmText={t('common.confirm')}
+          cancelText={t('common.cancel')}
+          onConfirm={handleDepartureTimeChange}
+          onCancel={() => setShowDepartureTimePicker(false)}
+        />
+
+        <DatePicker
+          modal
+          open={showOpeningTimePicker}
+          date={timeStringToDate(
+            editedStop.destination?.openingHours?.open || '09:00',
+          )}
+          mode="time"
+          title={t('tour.destinations.openingTime')}
+          confirmText={t('common.confirm')}
+          cancelText={t('common.cancel')}
+          onConfirm={handleOpeningTimeChange}
+          onCancel={() => setShowOpeningTimePicker(false)}
+        />
+
+        <DatePicker
+          modal
+          open={showClosingTimePicker}
+          date={timeStringToDate(
+            editedStop.destination?.openingHours?.close || '17:00',
+          )}
+          mode="time"
+          title={t('tour.destinations.closingTime')}
+          confirmText={t('common.confirm')}
+          cancelText={t('common.cancel')}
+          onConfirm={handleClosingTimeChange}
+          onCancel={() => setShowClosingTimePicker(false)}
+        />
+
+        {/* Enhanced Add/Edit Activity Modal */}
         <Modal visible={showAddActivityModal} transparent animationType="slide">
           <View style={styles.addActivityModalOverlay}>
             <View style={styles.addActivityModalContent}>
               <View style={styles.addActivityModalHeader}>
                 <Text style={styles.addActivityModalTitle}>
-                  {t('tour.activities.addActivity')}
+                  {newActivity.id
+                    ? t('tour.activities.editActivity')
+                    : t('tour.activities.addActivity')}
                 </Text>
                 <TouchableOpacity
-                  onPress={() => setShowAddActivityModal(false)}>
+                  onPress={() => {
+                    setNewActivity({
+                      id: '',
+                      name: '',
+                      description: '',
+                      duration: 60,
+                      type: 'sightseeing',
+                      isOptional: false,
+                      cost: 0,
+                      requirements: [],
+                      notes: '',
+                      images: [],
+                    });
+                    setShowAddActivityModal(false);
+                  }}>
                   <Icon name="close" size={24} color="#6B7280" />
                 </TouchableOpacity>
               </View>
@@ -475,23 +953,61 @@ const TourStopCard: React.FC<TourStopCardProps> = ({
                     />
                   </View>
 
-                  {/* Duration */}
+                  {/* Activity Images */}
                   <View style={styles.formGroup}>
                     <Text style={styles.formLabel}>
-                      {t('tour.form.duration')} (m)
+                      {t('tour.form.images')}
                     </Text>
-                    <TextInput
-                      style={styles.formInput}
-                      value={newActivity.duration.toString()}
-                      onChangeText={text =>
-                        setNewActivity({
-                          ...newActivity,
-                          duration: parseInt(text, 10) || 0,
-                        })
+                    <ImagePickerComponent
+                      images={newActivity.images || []}
+                      onImagesChange={images =>
+                        setNewActivity({...newActivity, images})
                       }
-                      placeholder="60"
-                      keyboardType="numeric"
+                      maxImages={3}
+                      folder="activities"
+                      title={t('tour.activities.selectImages')}
                     />
+                  </View>
+
+                  {/* Duration and Cost */}
+                  <View style={styles.durationCostContainer}>
+                    <View style={[styles.formGroup, {flex: 1, marginRight: 8}]}>
+                      <Text style={styles.formLabel}>
+                        {t('tour.form.duration')} (m)
+                      </Text>
+                      <TextInput
+                        style={styles.formInput}
+                        value={newActivity.duration?.toString()}
+                        onChangeText={text =>
+                          setNewActivity({
+                            ...newActivity,
+                            duration: parseInt(text, 10) || 0,
+                          })
+                        }
+                        placeholder="60"
+                        keyboardType="numeric"
+                      />
+                    </View>
+
+                    <View style={[styles.formGroup, {flex: 1, marginLeft: 8}]}>
+                      <Text style={styles.formLabel}>
+                        Cost (
+                        {editedStop.destination?.ticketPrice?.currency || 'USD'}
+                        )
+                      </Text>
+                      <TextInput
+                        style={styles.formInput}
+                        value={newActivity.cost?.toString() || '0'}
+                        onChangeText={text =>
+                          setNewActivity({
+                            ...newActivity,
+                            cost: parseFloat(text) || 0,
+                          })
+                        }
+                        placeholder="0"
+                        keyboardType="numeric"
+                      />
+                    </View>
                   </View>
 
                   {/* Activity Type */}
@@ -540,6 +1056,43 @@ const TourStopCard: React.FC<TourStopCardProps> = ({
                     </ScrollView>
                   </View>
 
+                  {/* Requirements */}
+                  <View style={styles.formGroup}>
+                    <Text style={styles.formLabel}>
+                      Requirements (comma separated)
+                    </Text>
+                    <TextInput
+                      style={styles.formInput}
+                      value={newActivity.requirements?.join(', ') || ''}
+                      onChangeText={text =>
+                        setNewActivity({
+                          ...newActivity,
+                          requirements: text
+                            .split(',')
+                            .map(req => req.trim())
+                            .filter(req => req),
+                        })
+                      }
+                      placeholder="Comfortable shoes, sun hat"
+                      multiline
+                    />
+                  </View>
+
+                  {/* Notes */}
+                  <View style={styles.formGroup}>
+                    <Text style={styles.formLabel}>Notes</Text>
+                    <TextInput
+                      style={[styles.formInput, styles.textArea]}
+                      value={newActivity.notes || ''}
+                      onChangeText={text =>
+                        setNewActivity({...newActivity, notes: text})
+                      }
+                      placeholder="Additional notes about this activity"
+                      multiline
+                      numberOfLines={3}
+                    />
+                  </View>
+
                   {/* Optional */}
                   <TouchableOpacity
                     style={styles.optionalToggle}
@@ -563,12 +1116,14 @@ const TourStopCard: React.FC<TourStopCardProps> = ({
                     </Text>
                   </TouchableOpacity>
 
-                  {/* Add Button */}
+                  {/* Add/Update Button */}
                   <TouchableOpacity
                     style={styles.addButton}
-                    onPress={addActivity}>
+                    onPress={newActivity.id ? updateActivity : addActivity}>
                     <Text style={styles.addButtonText}>
-                      {t('tour.activities.addActivity')}
+                      {newActivity.id
+                        ? t('common.update')
+                        : t('tour.activities.addActivity')}
                     </Text>
                   </TouchableOpacity>
                 </View>
@@ -793,8 +1348,7 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     fontSize: 16,
     color: '#1F2937',
-    minHeight: 80,
-    textAlignVertical: 'top',
+    backgroundColor: '#FFFFFF',
   },
   activitiesEditSection: {
     marginBottom: 24,
@@ -942,6 +1496,63 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: '#FFFFFF',
   },
+  section: {
+    marginBottom: 24,
+  },
+  inputGroup: {
+    marginBottom: 16,
+  },
+  label: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: '#374151',
+    marginBottom: 8,
+  },
+  textArea: {
+    minHeight: 80,
+    textAlignVertical: 'top',
+  },
+  timeContainer: {
+    flexDirection: 'row',
+  },
+  priceContainer: {
+    flexDirection: 'row',
+  },
+  durationCostContainer: {
+    flexDirection: 'row',
+  },
+  activityActions: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  editActivityButton: {
+    padding: 4,
+    borderRadius: 4,
+    backgroundColor: '#EBF4FF',
+  },
+  activityDescription: {
+    fontSize: 12,
+    color: '#6B7280',
+    marginTop: 4,
+    lineHeight: 16,
+  },
+  timePickerButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#D1D5DB',
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    backgroundColor: '#FFFFFF',
+  },
+  timePickerText: {
+    fontSize: 16,
+    color: '#1F2937',
+    marginLeft: 8,
+    flex: 1,
+  },
 });
 
+export default TourStopCard;
 export default TourStopCard;

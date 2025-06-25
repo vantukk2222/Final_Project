@@ -223,7 +223,7 @@ const CreateTourScreen: React.FC<CreateTourScreenProps> = ({navigation}) => {
             : t('tour.management.tourPublished'),
           [
             {
-              text: t('ok'),
+              text: t('common.ok'),
               onPress: () => navigation.goBack(),
             },
           ],

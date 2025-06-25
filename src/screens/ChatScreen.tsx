@@ -957,11 +957,8 @@ const ChatScreen: React.FC<{route: any}> = ({route}) => {
     () => ({
       handleTourPress: (tourId: string) => {
         const {role} = user || {};
-        if (role === 'tour_guide') {
-          navigation.navigate('EditTour', {tourId});
-        } else {
-          navigation.navigate('TourDetail', {tourId});
-        }
+
+        navigation.navigate('TourDetail', {tourId});
       },
       handleCloseTourBanner: () => {
         setShowTourBanner(false);
@@ -1128,13 +1125,13 @@ const ChatScreen: React.FC<{route: any}> = ({route}) => {
       .where('sharedWith', 'array-contains', chatId)
       .onSnapshot(
         toursSnapshot => {
-          console.log('Tours snapshot:', toursSnapshot);
+          // console.log('Tours snapshot:', toursSnapshot);
 
           const tours = toursSnapshot.docs.map(doc => ({
             id: doc.id,
             ...doc.data(),
           }));
-          console.log('Fetched tours:', tours);
+          // console.log('Fetched tours:', tours);
           setAssociatedTour(tours[0] || null);
         },
         error => {
@@ -1252,7 +1249,7 @@ const styles = StyleSheet.create({
     marginRight: 14,
     borderWidth: 3,
     borderColor: 'rgba(255, 255, 255, 0.9)',
-    elevation: 3,
+    // elevation: 3,
     shadowColor: '#4AC6D0',
     shadowOffset: {width: 0, height: 2},
     shadowOpacity: 0.2,
@@ -1317,7 +1314,7 @@ const styles = StyleSheet.create({
   },
   messageAvatar: {
     marginRight: 10,
-    elevation: 2,
+    // elevation: 2,
     shadowColor: '#4AC6D0',
     shadowOffset: {width: 0, height: 1},
     shadowOpacity: 0.1,
@@ -1325,7 +1322,7 @@ const styles = StyleSheet.create({
   },
   currentUserAvatar: {
     marginLeft: 10,
-    elevation: 2,
+    // elevation: 2,
     shadowColor: '#4AC6D0',
     shadowOffset: {width: 0, height: 1},
     shadowOpacity: 0.1,

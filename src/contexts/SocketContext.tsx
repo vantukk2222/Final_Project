@@ -17,7 +17,7 @@ import NetInfo from '@react-native-community/netinfo';
 
 // // Constants
 const SOCKET_SERVER_URL = 'ws://backendfinalpro-ct.onrender.com';
-// const SOCKET_SERVER_URL = 'http://192.168.12.148:3001';
+// const SOCKET_SERVER_URL = 'http://192.168.2.28:3001';
 
 const SOCKET_CONFIG = Object.freeze({
   timeout: 10000,

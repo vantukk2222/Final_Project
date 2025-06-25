@@ -41,7 +41,7 @@ const EditTourScreen: React.FC<EditTourScreenProps> = ({navigation, route}) => {
 
       if (tourDoc.exists) {
         const tourData = tourDoc.data() as TourItinerary;
-        console.log('Loaded tour from editTourScreen:', tourData);
+        // console.log('Loaded tour from editTourScreen:', tourData);
 
         // Convert Firestore Timestamp to Date
         if (
